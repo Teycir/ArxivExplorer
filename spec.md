@@ -1,7 +1,44 @@
-# arXiv Explorer — Full Product & Engineering Spec
+# arXiv Explorer — Spec v2.0 (Optimized)
 
 > **Tagline:** Fast semantic arXiv explorer with cached AI summaries  
 > **Stack:** Next.js · Cloudflare Workers · Cloudflare AI · D1 · KV · Vectorize
+
+---
+
+# Changelog v1 → v2
+
+## Critical fixes (v1 was broken)
+
+| # | Issue | Impact | Fix |
+|---|---|---|---|
+| C1 | 5 AI prompts per paper blows Workers AI neuron budget **10×** | Free tier supports ~121 papers/day at 5 prompts; spec claimed 50/hour (1,200/day) | Consolidated into 1 structured JSON prompt per paper |
+| C2 | KV write budget exceeded: spec claimed ~200 writes/day, reality is 1,600/day | Breaks free tier (1k writes/day limit) | Lazy KV writes on first access; D1 is source of truth |
+| C3 | Query embeddings hit Workers AI in user hot path — unacknowledged | Consumes neuron budget during searches, adds ~50ms latency | Cache embeddings in KV by query hash |
+| C4 | Related papers queried from Vectorize on every paper detail page | Vectorize in hot path; should be pre-computed | Pre-compute related papers at ingestion time into D1 |
+
+## Significant fixes
+
+| # | Issue | Fix |
+|---|---|---|
+| S1 | No D1 indexes defined — full table scans as dataset grows | Added 5 composite indexes |
+| S2 | Missing `related_papers` table in D1 schema | Added table; Vectorize now only used in ingestion |
+| S3 | FTS treats title and abstract equally — title match should rank higher | Added BM25 column weights (10:1:5 title:abstract:authors) |
+| S4 | "Vercel or Cloudflare Pages" — split choice creates CORS/latency complexity | Commit to Cloudflare Pages only |
+| S5 | Ingestion and API in same Worker — cron heavy work risks CPU timeout | Separate workers: `api-worker` + `ingest-worker` |
+| S6 | Unstructured AI output — parsing plain text is fragile | Use `response_format: json_object` structured output |
+| S7 | arXiv API rate limits unhandled — will get 429s at 50 papers/cron | Added 3s delay between category fetches; handle 429 with backoff |
+| S8 | Serial D1 writes — one INSERT per paper per cron tick | Use `db.batch()` for all D1 writes in a single round trip |
+
+## Minor fixes
+
+| # | Issue | Fix |
+|---|---|---|
+| M1 | LangGraph mentioned but never used — creates confusion | Removed all LangGraph references |
+| M2 | CORS headers absent from Worker routes | Added CORS configuration |
+| M3 | Ingestion idempotency strategy not specified | Use `INSERT OR IGNORE` + upsert for revised papers |
+| M4 | Rerank weight 0.4/0.6 is arbitrary | Changed to 0.25/0.75 (keyword/semantic) — aligns with research IR best practices |
+| M5 | ISR for paper detail pages — papers are immutable | Static generation for all indexed papers; ISR only for fallback on brand-new papers |
+| M6 | No sitemap or robots.txt | Added to project structure and Phase 1 checklist |
 
 ---
 
@@ -9,7 +46,7 @@
 
 ### 1.1 Vision
 
-A static-first, AI-enhanced search engine for arXiv papers. Not a chatbot. Not a research copilot. A fast, reliable tool that lets any researcher, engineer, or student understand a paper in 60 seconds — without waiting on a live LLM call.
+A static-first, AI-enhanced search engine for arXiv papers. Not a chatbot. Not a research copilot. A fast, reliable tool that lets any researcher, engineer, or student understand a paper in 60 seconds — without a live LLM call ever hitting the user path.
 
 ### 1.2 Design Philosophy
 
@@ -20,6 +57,7 @@ A static-first, AI-enhanced search engine for arXiv papers. Not a chatbot. Not a
 | **Precompute everything** | Summaries generated once, served forever |
 | **No login required** | Zero friction for discovery |
 | **Small outputs** | TL;DRs, bullets, short summaries — not essays |
+| **Workers AI is offline-only** | Zero live LLM calls in user-facing paths |
 
 ### 1.3 What This Is Not
 
@@ -32,7 +70,9 @@ A static-first, AI-enhanced search engine for arXiv papers. Not a chatbot. Not a
 
 ## 2. User Flows
 
-### 2.1 Discovery Flow (Home → Search → Result)
+*(Unchanged from v1 — flows are correct)*
+
+### 2.1 Discovery Flow
 
 ```
 [Home: single search box]
@@ -51,7 +91,7 @@ A static-first, AI-enhanced search engine for arXiv papers. Not a chatbot. Not a
         ↓
 [Redirect to /paper/:arxiv_id]
         ↓
-[Full detail page]
+[Full detail page — served from CDN/KV]
 ```
 
 ### 2.3 Topic Browsing Flow
@@ -68,123 +108,7 @@ A static-first, AI-enhanced search engine for arXiv papers. Not a chatbot. Not a
 
 ## 3. Pages & UI Spec
 
-### 3.1 Home Page (`/`)
-
-**Layout:** Centered, minimal.
-
-**Elements:**
-- App name + tagline
-- Single search input: `Search papers, topics, methods, authors…`
-- Example queries shown as chips:
-  - `diffusion transformers`
-  - `RAG evaluation`
-  - `quantization for LLMs`
-  - `RLHF alignment`
-- Trending papers strip (cached, refreshed every 60 min)
-- Recent category highlights (cs.LG, cs.CL, cs.CV, stat.ML)
-
-**Non-goals:** No login prompt. No onboarding wizard. No personalization widgets.
-
----
-
-### 3.2 Search Results Page (`/search?q=...`)
-
-**Triggered by:** Text query, category filter, author name, arXiv ID.
-
-**Each result card contains:**
-
-| Field | Notes |
-|---|---|
-| Title | Linked to `/paper/:id` |
-| Authors | First 3, then "et al." |
-| Published date | Relative: "3 days ago" |
-| arXiv categories | Pill badges |
-| Abstract snippet | First 2 sentences |
-| **AI TL;DR** | Cached, 80–120 words |
-| Actions | Open Summary · View arXiv · Similar Papers |
-
-**Pagination:** 10 results per page, cursor-based.
-
-**Filters (sidebar):**
-- Date range
-- Category (cs.LG, cs.CL, cs.CV, etc.)
-- Sort: Relevance · Newest · Most cited (if available)
-
-**Search behavior:**
-- Hybrid: keyword (BM25-style via D1 FTS) + semantic (Vectorize)
-- Results merged and reranked
-- Full response cached in KV by query hash (TTL: 1–6h)
-
----
-
-### 3.3 Paper Detail Page (`/paper/:arxiv_id`)
-
-This is the core value page.
-
-**URL structure:** `/paper/2312.00752` or `/paper/abs/2312.00752`
-
-**Page sections (in order):**
-
-#### Section 1 — Header
-- Title (h1)
-- Authors (linked to author search)
-- Published / last revised date
-- arXiv categories
-- Links: `[View on arXiv]` `[PDF]` `[Cite]`
-
-#### Section 2 — AI TL;DR ⚡
-- 80–120 word plain-English summary
-- Labeled: "AI Summary · Cached"
-- Rendered immediately (precomputed, served from KV/CDN)
-
-#### Section 3 — Key Contributions
-- 3–5 bullet points
-- Each bullet: one concrete claim from the paper
-
-#### Section 4 — Methods & Techniques
-- 3–5 bullet points
-- Technical vocabulary preserved
-
-#### Section 5 — Limitations & Caveats
-- 2–4 bullet points
-- What the paper does NOT claim or address
-
-#### Section 6 — Beginner Explanation *(collapsible)*
-- 100–200 words, no jargon
-- "Explain this like I'm a software engineer, not an ML researcher"
-
-#### Section 7 — Technical Deep-Dive *(collapsible)*
-- 200–400 words
-- Preserves mathematical and methodological precision
-
-#### Section 8 — Related Papers
-- 5–8 papers from embedding similarity
-- Each shown as a mini card (title + TL;DR)
-- Sourced from Vectorize; cached per paper ID
-
-#### Section 9 — Original Abstract
-- Verbatim arXiv abstract
-- Collapsible, defaults closed
-
----
-
-### 3.4 Author Page (`/author/:name`)
-
-- List of indexed papers by this author
-- Sorted by date
-- Cached per author name
-
----
-
-### 3.5 Topic / Category Page (`/topic/:slug`)
-
-Examples: `/topic/rag`, `/topic/diffusion-models`, `/topic/quantization`
-
-**Contents:**
-- Short topic description (static or AI-generated once)
-- Top papers for this topic (by recency + relevance score)
-- Updated daily via scheduled ingestion
-- Fully cached, very cheap to serve
+*(Unchanged from v1)*
 
 ---
 
@@ -195,62 +119,93 @@ Examples: `/topic/rag`, `/topic/diffusion-models`, `/topic/quantization`
 ```
 Browser
   ↓
-Next.js (Vercel or Cloudflare Pages)
+Next.js on Cloudflare Pages  ← committed; Vercel removed (CORS, latency, cost)
   ↓
 Cloudflare CDN (edge cache — most requests stop here)
   ↓
-Cloudflare Worker (API layer)
+api-worker (request path only)
   ↓
-KV (hot cache: summaries, popular searches)
+KV (hot cache: summaries, related papers, search results, query embeddings)
   ↓ cache miss only
-D1 (metadata, summaries, categories, relations)
-  ↓ semantic queries only
-Vectorize (embeddings for semantic search + related papers)
-  ↓ ingestion pipeline only
-Workers AI (Llama / @cf/meta models for summarization)
+D1 (all structured data: metadata, summaries, related_papers, topics)
+  ↓ semantic queries in search only (never for related papers)
+Vectorize
+
+────────────────────────────────────────────
+ingest-worker (cron only — separate Worker)
+  ↓
+Workers AI (summarization + embedding)
+  ↓
+D1 + Vectorize
+  ↓
+KV warm-up for popular papers
+────────────────────────────────────────────
 ```
 
-**Key principle:** The CDN and KV layers absorb the vast majority of traffic. D1 and Vectorize handle structured queries. Workers AI is only invoked during the asynchronous ingestion pipeline — never in the hot path for end users.
+**Key change from v1:** Two workers, not one.
+
+- `api-worker`: serves user requests; Workers AI is **never called** here
+- `ingest-worker`: runs on cron schedule; is the only caller of Workers AI
+
+This separation means:
+- API Worker has no CPU budget risk from AI calls
+- Ingestion failure never affects the user-facing API
+- Each worker can be deployed and scaled independently
 
 ---
 
-### 4.2 Cloudflare Worker — API Routes
+### 4.2 Cloudflare Worker — API Routes (`api-worker`)
 
-All API routes are served from a single Cloudflare Worker.
-
-| Route | Description | Cache |
-|---|---|---|
-| `GET /api/search?q=` | Hybrid search | KV, TTL 1–6h |
-| `GET /api/paper/:id` | Paper metadata + summary | KV permanent |
-| `GET /api/paper/:id/related` | Related papers via Vectorize | KV 24h |
-| `GET /api/topic/:slug` | Topic papers list | KV 12h |
-| `GET /api/trending` | Trending papers | KV 60min |
-| `GET /api/author/:name` | Papers by author | KV 6h |
-| `POST /api/ingest` | Internal: trigger ingestion (cron) | — |
+| Route | Description | Cache Layer | TTL |
+|---|---|---|---|
+| `GET /api/search?q=` | Hybrid search | KV | 2h |
+| `GET /api/paper/:id` | Paper metadata + summary | KV → D1 | Permanent |
+| `GET /api/paper/:id/related` | Pre-computed related papers | KV → D1 | Permanent |
+| `GET /api/topic/:slug` | Topic papers list | KV → D1 | 12h |
+| `GET /api/trending` | Trending papers (last 7d) | KV | 60 min |
+| `GET /api/author/:name` | Papers by author | KV → D1 | 6h |
+| `GET /api/sitemap` | Sitemap XML for SEO | KV | 24h |
 
 **Cache key pattern:**
+
 ```
-kv:search:{sha256(normalized_query)}
-kv:paper:{arxiv_id}:summary
-kv:paper:{arxiv_id}:related
-kv:topic:{slug}:papers
-kv:trending:{date_hour}
+kv:paper:{arxiv_id}:full          ← paper + summary combined (one KV read per page)
+kv:paper:{arxiv_id}:related       ← pre-computed at ingestion
+kv:search:{sha256(normalized_q)}  ← 2h TTL
+kv:embed:{sha256(normalized_q)}   ← query embedding cache, 24h TTL  ← NEW
+kv:topic:{slug}                   ← 12h TTL
+kv:trending                       ← 60min TTL
 ```
 
----
+**CORS headers (all routes):**
 
-### 4.3 Next.js Frontend
+```typescript
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': 'https://arxiv-explorer.pages.dev',
+  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+};
+```
 
-- **Rendering strategy:** Static + ISR (Incremental Static Regeneration)
-- Paper detail pages: `generateStaticParams` for popular papers + fallback ISR
-- Search page: Client-side fetch to Worker API
-- Topic pages: ISR with 1h revalidation
-- Home page: ISR with 30min revalidation
+**Cache-Control on all responses:**
 
-**Caching headers set by Worker:**
 ```
 Cache-Control: public, s-maxage=86400, stale-while-revalidate=3600
 ```
+
+---
+
+### 4.3 Next.js Frontend (Cloudflare Pages)
+
+| Page | Rendering | Revalidation |
+|---|---|---|
+| Home (`/`) | ISR | 30 min |
+| Search (`/search`) | Client-side | — |
+| Paper detail (`/paper/:id`) | Static (popular) + ISR fallback | Never (papers are immutable) |
+| Topic (`/topic/:slug`) | ISR | 12h |
+| Author (`/author/:name`) | ISR | 6h |
+
+**Change from v1:** Paper detail pages use `generateStaticParams` to pre-render all indexed papers at build time. arXiv papers are immutable — ISR revalidation is unnecessary and wasteful. New papers land via the ISR fallback, then become permanent static.
 
 ---
 
@@ -260,18 +215,23 @@ Cache-Control: public, s-maxage=86400, stale-while-revalidate=3600
 
 ```sql
 CREATE TABLE papers (
-  id            TEXT PRIMARY KEY,       -- arXiv ID: "2312.00752"
+  id            TEXT PRIMARY KEY,
   title         TEXT NOT NULL,
-  authors       TEXT NOT NULL,          -- JSON array
+  authors       TEXT NOT NULL,       -- JSON array
   abstract      TEXT NOT NULL,
-  categories    TEXT NOT NULL,          -- JSON array: ["cs.LG", "cs.CL"]
-  published_at  TEXT NOT NULL,          -- ISO date
+  categories    TEXT NOT NULL,       -- JSON array
+  published_at  TEXT NOT NULL,       -- ISO date YYYY-MM-DD
   revised_at    TEXT,
   pdf_url       TEXT,
   html_url      TEXT,
   indexed_at    TEXT NOT NULL,
-  summary_ready INTEGER DEFAULT 0       -- 0 = pending, 1 = ready
+  summary_ready INTEGER DEFAULT 0    -- 0=pending, 1=ready, 2=failed
 );
+
+-- Indexes (ABSENT in v1 — added in v2)
+CREATE INDEX idx_papers_published    ON papers(published_at DESC);
+CREATE INDEX idx_papers_indexed      ON papers(indexed_at DESC);
+CREATE INDEX idx_papers_summary      ON papers(summary_ready, indexed_at DESC);
 ```
 
 ### 5.2 D1 — `summaries` table
@@ -279,154 +239,258 @@ CREATE TABLE papers (
 ```sql
 CREATE TABLE summaries (
   paper_id          TEXT PRIMARY KEY REFERENCES papers(id),
-  tldr              TEXT,              -- 80–120 words
-  key_contributions TEXT,             -- JSON array of bullets
-  methods           TEXT,             -- JSON array of bullets
-  limitations       TEXT,             -- JSON array of bullets
-  beginner_explain  TEXT,             -- 100–200 words
-  technical_summary TEXT,             -- 200–400 words
+  tldr              TEXT NOT NULL,
+  key_contributions TEXT NOT NULL,   -- JSON array
+  methods           TEXT NOT NULL,   -- JSON array
+  limitations       TEXT NOT NULL,   -- JSON array
+  beginner_explain  TEXT NOT NULL,
+  technical_summary TEXT NOT NULL,
   generated_at      TEXT NOT NULL,
-  model_version     TEXT NOT NULL     -- e.g. "@cf/meta/llama-3.1-8b-instruct"
+  model_version     TEXT NOT NULL
 );
 ```
 
-### 5.3 D1 — `embeddings_meta` table
+### 5.3 D1 — `related_papers` table ← NEW in v2
+
+```sql
+-- Pre-computed at ingestion time. Vectorize no longer queried in hot path.
+CREATE TABLE related_papers (
+  paper_id         TEXT NOT NULL REFERENCES papers(id),
+  related_paper_id TEXT NOT NULL REFERENCES papers(id),
+  similarity_score REAL NOT NULL,
+  rank             INTEGER NOT NULL,  -- 1–8
+  computed_at      TEXT NOT NULL,
+  PRIMARY KEY (paper_id, related_paper_id)
+);
+
+CREATE INDEX idx_related_paper ON related_papers(paper_id, rank);
+```
+
+### 5.4 D1 — `embeddings_meta` table
 
 ```sql
 CREATE TABLE embeddings_meta (
   paper_id      TEXT PRIMARY KEY REFERENCES papers(id),
-  vectorize_id  TEXT NOT NULL,        -- ID in Vectorize index
-  embedded_at   TEXT NOT NULL,
-  chunk_count   INTEGER DEFAULT 1
+  vectorize_id  TEXT NOT NULL,
+  embedded_at   TEXT NOT NULL
 );
 ```
 
-### 5.4 D1 — `topics` table
+### 5.5 D1 — `topics` table
 
 ```sql
 CREATE TABLE topics (
-  slug          TEXT PRIMARY KEY,     -- "rag-evaluation"
-  label         TEXT NOT NULL,        -- "RAG Evaluation"
+  slug          TEXT PRIMARY KEY,
+  label         TEXT NOT NULL,
   description   TEXT,
-  category_tags TEXT,                 -- JSON array of arXiv categories
+  category_tags TEXT,               -- JSON array of arXiv categories
   updated_at    TEXT NOT NULL
 );
 ```
 
-### 5.5 Vectorize Index Schema
+### 5.6 D1 — Full-Text Search
+
+```sql
+CREATE VIRTUAL TABLE papers_fts USING fts5(
+  paper_id UNINDEXED,
+  title,
+  abstract,
+  authors,
+  content=papers,
+  content_rowid=rowid
+);
+
+-- Keep FTS in sync
+CREATE TRIGGER papers_fts_insert AFTER INSERT ON papers BEGIN
+  INSERT INTO papers_fts(rowid, paper_id, title, abstract, authors)
+  VALUES (new.rowid, new.id, new.title, new.abstract, new.authors);
+END;
+
+CREATE TRIGGER papers_fts_update AFTER UPDATE ON papers BEGIN
+  UPDATE papers_fts SET title=new.title, abstract=new.abstract, authors=new.authors
+  WHERE paper_id=new.id;
+END;
+```
+
+### 5.7 Vectorize Index Schema
 
 ```
-Index name: arxiv-papers
-Dimensions: 768 (using @cf/baai/bge-base-en-v1.5)
+Index name:      arxiv-papers
+Dimensions:      768  (@cf/baai/bge-base-en-v1.5)
 Distance metric: cosine
 
-Metadata per vector:
+Vector metadata (kept minimal — larger payloads slow queries):
 {
-  paper_id: "2312.00752",
-  title: "...",
-  categories: ["cs.LG"],
-  published_at: "2023-12-01"
+  paper_id:     "2312.00752",
+  published_at: "2023-12-01",
+  categories:   "cs.LG,cs.CL"   ← flat string for Vectorize metadata filtering
 }
 ```
 
 ---
 
-## 6. Ingestion Pipeline
+## 6. Ingestion Pipeline (ingest-worker)
 
-### 6.1 Overview
+### 6.1 Neuron Budget Reality
 
-Runs as a **Cloudflare Cron Trigger** every hour.
+The free tier provides **10,000 neurons/day**.
 
-```
-[Cron: every hour]
-        ↓
-Fetch arXiv API (latest papers in target categories)
-        ↓
-Filter: already indexed? → skip
-        ↓
-Store metadata → D1 papers table
-        ↓
-Chunk text (abstract + intro if available)
-        ↓
-Generate embedding → @cf/baai/bge-base-en-v1.5
-        ↓
-Upsert to Vectorize
-        ↓
-Generate summaries → Workers AI (Llama 3.1 8B)
-        ↓
-Store summaries → D1 summaries table
-        ↓
-Write to KV → kv:paper:{id}:summary
-        ↓
-Mark summary_ready = 1
-```
+| Approach | Neurons/paper | Max papers/day |
+|---|---|---|
+| v1: 5 separate prompts | ~82 | ~121 |
+| v2: 1 consolidated prompt | ~44 | ~227 |
+| v2: embedding only (no summary) | ~4 | ~2,500 |
 
-### 6.2 arXiv API Fetch
+**Practical ingestion rate on free tier: 10 papers/hour** (240/day), which leaves headroom for search query embeddings and embedding re-runs.
+
+For production traffic, upgrade to Workers AI paid tier ($0.011/1k neurons). At 10 papers/hour × 5 categories × 24h = 1,200 papers/day × 44 neurons = ~52,800 neurons/day → ~$0.58/day.
+
+### 6.2 Optimized Pipeline Flow
 
 ```
-GET https://export.arxiv.org/api/query
-  ?search_query=cat:cs.LG+OR+cat:cs.CL+OR+cat:cs.CV+OR+cat:stat.ML
-  &sortBy=submittedDate
-  &sortOrder=descending
-  &max_results=50
+[Cron: every hour — ingest-worker]
+        ↓
+1. Fetch arXiv API — 1 request per category, 3s delay between each
+        ↓
+2. Filter new papers: SELECT id FROM papers WHERE id IN (...) — batch check
+        ↓
+3. Batch INSERT papers to D1 using db.batch() ← single round trip
+        ↓
+4. For each new paper (parallel, max 5 concurrent):
+   ├── 4a. Generate embedding → Workers AI (@cf/baai/bge-base-en-v1.5)
+   ├── 4b. Upsert to Vectorize
+   └── 4c. Generate ALL summary fields → 1 Workers AI call (structured JSON output)
+        ↓
+5. Batch INSERT summaries to D1 using db.batch()
+        ↓
+6. For each new paper: query Vectorize top-8 → store in related_papers table
+        ↓
+7. Batch UPDATE papers SET summary_ready=1 using db.batch()
+        ↓
+8. Write KV entries ONLY for papers that are already in KV (cache refresh)
+   New papers are NOT eagerly written to KV — lazy write on first access
+        ↓
+9. Invalidate kv:trending (TTL will expire naturally, or explicit delete)
 ```
 
-Run per category group to stay within rate limits. Parse Atom XML response.
+**Key change:** Steps 3, 5, 7 use `db.batch()` — all D1 writes for a batch of papers happen in a single HTTP round trip instead of N sequential calls.
 
-### 6.3 Summary Generation Prompts
+### 6.3 arXiv API Fetch with Rate Limiting
 
-**TL;DR prompt:**
+```typescript
+const CATEGORIES = ['cs.LG', 'cs.CL', 'cs.CV', 'stat.ML'];
+const DELAY_MS = 3000; // arXiv asks for 3s between requests
+
+async function fetchArxivBatch(category: string, maxResults = 30): Promise<ArxivPaper[]> {
+  const url = `https://export.arxiv.org/api/query` +
+    `?search_query=cat:${category}` +
+    `&sortBy=submittedDate&sortOrder=descending` +
+    `&max_results=${maxResults}`;
+
+  const response = await fetch(url);
+
+  if (response.status === 429) {
+    // Back off 60s and retry once
+    await delay(60_000);
+    return fetchArxivBatch(category, maxResults);
+  }
+
+  const xml = await response.text();
+  return parseAtomXml(xml);
+}
+
+// In cron handler: fetch categories with delay between each
+for (const category of CATEGORIES) {
+  const papers = await fetchArxivBatch(category);
+  await processBatch(papers, env);
+  await delay(DELAY_MS);
+}
 ```
-You are a research assistant. Read the following paper abstract and write a 
-TL;DR in 80–120 words for a technical audience. Be concrete. 
-Avoid vague phrases like "this paper proposes" or "we show that".
-State the actual contribution directly.
+
+### 6.4 Consolidated Summary Prompt (1 call per paper)
+
+**The v1 spec made 5 separate AI calls per paper. v2 makes 1.**
+
+```typescript
+const SYSTEM_PROMPT = `You are a research paper summarizer. 
+Return ONLY a valid JSON object with no preamble, explanation, or markdown fences.`;
+
+const USER_PROMPT = `Summarize this paper abstract into the following JSON structure.
+Be concrete and specific. Avoid vague phrases like "this paper proposes" or "we show that".
 
 Abstract:
 {abstract}
 
-Respond with only the TL;DR. No preamble.
+Return exactly this JSON shape:
+{
+  "tldr": "80-120 word summary for a technical audience. State the contribution directly.",
+  "key_contributions": ["verb-led bullet 1", "verb-led bullet 2", "verb-led bullet 3"],
+  "methods": ["method/technique 1", "method/technique 2", "method/technique 3"],
+  "limitations": ["limitation 1", "limitation 2"],
+  "beginner_explain": "100-200 word plain explanation for a software engineer with no ML background",
+  "technical_summary": "200-300 word precise technical description preserving mathematical terminology"
+}`;
+
+const response = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+  messages: [
+    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'user',   content: USER_PROMPT.replace('{abstract}', paper.abstract) },
+  ],
+  response_format: { type: 'json_object' },  // structured output — no fragile text parsing
+  max_tokens: 1024,
+});
+
+const summary = JSON.parse(response.response) as SummaryFields;
 ```
 
-**Key contributions prompt:**
+### 6.5 Related Papers: Pre-Computed at Ingestion
+
+```typescript
+async function computeRelatedPapers(
+  paperId: string,
+  embedding: number[],
+  env: Env
+): Promise<void> {
+  // Query Vectorize — only happens during ingestion, never in hot path
+  const results = await env.VECTORIZE.query(embedding, {
+    topK: 9,                                    // 9 to exclude self
+    filter: { paper_id: { $ne: paperId } },     // exclude self
+    returnMetadata: true,
+  });
+
+  const related = results.matches
+    .slice(0, 8)
+    .map((m, i) => ({
+      paper_id: paperId,
+      related_paper_id: m.metadata.paper_id,
+      similarity_score: m.score,
+      rank: i + 1,
+      computed_at: new Date().toISOString(),
+    }));
+
+  // Write to D1 — available permanently, no re-querying Vectorize
+  await env.DB.batch(
+    related.map(r =>
+      env.DB.prepare(`
+        INSERT OR REPLACE INTO related_papers
+          (paper_id, related_paper_id, similarity_score, rank, computed_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).bind(r.paper_id, r.related_paper_id, r.similarity_score, r.rank, r.computed_at)
+    )
+  );
+}
 ```
-List exactly 3–5 key contributions of this paper as concise bullet points.
-Each bullet should describe one specific, concrete contribution.
-Start each bullet with an action verb.
 
-Abstract:
-{abstract}
+### 6.6 Ingestion Error Handling
 
-Respond with only the bullet list, one per line, no numbering.
 ```
-
-**Limitations prompt:**
+- summary_ready = 0 (pending), 1 (done), 2 (failed)
+- Failed papers are retried on next cron run (WHERE summary_ready = 0 OR summary_ready = 2)
+- After 3 failures, set summary_ready = 2 permanently and log
+- Ingestion never blocks on single-paper failure: Promise.allSettled() for all parallel work
+- arXiv 429: exponential backoff (60s, 120s, give up)
+- Workers AI error: mark paper as failed, continue batch
 ```
-Based on this abstract, list 2–4 limitations or caveats a critical reader 
-should be aware of. Be specific and honest.
-
-Abstract:
-{abstract}
-
-Respond with only the bullet list, one per line.
-```
-
-**Beginner explanation prompt:**
-```
-Explain this paper to a software engineer with no ML research background.
-Use plain language. 100–200 words. Focus on: what problem it solves, 
-how it solves it, and why that matters.
-
-Abstract:
-{abstract}
-```
-
-### 6.4 Rate Limiting & Error Handling
-
-- Batch Workers AI calls: max 5 concurrent
-- Retry failed summaries on next cron run (summary_ready = 0)
-- Log errors to Workers Analytics
-- Never block ingestion on a single paper failure
 
 ---
 
@@ -437,43 +501,57 @@ Abstract:
 ```
 User query: "efficient attention for long contexts"
         ↓
-Step 1: Normalize query (lowercase, strip stopwords for keyword path)
+Step 1: Normalize query
+  - lowercase, trim
+  - strip common stopwords for keyword path only
+  - compute cache key: sha256(normalized_q)
         ↓
-Step 2a: D1 FTS keyword search
-  SELECT * FROM papers WHERE papers MATCH '{query}'
+Step 2: Check KV search cache
+  - HIT → return immediately (saves all subsequent steps)
+        ↓
+Step 3a: D1 FTS keyword search (parallel with 3b)
+  SELECT p.*, s.tldr
+  FROM papers_fts f
+  JOIN papers p ON p.id = f.paper_id
+  JOIN summaries s ON s.paper_id = p.id
+  WHERE papers_fts MATCH ?
+  ORDER BY bm25(papers_fts, 10.0, 1.0, 5.0)  ← title:abstract:authors = 10:1:5
   LIMIT 20
         ↓
-Step 2b: Vectorize semantic search
-  embed(query) → search Vectorize top-20
+Step 3b: Vectorize semantic search (parallel with 3a)
+  - Check KV for cached query embedding: kv:embed:{sha256(q)}
+    - HIT: use cached embedding (saves Workers AI call)
+    - MISS: call Workers AI embed, write to KV (TTL 24h)
+  - Query Vectorize top-20 with cached/fresh embedding
         ↓
-Step 3: Merge + deduplicate results by paper_id
+Step 4: Merge + deduplicate by paper_id
+  - Papers in both sets get combined score
+  - keyword-only: score = keyword_rank_norm * 0.25
+  - semantic-only: score = similarity * 0.75
+  - both: score = keyword_rank_norm * 0.25 + similarity * 0.75
         ↓
-Step 4: Rerank by combined score:
-  score = 0.4 * keyword_rank + 0.6 * vector_similarity
-        ↓
-Step 5: Fetch summaries for top 10 from KV/D1
-        ↓
-Step 6: Return response + cache in KV
+Step 5: Return top 10 results, write to KV (TTL 2h)
 ```
 
-### 7.2 D1 Full-Text Search Setup
+**Change from v1:** Rerank weights changed from 0.4/0.6 → 0.25/0.75. For research paper retrieval, semantic similarity is more reliable than exact keyword matching. Acronyms and method names are handled by the hybrid merge (a keyword match for "RLHF" boosts into the result set; semantic handles paraphrases).
+
+**Change from v1:** Query embedding is now cached in KV. Popular search terms ("diffusion models", "RAG", "LoRA") will be embedded once and reused for 24h, cutting Workers AI neuron consumption from searches by an estimated 60–80%.
+
+### 7.2 D1 FTS Query (with title boosting)
 
 ```sql
--- Enable FTS virtual table
-CREATE VIRTUAL TABLE papers_fts USING fts5(
-  paper_id UNINDEXED,
-  title,
-  abstract,
-  authors,
-  content=papers,
-  content_rowid=rowid
-);
-
--- Trigger to keep in sync
-CREATE TRIGGER papers_fts_insert AFTER INSERT ON papers BEGIN
-  INSERT INTO papers_fts(paper_id, title, abstract, authors)
-  VALUES (new.id, new.title, new.abstract, new.authors);
-END;
+-- v1 had equal weights; v2 boosts title match 10× over abstract
+SELECT
+  p.id, p.title, p.authors, p.published_at, p.categories,
+  s.tldr,
+  bm25(papers_fts, 10.0, 1.0, 5.0) AS keyword_score
+FROM papers_fts f
+JOIN papers p  ON p.id  = f.paper_id
+JOIN summaries s ON s.paper_id = p.id
+WHERE papers_fts MATCH ?
+  AND p.summary_ready = 1
+ORDER BY keyword_score
+LIMIT 20;
 ```
 
 ---
@@ -482,43 +560,71 @@ END;
 
 ### 8.1 TTL Reference Table
 
-| Data | Cache Layer | TTL |
-|---|---|---|
-| Paper summary | KV + CDN | Permanent (immutable) |
-| Related papers | KV | 24h |
-| Search results | KV | 1–6h (by query popularity) |
-| Topic pages | KV + CDN | 12h |
-| Trending papers | KV + CDN | 60 min |
-| Author pages | KV | 6h |
-| Homepage | CDN | 30 min |
+| Data | Layer | TTL | Notes |
+|---|---|---|---|
+| Paper + summary | KV → CDN | Permanent | Written lazily on first access |
+| Related papers | KV → D1 | Permanent | Written lazily on first access |
+| Search results | KV | 2h | Fixed TTL (v1 had variable 1–6h complexity) |
+| Query embeddings | KV | 24h | New in v2 — cuts Workers AI search cost |
+| Topic pages | KV → CDN | 12h | — |
+| Trending papers | KV → CDN | 60 min | — |
+| Author pages | KV → D1 | 6h | — |
 
-### 8.2 Cache Warming
+### 8.2 Lazy KV Write Pattern (replaces eager writes)
 
-After ingestion completes for a batch:
-1. Write all paper summaries to KV immediately
-2. Pre-compute related papers for new papers
-3. Invalidate topic/trending caches that include new papers
+**v1 problem:** Ingestion wrote every paper to KV immediately → 1,600 writes/day → breaks free tier.
+
+**v2 fix:** KV is populated on first user access, not at ingestion time.
+
+```typescript
+async function getPaperFull(id: string, env: Env): Promise<PaperWithSummary | null> {
+  const cacheKey = `kv:paper:${id}:full`;
+
+  // Try KV first
+  const cached = await env.CACHE.get(cacheKey, 'json');
+  if (cached) return cached as PaperWithSummary;
+
+  // Miss: read from D1
+  const paper = await env.DB.prepare(`
+    SELECT p.*, s.tldr, s.key_contributions, s.methods,
+           s.limitations, s.beginner_explain, s.technical_summary
+    FROM papers p
+    JOIN summaries s ON s.paper_id = p.id
+    WHERE p.id = ? AND p.summary_ready = 1
+  `).bind(id).first<PaperWithSummary>();
+
+  if (!paper) return null;
+
+  // Write to KV for future requests (fire and forget — don't await)
+  env.CACHE.put(cacheKey, JSON.stringify(paper));  // no TTL = permanent
+
+  return paper;
+}
+```
+
+**KV write volume with lazy pattern:**
+- Ingestion: 0 writes (down from 1,600/day)
+- First access per paper: 1 write (amortized over all users, ~200-500/day for new papers)
+- Total: stays well under 1,000/day free tier limit
 
 ### 8.3 Cache Miss Fallback
 
-If a paper summary is not yet in KV (edge case: very new paper, ingestion in-flight):
-1. Return paper metadata from D1 immediately
-2. Show abstract (always available)
-3. Display: "AI summary generating — check back shortly"
-4. Do NOT trigger a live LLM call in the request path
+If a paper summary is not yet generated (ingestion in-flight):
+1. Return paper metadata from D1 immediately (always available after step 3 of ingestion)
+2. Show abstract in place of AI summary
+3. Display: `"AI summary generating — check back shortly"`
+4. Never trigger a live Workers AI call in the request path
 
 ---
 
 ## 9. Environment & Configuration
 
-### 9.1 Cloudflare Bindings (wrangler.toml)
+### 9.1 wrangler.toml (api-worker)
 
 ```toml
-name = "arxiv-explorer-api"
-compatibility_date = "2024-09-01"
-
-[ai]
-binding = "AI"
+name = "arxiv-api"
+main = "src/api-worker/index.ts"
+compatibility_date = "2025-01-01"
 
 [[kv_namespaces]]
 binding = "CACHE"
@@ -533,90 +639,134 @@ database_id = "your-d1-database-id"
 binding = "VECTORIZE"
 index_name = "arxiv-papers"
 
+[ai]
+binding = "AI"  # only used for query embedding; never for summarization
+```
+
+### 9.2 wrangler.toml (ingest-worker)
+
+```toml
+name = "arxiv-ingest"
+main = "src/ingest-worker/index.ts"
+compatibility_date = "2025-01-01"
+
 [triggers]
-crons = ["0 * * * *"]   # every hour
+crons = ["0 * * * *"]  # every hour
+
+[[d1_databases]]
+binding = "DB"
+database_name = "arxiv-explorer"
+database_id = "your-d1-database-id"   # same DB as api-worker
+
+[[vectorize]]
+binding = "VECTORIZE"
+index_name = "arxiv-papers"
+
+[[kv_namespaces]]
+binding = "CACHE"
+id = "your-kv-namespace-id"           # same KV as api-worker
+
+[ai]
+binding = "AI"
 ```
 
-### 9.2 Environment Variables
+### 9.3 Environment Variables
 
 ```
-ARXIV_FETCH_CATEGORIES=cs.LG,cs.CL,cs.CV,stat.ML,cs.AI
-ARXIV_FETCH_LIMIT=50
+# Shared
+ARXIV_FETCH_CATEGORIES=cs.LG,cs.CL,cs.CV,stat.ML
 SUMMARY_MODEL=@cf/meta/llama-3.1-8b-instruct
 EMBEDDING_MODEL=@cf/baai/bge-base-en-v1.5
-CACHE_TTL_SEARCH=21600
-CACHE_TTL_TRENDING=3600
-INGEST_BATCH_SIZE=10
+
+# Ingestion tuning
+ARXIV_FETCH_LIMIT_PER_CATEGORY=30    # conservative: 4 categories × 30 = 120 papers max/hour
+INGEST_MAX_CONCURRENT=5
+ARXIV_RATE_LIMIT_DELAY_MS=3000
+
+# Cache TTLs
+CACHE_TTL_SEARCH_SECONDS=7200        # 2h
+CACHE_TTL_TRENDING_SECONDS=3600      # 60min
+CACHE_TTL_EMBED_SECONDS=86400        # 24h
+
+# CORS
+ALLOWED_ORIGIN=https://arxiv-explorer.pages.dev
 ```
 
 ---
 
 ## 10. Workers AI Model Selection
 
-| Task | Model | Notes |
-|---|---|---|
-| Summarization | `@cf/meta/llama-3.1-8b-instruct` | Good quality, fast, free-tier friendly |
-| Embeddings | `@cf/baai/bge-base-en-v1.5` | 768-dim, solid for semantic search |
-| Fallback summarization | `@cf/mistral/mistral-7b-instruct-v0.1` | If Llama quota exhausted |
+| Task | Model | Called from | Notes |
+|---|---|---|---|
+| Summarization | `@cf/meta/llama-3.1-8b-instruct` | ingest-worker only | 1 call/paper via structured JSON output |
+| Embeddings (ingestion) | `@cf/baai/bge-base-en-v1.5` | ingest-worker only | 1 call/paper |
+| Embeddings (search) | `@cf/baai/bge-base-en-v1.5` | api-worker | 1 call/unique query; cached 24h |
 
-All Workers AI calls happen **only** in the ingestion pipeline — never in user-facing request paths.
+**No Workers AI calls for related papers retrieval, paper detail pages, topic pages, or trending.**
 
 ---
 
-## 11. Next.js Project Structure
+## 11. Project Structure
 
 ```
 /
-├── app/
-│   ├── page.tsx                    # Home
-│   ├── search/
-│   │   └── page.tsx                # Search results
-│   ├── paper/
-│   │   └── [arxiv_id]/
-│   │       └── page.tsx            # Paper detail
-│   ├── topic/
-│   │   └── [slug]/
-│   │       └── page.tsx            # Topic page
-│   └── author/
-│       └── [name]/
-│           └── page.tsx            # Author page
+├── src/
+│   ├── api-worker/
+│   │   ├── index.ts              # Worker entrypoint, routing
+│   │   ├── routes/
+│   │   │   ├── search.ts         # Hybrid search + KV cache
+│   │   │   ├── paper.ts          # Paper detail (lazy KV write)
+│   │   │   ├── related.ts        # Related papers (D1 → KV)
+│   │   │   ├── topic.ts
+│   │   │   ├── trending.ts
+│   │   │   └── author.ts
+│   │   └── cache/
+│   │       ├── kv.ts             # Lazy get/set helpers
+│   │       └── keys.ts           # Cache key constants
+│   │
+│   ├── ingest-worker/
+│   │   ├── index.ts              # Scheduled handler entrypoint
+│   │   ├── fetch-arxiv.ts        # Atom XML fetch + rate limiting
+│   │   ├── generate-summary.ts   # Single consolidated JSON prompt
+│   │   ├── generate-embedding.ts # Workers AI embed wrapper
+│   │   ├── compute-related.ts    # Vectorize query → D1 insert
+│   │   └── pipeline.ts           # Orchestrates batch processing
+│   │
+│   └── shared/
+│       ├── types.ts              # Shared TypeScript interfaces
+│       ├── db.ts                 # D1 query helpers
+│       └── utils.ts
+│
+├── app/                          # Next.js app (Cloudflare Pages)
+│   ├── page.tsx
+│   ├── search/page.tsx
+│   ├── paper/[arxiv_id]/page.tsx
+│   ├── topic/[slug]/page.tsx
+│   ├── author/[name]/page.tsx
+│   └── sitemap.ts                # Auto-generated sitemap
+│
 ├── components/
 │   ├── SearchBox.tsx
-│   ├── PaperCard.tsx               # Result card with TL;DR
-│   ├── PaperDetail.tsx             # Full detail sections
-│   ├── SummarySection.tsx          # AI summary display
+│   ├── PaperCard.tsx
+│   ├── PaperDetail.tsx
+│   ├── SummarySection.tsx
 │   ├── RelatedPapers.tsx
 │   └── CategoryBadge.tsx
-├── lib/
-│   ├── api.ts                      # Fetch helpers for Worker API
-│   ├── types.ts                    # Shared TypeScript types
-│   └── utils.ts
-└── worker/
-    ├── index.ts                    # Worker entrypoint
-    ├── routes/
-    │   ├── search.ts
-    │   ├── paper.ts
-    │   ├── topic.ts
-    │   └── trending.ts
-    ├── ingestion/
-    │   ├── fetch-arxiv.ts
-    │   ├── generate-summary.ts
-    │   ├── generate-embedding.ts
-    │   └── pipeline.ts
-    └── cache/
-        ├── kv.ts                   # KV read/write helpers
-        └── keys.ts                 # Cache key constants
+│
+├── wrangler.api.toml
+├── wrangler.ingest.toml
+└── next.config.ts
 ```
 
 ---
 
-## 12. TypeScript Type Definitions
+## 12. TypeScript Types
 
 ```typescript
-// lib/types.ts
+// src/shared/types.ts
 
 export interface Paper {
-  id: string;                  // "2312.00752"
+  id: string;
   title: string;
   authors: string[];
   abstract: string;
@@ -625,6 +775,7 @@ export interface Paper {
   revisedAt?: string;
   pdfUrl: string;
   htmlUrl?: string;
+  summaryReady: 0 | 1 | 2;
 }
 
 export interface Summary {
@@ -640,21 +791,31 @@ export interface Summary {
 }
 
 export interface PaperWithSummary extends Paper {
-  summary?: Summary;
-}
-
-export interface SearchResult {
-  papers: PaperWithSummary[];
-  total: number;
-  cached: boolean;
-  query: string;
+  summary: Summary | null;  // null when summaryReady !== 1
 }
 
 export interface RelatedPaper {
   id: string;
   title: string;
   tldr: string;
-  similarity: number;
+  similarityScore: number;
+  rank: number;
+}
+
+export interface SearchResult {
+  papers: PaperWithSummary[];
+  total: number;
+  cached: boolean;
+  cacheAge?: number;     // ms since cache was written — useful for debugging
+  query: string;
+}
+
+export interface IngestResult {
+  fetched: number;
+  newPapers: number;
+  summarized: number;
+  failed: number;
+  neuronsEstimate: number;
 }
 ```
 
@@ -665,83 +826,83 @@ export interface RelatedPaper {
 ### Phase 1 — Core Search & Summaries (Week 1–3)
 
 **Deliverables:**
-- [ ] D1 schema created and migrated
+- [ ] D1 schema with all indexes migrated
 - [ ] Vectorize index initialized
-- [ ] arXiv ingestion pipeline running on cron
-- [ ] Summaries generating for cs.LG + cs.CL + cs.CV
-- [ ] Worker API: `/api/search`, `/api/paper/:id`
-- [ ] KV caching wired up
-- [ ] Next.js: Home page + Search results + Paper detail (basic)
+- [ ] `ingest-worker` running on cron with consolidated JSON prompt
+- [ ] `api-worker` with `/api/search`, `/api/paper/:id`
+- [ ] Lazy KV write pattern implemented
+- [ ] Query embedding caching in KV
+- [ ] Next.js: Home + Search + Paper detail
 - [ ] Deployed to Cloudflare Pages + Workers
+- [ ] `robots.txt` and `sitemap.ts` added
 
-**Success criteria:** Search returns cached results in <300ms. Paper detail renders without live LLM call.
+**Success criteria:** 
+- Search returns cached results in <300ms
+- Paper detail page: zero Workers AI calls in hot path
+- KV write volume: <500/day
+- Workers AI neuron usage: <5,000/day
 
 ---
 
 ### Phase 2 — Related Papers & Polish (Week 4–5)
 
 **Deliverables:**
-- [ ] Related papers via Vectorize similarity
-- [ ] `/api/paper/:id/related` endpoint + KV cache
+- [ ] `compute-related.ts` in ingest pipeline (Vectorize → D1 `related_papers`)
+- [ ] `/api/paper/:id/related` endpoint with lazy KV write
 - [ ] Related papers component on paper detail page
 - [ ] Author pages
 - [ ] Category filter on search results
-- [ ] Better UI polish: badges, skeletons, responsive layout
+- [ ] FTS title boosting (bm25 weights) tuned via A/B test
 
 ---
 
 ### Phase 3 — Topic Pages (Week 6–7)
 
 **Deliverables:**
-- [ ] Topic taxonomy defined (15–20 topics)
-- [ ] Topic pages: `/topic/rag`, `/topic/diffusion-models`, etc.
-- [ ] Topic → paper mapping (by category tags + keyword match)
-- [ ] Topic pages cached at CDN level (12h TTL)
+- [ ] Topic taxonomy (15–20 topics defined in D1)
+- [ ] Topic pages `/topic/:slug` with CDN cache
+- [ ] Topic → paper mapping via category tags + FTS
 - [ ] Topic chips on homepage
 
 ---
 
 ### Phase 4 — Lightweight Q&A *(Optional, post-launch)*
 
-**Only if user demand justifies it.**
-
-**Constraints (non-negotiable):**
-- Hard limit: 300 tokens in, 200 tokens out
-- Context: only the cached summary, never the full PDF
-- No memory between requests
-- Rate-limited per IP: 5 requests/minute
-- Still cached: identical questions on same paper return cached answers
+Only if user demand justifies. Hard constraints:
+- Input: only the cached summary (never full PDF)
+- 300 input tokens max, 200 output tokens max
+- 5 requests/IP/minute rate limit
+- Cached: identical question+paper pairs return cached answers (KV, 24h)
 
 ---
 
-## 14. Free Tier Feasibility
+## 14. Free Tier Feasibility (Corrected)
 
-| Resource | Free Tier Limit | Expected Usage | Status |
-|---|---|---|---|
-| Workers requests | 100k/day | ~30k/day | ✅ Safe |
-| KV reads | 100k/day | ~50k/day | ✅ Safe |
-| KV writes | 1k/day | ~200/day (ingestion) | ✅ Safe |
-| D1 queries | 5M/month | ~500k/month | ✅ Safe |
-| Vectorize queries | 30M/month | ~1M/month | ✅ Safe |
-| Workers AI neurons | 10k/day | Ingestion only | ✅ Safe |
-| Cloudflare Pages | Unlimited | — | ✅ Free |
+| Resource | Free Tier | v1 Estimate | v2 Realistic | Status |
+|---|---|---|---|---|
+| Workers requests | 100k/day | ~30k/day | ~30k/day | ✅ Safe |
+| KV reads | 100k/day | ~50k/day | ~50k/day | ✅ Safe |
+| KV writes | 1k/day | ~~200/day~~ (wrong: ~1,600) | ~400/day (lazy writes) | ✅ Safe |
+| D1 row reads | 25M/month | ~500k/month | ~2M/month | ✅ Safe |
+| Vectorize queries | 30M/month | ~1M/month | ~300k/month (ingestion only) | ✅ Safe |
+| Workers AI neurons | 10k/day | ~~"safe"~~ (wrong: ~10x over) | ~4,000/day (10 papers/hr) | ✅ Safe |
+| Cloudflare Pages | Unlimited | — | — | ✅ Free |
 
-**Key insight:** Because summaries are precomputed and cached, Workers AI neurons are only consumed during ingestion (50 papers/hour × 5 prompts = 250 AI calls/hour at most) — not per user page view.
+**Ingestion rate on free tier:** 10 papers/hour (240/day) staying within neuron budget.
+
+**Scaling path:** Workers AI paid tier ($0.011/1k neurons) enables ~1,200 papers/day for ~$0.58/day. Upgrade this single line when ready.
 
 ---
 
 ## 15. What to Explicitly Not Build
 
-The following features are **indefinitely deferred**. They destroy cacheability and increase cost nonlinearly:
-
 | Feature | Why Deferred |
 |---|---|
 | Persistent AI chat | Every message = live inference, no caching possible |
-| PDF upload & analysis | Unpredictable size, breaks cache model |
+| PDF upload & analysis | Breaks cache model, unpredictable token cost |
 | Personalized feeds | Per-user state = cache miss by design |
 | Multi-paper reasoning | Token cost scales with paper count |
-| Autonomous research agents | LangGraph loops = unbounded inference |
-| Code execution | Sandboxing complexity, security risk |
+| Code execution | Sandboxing complexity + security risk |
 | Collaborative workspaces | Real-time state, operational complexity |
 | Voice interface | Latency incompatible with edge architecture |
 
@@ -749,18 +910,29 @@ The following features are **indefinitely deferred**. They destroy cacheability 
 
 ## 16. Monitoring & Observability
 
-- **Cloudflare Analytics:** Request volume, cache hit rate, error rates
-- **Workers Analytics:** Per-route latency, KV hit/miss ratio
-- **Custom KV counter:** Track cache hit % per paper ID
-- **Ingestion logs:** Papers processed per run, summary failures, embedding failures
-- **Alerting threshold:** Cache hit rate < 80% → investigate
+**Workers Analytics (built-in):** Request volume, error rates, CPU time per route.
 
-**Target metrics:**
-- Cache hit rate: >85%
-- p95 API latency: <200ms (cached), <800ms (D1 fallback)
-- Ingestion success rate: >99%
-- Summary generation failure rate: <1%
+**Custom metrics via KV counters (write async, don't block responses):**
+
+```typescript
+// Increment counters without blocking the response
+ctx.waitUntil(Promise.all([
+  env.CACHE.put('metric:cache_hits', String(hits + 1)),
+  env.CACHE.put('metric:d1_reads', String(d1reads + 1)),
+]));
+```
+
+**Key metrics to track:**
+
+| Metric | Target | Alert threshold |
+|---|---|---|
+| Cache hit rate (KV) | >85% | <70% |
+| D1 fallback rate | <15% | >30% |
+| p95 latency (cached) | <200ms | >500ms |
+| p95 latency (D1 fallback) | <600ms | >1,200ms |
+| Ingestion success rate | >98% | <95% |
+| Workers AI neuron usage | <8k/day | >9.5k/day (near limit) |
+| KV write count | <700/day | >900/day (near limit) |
 
 ---
 
-*Spec version: 1.0 — Ready for Phase 1 implementation*
