@@ -37,6 +37,7 @@
   },
 
   "vars": {
+    "API_BASE": "https://arxiv-api.arxivexplorer.workers.dev",
     "ARXIV_FETCH_CATEGORIES": "cs.LG,cs.CL,cs.CV,stat.ML",
     "SUMMARY_MODEL": "@cf/meta/llama-3.1-8b-instruct",
     "EMBEDDING_MODEL": "@cf/baai/bge-base-en-v1.5",

@@ -67,22 +67,29 @@ export async function runIngestionPipeline(env: Env): Promise<IngestResult> {
 
   console.info(`[pipeline] ${newEntries.length} new papers (${allEntries.length - newEntries.length} already indexed)`);
 
-  if (newEntries.length === 0) {
+  // Step 2b: Also fetch papers with summary_ready = 0 (pending processing)
+  const pendingPapers = await getPendingPapers(env.DB, 10);
+  console.info(`[pipeline] ${pendingPapers.length} pending papers need processing`);
+
+  if (newEntries.length === 0 && pendingPapers.length === 0) {
     return result;
   }
   result.newPapers = newEntries.length;
 
   // Step 3: Batch INSERT metadata to D1 — single round trip
-  try {
-    await batchInsertPapers(env.DB, newEntries);
-  } catch (err) {
-    console.error('[pipeline] Batch paper insert failed:', err);
-    throw err; // Fatal — cannot continue without base rows
+  if (newEntries.length > 0) {
+    try {
+      await batchInsertPapers(env.DB, newEntries);
+    } catch (err) {
+      console.error('[pipeline] Batch paper insert failed:', err);
+      throw err; // Fatal — cannot continue without base rows
+    }
   }
 
   // Step 4: Per-paper AI work (parallel, bounded concurrency)
+  const allToProcess = [...newEntries, ...pendingPapers];
   const settledResults = await runConcurrent(
-    newEntries,
+    allToProcess,
     async (entry) => processSinglePaper(entry, env),
     concurrency
   );
@@ -180,36 +187,81 @@ async function processSinglePaper(entry: ArxivEntry, env: Env): Promise<void> {
 async function getExistingIds(db: D1Database, ids: string[]): Promise<Set<string>> {
   if (ids.length === 0) return new Set();
 
-  const placeholders = ids.map(() => '?').join(',');
-  const { results } = await db.prepare(
-    `SELECT id FROM papers WHERE id IN (${placeholders})`
-  ).bind(...ids).all<{ id: string }>();
+  const CHUNK_SIZE = 100; // D1 limit for IN clause
+  const existing = new Set<string>();
+  
+  for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
+    const chunk = ids.slice(i, i + CHUNK_SIZE);
+    const placeholders = chunk.map(() => '?').join(',');
+    const { results } = await db.prepare(
+      `SELECT id FROM papers WHERE id IN (${placeholders})`
+    ).bind(...chunk).all<{ id: string }>();
+    
+    results.forEach(r => existing.add(r.id));
+  }
 
-  return new Set(results.map(r => r.id));
+  return existing;
+}
+
+async function getPendingPapers(db: D1Database, limit: number): Promise<ArxivEntry[]> {
+  const { results } = await db.prepare(`
+    SELECT id, title, authors, abstract, categories, published_at, revised_at, pdf_url, html_url
+    FROM papers
+    WHERE summary_ready = 0
+    ORDER BY indexed_at ASC
+    LIMIT ?
+  `).bind(limit).all<{
+    id: string;
+    title: string;
+    authors: string;
+    abstract: string;
+    categories: string;
+    published_at: string;
+    revised_at: string | null;
+    pdf_url: string;
+    html_url: string | null;
+  }>();
+
+  return results.map(r => ({
+    id: r.id,
+    title: r.title,
+    authors: JSON.parse(r.authors),
+    summary: r.abstract,
+    categories: JSON.parse(r.categories),
+    published: r.published_at,
+    updated: r.revised_at ?? r.published_at,
+    pdfUrl: r.pdf_url,
+    htmlUrl: r.html_url ?? undefined,
+  }));
 }
 
 async function batchInsertPapers(db: D1Database, entries: ArxivEntry[]): Promise<void> {
   const now = new Date().toISOString();
-  const stmts = entries.map(e =>
-    db.prepare(`
-      INSERT OR IGNORE INTO papers
-        (id, title, authors, abstract, categories, published_at, revised_at,
-         pdf_url, html_url, indexed_at, summary_ready)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
-    `).bind(
-      e.id,
-      e.title,
-      JSON.stringify(e.authors),
-      e.summary,
-      JSON.stringify(e.categories),
-      e.published,
-      e.updated !== e.published ? e.updated : null,
-      e.pdfUrl,
-      e.htmlUrl ?? null,
-      now
-    )
-  );
-  await db.batch(stmts);
+  const CHUNK_SIZE = 20; // D1 limit is ~100 variables per statement, each paper uses 10 bindings
+  
+  for (let i = 0; i < entries.length; i += CHUNK_SIZE) {
+    const chunk = entries.slice(i, i + CHUNK_SIZE);
+    const stmts = chunk.map(e =>
+      db.prepare(`
+        INSERT OR IGNORE INTO papers
+          (id, title, authors, abstract, categories, published_at, revised_at,
+           pdf_url, html_url, indexed_at, summary_ready)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+      `).bind(
+        e.id,
+        e.title,
+        JSON.stringify(e.authors),
+        e.summary,
+        JSON.stringify(e.categories),
+        e.published,
+        e.updated !== e.published ? e.updated : null,
+        e.pdfUrl,
+        e.htmlUrl ?? null,
+        now
+      )
+    );
+    await db.batch(stmts);
+  }
 }
 
 async function markFailed(db: D1Database, paperId: string): Promise<void> {

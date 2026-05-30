@@ -42,7 +42,6 @@ export async function generateSummary(
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user', content: prompt },
     ],
-    response_format: { type: 'json_object' },
     max_tokens: 1024,
   }) as { response: string };
 

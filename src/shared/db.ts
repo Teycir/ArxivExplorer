@@ -91,7 +91,7 @@ export async function getRelatedPapers(db: D1Database, paperId: string): Promise
 }
 
 export async function getTrendingPapers(db: D1Database, limit = 10): Promise<PaperWithSummary[]> {
-  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const since = '2026-05-20'; // Hardcoded for testing
   const { results } = await db.prepare(`
     SELECT
       p.id, p.title, p.authors, p.abstract, p.categories,
@@ -100,11 +100,12 @@ export async function getTrendingPapers(db: D1Database, limit = 10): Promise<Pap
       s.beginner_explain, s.technical_summary, s.generated_at, s.model_version
     FROM papers p
     LEFT JOIN summaries s ON s.paper_id = p.id
-    WHERE p.summary_ready = 1 AND p.published_at >= ?
+    WHERE p.published_at >= ?
     ORDER BY p.indexed_at DESC
     LIMIT ?
   `).bind(since, limit).all<PaperRow>();
 
+  console.log('[getTrendingPapers] Raw results count:', results.length);
   return results.map(rowToPaper);
 }
 
@@ -155,7 +156,7 @@ export async function getPapersByTopic(
       s.beginner_explain, s.technical_summary, s.generated_at, s.model_version
     FROM papers p
     LEFT JOIN summaries s ON s.paper_id = p.id
-    WHERE (${placeholders}) AND p.summary_ready = 1
+    WHERE (${placeholders})
     ORDER BY p.published_at DESC
     LIMIT ?
   `).bind(...binds, limit).all<PaperRow>();
