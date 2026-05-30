@@ -50,6 +50,17 @@ export function maxPapersPerCategory(env: { ARXIV_FETCH_LIMIT_PER_CATEGORY?: str
   return isNaN(v) || v < 1 ? 10 : v;
 }
 
+/**
+ * Returns true if at least one of the paper's categories intersects
+ * the configured indexed categories. Used to filter cross-listed papers
+ * that arXiv returns for a category query but whose primary subject is
+ * outside our indexed scope.
+ */
+export function isInScope(paperCategories: string[], indexedCategories: string[]): boolean {
+  const indexed = new Set(indexedCategories.map(c => c.toLowerCase()));
+  return paperCategories.some(c => indexed.has(c.toLowerCase()));
+}
+
 /** Async delay in milliseconds. */
 export function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));

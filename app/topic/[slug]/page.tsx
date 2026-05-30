@@ -5,6 +5,8 @@ import { getTopicPapers } from '@/helper/api';
 import { Navbar } from '../../components/Navbar';
 import { PaperCard } from '../../components/PaperCard';
 import { CategoryBadge } from '../../components/CategoryBadge';
+import { CategoryScopeBar } from '../../components/CategoryScopeBar';
+import { Database } from 'lucide-react';
 
 // ISR: 12h (matches KV TTL)
 export const revalidate = 43200;
@@ -51,7 +53,7 @@ export default async function TopicPage({ params }: Props) {
         </nav>
 
         {/* Header */}
-        <div className="mb-8">
+        <div className="mb-6">
           <h1 className="text-2xl font-mono font-bold text-white/90 mb-2">{topic.label}</h1>
           {topic.description && (
             <p className="text-sm text-neon-red/45 font-mono max-w-2xl">{topic.description}</p>
@@ -63,6 +65,18 @@ export default async function TopicPage({ params }: Props) {
           </div>
         </div>
 
+        {/* Scope notice — makes the data source explicit */}
+        <div className="flex items-start gap-2.5 px-3 py-2.5 mb-6 rounded-lg
+          border border-neon-red/15 bg-neon-red/5">
+          <Database size={13} className="text-neon-red/40 mt-0.5 flex-shrink-0" />
+          <p className="text-[11px] font-mono text-neon-red/45 leading-relaxed">
+            Papers sourced exclusively from{' '}
+            <span className="text-neon-red/70 font-semibold">cs.AI</span> and{' '}
+            <span className="text-neon-red/70 font-semibold">cs.LG</span> on arXiv.
+            Results within this topic are filtered to those two categories only.
+          </p>
+        </div>
+
         {/* Stats */}
         <p className="text-xs font-mono text-neon-red/30 mb-5">
           {papers.length} paper{papers.length !== 1 ? 's' : ''} indexed
@@ -70,9 +84,10 @@ export default async function TopicPage({ params }: Props) {
 
         {/* Papers grid */}
         {papers.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-24 gap-3 text-center">
+          <div className="flex flex-col items-center justify-center py-24 gap-4 text-center">
             <p className="text-neon-red/40 font-mono text-sm">No papers indexed yet for this topic.</p>
             <p className="text-white/25 font-mono text-xs">Check back once the ingestion pipeline has run.</p>
+            <CategoryScopeBar />
             <Link href="/" className="mt-2 text-xs text-neon-red/40 hover:text-neon-red font-mono underline">
               ← Back to home
             </Link>

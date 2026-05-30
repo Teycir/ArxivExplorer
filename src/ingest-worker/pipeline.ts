@@ -13,7 +13,7 @@
  */
 
 import type { Env, ArxivEntry, IngestResult } from '../shared/types';
-import { runConcurrent, delay, ingestCategories, ingestConcurrency, maxPapersPerCategory } from '../shared/utils';
+import { runConcurrent, delay, ingestCategories, ingestConcurrency, maxPapersPerCategory, isInScope } from '../shared/utils';
 import { fetchArxivBatch } from './fetch-arxiv';
 import { generateEmbedding, upsertToVectorize } from './generate-embedding';
 import { generateSummary } from './generate-summary';
@@ -59,12 +59,22 @@ export async function runIngestionPipeline(env: Env): Promise<IngestResult> {
     return result;
   }
 
-  // Step 2: Filter papers already in D1
-  const incomingIds = allEntries.map(e => e.id);
-  const existingIds = await getExistingIds(env.DB, incomingIds);
-  const newEntries = allEntries.filter(e => !existingIds.has(e.id));
+  // Step 1b: Drop cross-listed papers whose categories don't include
+  // any indexed category. arXiv returns cross-listed results (e.g. a
+  // cs.CV paper queried via cat:cs.LG) — we only want papers actually
+  // belonging to our indexed scope to avoid off-topic entries.
+  const scopedEntries = allEntries.filter(e => isInScope(e.categories, categories));
+  const dropped = allEntries.length - scopedEntries.length;
+  if (dropped > 0) {
+    console.info(`[pipeline] Dropped ${dropped} out-of-scope cross-listed papers`);
+  }
 
-  console.info(`[pipeline] ${newEntries.length} new papers (${allEntries.length - newEntries.length} already indexed)`);
+  // Step 2: Filter papers already in D1
+  const incomingIds = scopedEntries.map(e => e.id);
+  const existingIds = await getExistingIds(env.DB, incomingIds);
+  const newEntries = scopedEntries.filter(e => !existingIds.has(e.id));
+
+  console.info(`[pipeline] ${newEntries.length} new papers (${scopedEntries.length - newEntries.length} already indexed, ${dropped} out-of-scope dropped)`);
 
   // Step 2b: Also fetch papers with summary_ready = 0 (pending processing)
   const pendingPapers = await getPendingPapers(env.DB, 10);
