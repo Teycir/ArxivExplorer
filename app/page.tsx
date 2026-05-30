@@ -8,6 +8,7 @@ import { RecentSearches } from './components/RecentSearches';
 import { PaperCard } from './components/PaperCard';
 import { TopicChips } from './components/TopicChips';
 import { PersonalizedFeed } from './components/PersonalizedFeed';
+import { CategoryScopeBar } from './components/CategoryScopeBar';
 import type { PaperWithSummary } from '@/src/shared/types';
 
 export const metadata: Metadata = {
@@ -17,17 +18,16 @@ export const metadata: Metadata = {
 // ISR: revalidate every 30 minutes
 export const revalidate = 1800;
 
+// Topics scoped strictly to cs.AI + cs.LG papers
 const TOPICS = [
   { slug: 'large-language-models',  label: 'LLMs' },
-  { slug: 'diffusion-models',       label: 'Diffusion' },
-  { slug: 'rag-retrieval',          label: 'RAG' },
   { slug: 'reinforcement-learning', label: 'RL' },
-  { slug: 'computer-vision',        label: 'Vision' },
-  { slug: 'multimodal',             label: 'Multimodal' },
-  { slug: 'efficient-ml',           label: 'Efficient ML' },
   { slug: 'agents-planning',        label: 'Agents' },
+  { slug: 'diffusion-models',       label: 'Diffusion' },
+  { slug: 'efficient-ml',           label: 'Efficient ML' },
   { slug: 'alignment-safety',       label: 'Alignment' },
-  { slug: 'graph-neural-networks',  label: 'GNNs' },
+  { slug: 'multimodal',             label: 'Multimodal' },
+  { slug: 'rag-retrieval',          label: 'RAG' },
 ];
 
 async function fetchTrending(): Promise<PaperWithSummary[]> {
@@ -66,15 +66,18 @@ export default async function HomePage() {
             <SearchBoxHome />
           </div>
 
+          {/* Scope indicator — right below the input */}
+          <CategoryScopeBar />
+
           {/* Recent searches */}
-          <div className="w-full mt-6 max-w-md mx-auto">
+          <div className="w-full mt-2 max-w-md mx-auto">
             <RecentSearches />
           </div>
 
-          {/* Example queries */}
+          {/* Example queries — scoped to indexed categories */}
           <p className="text-xs text-neon-red/30 font-mono mt-1">
             Try:{' '}
-            {['LoRA fine-tuning', 'diffusion policy', 'chain-of-thought', 'Mamba SSM'].map((q, i) => (
+            {['LoRA fine-tuning', 'chain-of-thought', 'Mamba SSM', 'RLHF alignment'].map((q, i) => (
               <span key={q}>
                 <Link
                   href={`/search?q=${encodeURIComponent(q)}`}
@@ -92,9 +95,14 @@ export default async function HomePage() {
       <div className="max-w-5xl mx-auto w-full px-4 pb-24 flex flex-col gap-16">
         {/* ── Topics ────────────────────────────────────────────────────────── */}
         <section>
-          <h2 className="text-xs font-mono font-bold text-neon-red/50 uppercase tracking-widest mb-4">
-            Browse by topic
-          </h2>
+          <div className="flex items-baseline justify-between mb-4">
+            <h2 className="text-xs font-mono font-bold text-neon-red/50 uppercase tracking-widest">
+              Browse by topic
+            </h2>
+            <span className="text-[10px] font-mono text-neon-red/25 uppercase tracking-wider">
+              cs.AI · cs.LG
+            </span>
+          </div>
           <TopicChips topics={TOPICS} />
         </section>
 

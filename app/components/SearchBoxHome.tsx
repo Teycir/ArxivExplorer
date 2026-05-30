@@ -41,7 +41,7 @@ export function SearchBoxHome() {
           onKeyDown={handleKey}
           onFocus={() => setFocused(true)}
           onBlur={() => setTimeout(() => setFocused(false), 150)}
-          placeholder="Search papers by topic, method, or arXiv ID…"
+          placeholder="Search cs.AI · cs.LG papers by topic, method, or arXiv ID…"
           autoFocus
           autoComplete="off"
           spellCheck={false}
