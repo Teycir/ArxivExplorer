@@ -13,21 +13,20 @@
  */
 
 import type { Env, ArxivEntry, IngestResult } from '../shared/types';
-import { runConcurrent, delay, ingestCategories } from '../shared/utils';
+import { runConcurrent, delay, ingestCategories, ingestConcurrency, maxPapersPerCategory } from '../shared/utils';
 import { fetchArxivBatch } from './fetch-arxiv';
 import { generateEmbedding, upsertToVectorize } from './generate-embedding';
 import { generateSummary } from './generate-summary';
 import { computeAndStoreRelated } from './compute-related';
 import { kvDelete } from '../api-worker/cache/kv';
 import { KV_TRENDING } from '../api-worker/cache/keys';
-import { ingestConcurrency } from '../shared/utils';
 
 const CATEGORY_DELAY_MS = 3_000;
-const MAX_PAPERS_PER_CATEGORY = 30;
 
 export async function runIngestionPipeline(env: Env): Promise<IngestResult> {
   const categories = ingestCategories(env);
   const concurrency = ingestConcurrency(env);
+  const maxPerCategory = maxPapersPerCategory(env);
 
   const result: IngestResult = {
     fetched: 0,
@@ -42,7 +41,7 @@ export async function runIngestionPipeline(env: Env): Promise<IngestResult> {
   for (let i = 0; i < categories.length; i++) {
     const category = categories[i]!;
     try {
-      const entries = await fetchArxivBatch(category, MAX_PAPERS_PER_CATEGORY);
+      const entries = await fetchArxivBatch(category, maxPerCategory);
       allEntries.push(...entries);
       console.info(`[pipeline] Fetched ${entries.length} entries for ${category}`);
     } catch (err) {

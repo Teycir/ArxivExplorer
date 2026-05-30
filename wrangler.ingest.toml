@@ -23,10 +23,16 @@ id = "ed3c323de9cc48a4b332beec939597a4"
 binding = "AI"
 
 [vars]
-ARXIV_FETCH_CATEGORIES = "cs.LG,cs.CL,cs.CV,stat.ML"
+# ── Neuron budget: 10,000 / day (free tier) ──────────────────────────────────
+# Cost: ~44 neurons / paper  (1 embedding + ~43 summary tokens)
+# Target: ≤ 200 new papers / day  →  ~8,800 neurons  (safe margin)
+#
+# 2 categories × 10 papers / cron × 24 runs = 480 fetch attempts/day
+# After D1 dedup ~50–80 truly new papers reach AI  →  ~3,500 neurons/day
+# ─────────────────────────────────────────────────────────────────────────────
+ARXIV_FETCH_CATEGORIES = "cs.AI,cs.LG"
 SUMMARY_MODEL = "@cf/meta/llama-3.1-8b-instruct"
 EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5"
-ARXIV_FETCH_LIMIT_PER_CATEGORY = "30"
-INGEST_MAX_CONCURRENT = "5"
+ARXIV_FETCH_LIMIT_PER_CATEGORY = "10"
+INGEST_MAX_CONCURRENT = "3"
 ARXIV_RATE_LIMIT_DELAY_MS = "3000"
-

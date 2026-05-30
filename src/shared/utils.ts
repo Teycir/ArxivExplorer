@@ -44,6 +44,12 @@ export function ingestCategories(env: { ARXIV_FETCH_CATEGORIES?: string }): stri
   return raw.split(',').map(c => c.trim()).filter(Boolean);
 }
 
+/** Returns the max papers to fetch per category from env (default 10 for free tier safety). */
+export function maxPapersPerCategory(env: { ARXIV_FETCH_LIMIT_PER_CATEGORY?: string }): number {
+  const v = parseInt(env.ARXIV_FETCH_LIMIT_PER_CATEGORY ?? '10', 10);
+  return isNaN(v) || v < 1 ? 10 : v;
+}
+
 /** Async delay in milliseconds. */
 export function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
