@@ -80,7 +80,11 @@ async function generateSummaryAttempt(
 ): Promise<SummaryFields> {
   const prompt = USER_PROMPT.replace('{abstract}', abstract.slice(0, 4000));
 
-  const aiResponse = await env.AI.run(model, {
+  // Rotate between AI accounts
+  const aiBindings = [env.AI, (env as any).AI2, (env as any).AI3].filter(Boolean);
+  const aiBinding = aiBindings[Math.floor(Math.random() * aiBindings.length)] || env.AI;
+
+  const aiResponse = await aiBinding.run(model, {
     messages: [
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user', content: prompt },

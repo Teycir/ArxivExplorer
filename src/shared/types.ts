@@ -139,4 +139,16 @@ export interface Env {
   CACHE_TTL_TRENDING_SECONDS?: string;
   CACHE_TTL_EMBED_SECONDS?: string;
   ALLOWED_ORIGIN?: string;
+  // Phase control
+  // 'bulk'   → rotating daily topic fill (uses BULK_SCHEDULE + BULK_LIMIT)
+  // 'steady' → low-volume daily trickle of new papers across all categories
+  INGEST_PHASE?: 'bulk' | 'steady';
+  // JSON: [["cs.AI","cs.LG"],["cs.CL","cs.CV"],["cs.LG","stat.ML"],...]
+  // Each inner array = one day's categories. Worker picks today's slot by
+  // (UTC day-of-year % slots.length). Leave unset to use built-in default.
+  INGEST_BULK_SCHEDULE?: string;
+  // Max papers per category during bulk phase (default 50)
+  INGEST_BULK_LIMIT?: string;
+  // Max papers per category during steady phase (default 5)
+  INGEST_STEADY_LIMIT?: string;
 }

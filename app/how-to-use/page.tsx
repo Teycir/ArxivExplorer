@@ -6,14 +6,14 @@ import { Search, FileText, BookOpen, Users, Tag, TrendingUp } from 'lucide-react
 
 export const metadata: Metadata = {
   title: 'How to Use',
-  description: 'Learn how to search and explore arXiv papers on ArxivExplorer.',
+  description: 'Learn how to search and explore CS arXiv papers on ArxivCSExplorer.',
 };
 
 const STEPS = [
   {
     icon: <Search size={16} />,
     title: 'Search by keyword or concept',
-    body: 'Type any research topic, method name, acronym, or question into the search box. ArxivExplorer uses hybrid semantic + keyword search — so "efficient attention for long sequences" and "linear attention" both surface FlashAttention-style papers.',
+    body: 'Type any CS research topic, method name, acronym, or question into the search box. ArxivCSExplorer uses hybrid semantic + keyword search — so "efficient attention for long sequences" and "linear attention" both surface FlashAttention-style papers. Only CS-scoped queries are accepted.',
   },
   {
     icon: <FileText size={16} />,
@@ -56,7 +56,7 @@ export default function HowToUsePage() {
 
         <h1 className="text-2xl font-mono font-bold text-white/90 mb-1">How to Use</h1>
         <p className="text-sm text-neon-red/40 font-mono mb-10">
-          ArxivExplorer is designed to be self-explanatory, but here&rsquo;s a quick guide.
+          ArxivCSExplorer is designed to be self-explanatory, but here&rsquo;s a quick guide.
         </p>
 
         <div className="flex flex-col gap-4">

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="35%" r="60%">
+      <stop offset="0%" stop-color="#111"/>
+      <stop offset="100%" stop-color="#0a0a0a"/>
+    </radialGradient>
+  </defs>
+  <rect width="32" height="32" rx="7" fill="url(#bg)"/>
+  <rect width="32" height="32" rx="7" fill="none" stroke="#00ff41" stroke-width="0.8" opacity="0.35"/>
+  <line x1="3" y1="3" x2="3" y2="8" stroke="#00ff41" stroke-width="1.2" opacity="0.5"/>
+  <line x1="3" y1="3" x2="8" y2="3" stroke="#00ff41" stroke-width="1.2" opacity="0.5"/>
+  <line x1="29" y1="3" x2="24" y2="3" stroke="#00ff41" stroke-width="1.2" opacity="0.5"/>
+  <line x1="29" y1="3" x2="29" y2="8" stroke="#00ff41" stroke-width="1.2" opacity="0.5"/>
+  <line x1="3" y1="29" x2="3" y2="24" stroke="#00ff41" stroke-width="1.2" opacity="0.5"/>
+  <line x1="3" y1="29" x2="8" y2="29" stroke="#00ff41" stroke-width="1.2" opacity="0.5"/>
+  <line x1="29" y1="29" x2="24" y2="29" stroke="#00ff41" stroke-width="1.2" opacity="0.5"/>
+  <line x1="29" y1="29" x2="29" y2="24" stroke="#00ff41" stroke-width="1.2" opacity="0.5"/>
+  <text x="16" y="20" font-family="monospace" font-size="13" font-weight="700" fill="#00ff41" text-anchor="middle">cs</text>
+  <line x1="5" y1="24" x2="27" y2="24" stroke="#00ff41" stroke-width="0.6" opacity="0.25"/>
+</svg>

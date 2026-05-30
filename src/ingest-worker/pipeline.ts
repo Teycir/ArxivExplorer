@@ -240,7 +240,7 @@ async function getPendingPapers(db: D1Database, limit: number): Promise<ArxivEnt
     published: r.published_at,
     updated: r.revised_at ?? r.published_at,
     pdfUrl: r.pdf_url,
-    htmlUrl: r.html_url ?? undefined,
+    ...(r.html_url && { htmlUrl: r.html_url }),
   }));
 }
 

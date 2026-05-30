@@ -61,6 +61,83 @@ export function isInScope(paperCategories: string[], indexedCategories: string[]
   return paperCategories.some(c => indexed.has(c.toLowerCase()));
 }
 
+// ─── All CS sub-categories covered by topics in the schema seed ────────────
+// Used for user submission validation: any paper must belong to at least
+// one of these to be usable with our cached content.
+export const ALL_CS_CATEGORIES = [
+  'cs.AI', 'cs.LG', 'cs.CL', 'cs.CV',
+  'cs.IR', 'cs.AR', 'cs.NE', 'cs.RO',
+  'stat.ML',
+] as const;
+
+/**
+ * Default bulk schedule — each slot is one day's ingest categories.
+ * Day index = UTC day-of-year % slots.length.
+ * Designed so each topic group fits within ~200 papers (budget 227/day):
+ *   slot 0: cs.AI + cs.LG       (Agents, Alignment, RL, Efficient ML)  ~130/day raw
+ *   slot 1: cs.CL                (LLMs, RAG, Multimodal)                ~120/day raw
+ *   slot 2: cs.CV + stat.ML     (Diffusion, Vision, GNNs)               ~150/day raw
+ *   slot 3: cs.IR + cs.AR + cs.NE + cs.RO  (niche, low volume)         ~40/day raw
+ * After 4 days the whole topic space is filled; schedule repeats picking
+ * up any papers published since the last run of that slot.
+ */
+export const DEFAULT_BULK_SCHEDULE: string[][] = [
+  ['cs.AI', 'cs.LG'],
+  ['cs.CL'],
+  ['cs.CV', 'stat.ML'],
+  ['cs.IR', 'cs.AR', 'cs.NE', 'cs.RO'],
+];
+
+/**
+ * Returns today's ingest categories + limit based on INGEST_PHASE.
+ *
+ * bulk phase:
+ *   - Picks today's slot from INGEST_BULK_SCHEDULE (or DEFAULT_BULK_SCHEDULE)
+ *   - Uses INGEST_BULK_LIMIT (default 50) papers per category
+ *
+ * steady phase:
+ *   - Uses ALL_CS_CATEGORIES across the board
+ *   - Uses INGEST_STEADY_LIMIT (default 5) papers per category
+ *
+ * Falls back to steady if INGEST_PHASE is unset.
+ */
+export function resolveIngestPlan(env: {
+  INGEST_PHASE?: string;
+  INGEST_BULK_SCHEDULE?: string;
+  INGEST_BULK_LIMIT?: string;
+  INGEST_STEADY_LIMIT?: string;
+}): { categories: string[]; limit: number; phase: string } {
+  const phase = env.INGEST_PHASE ?? 'steady';
+
+  if (phase === 'bulk') {
+    // Parse schedule or fall back to default
+    let schedule = DEFAULT_BULK_SCHEDULE;
+    if (env.INGEST_BULK_SCHEDULE) {
+      try {
+        const parsed = JSON.parse(env.INGEST_BULK_SCHEDULE) as string[][];
+        if (Array.isArray(parsed) && parsed.length > 0) schedule = parsed;
+      } catch {
+        console.warn('[utils] INGEST_BULK_SCHEDULE is not valid JSON — using default');
+      }
+    }
+    // Pick today's slot by UTC day-of-year
+    const now = new Date();
+    const start = new Date(now.getUTCFullYear(), 0, 0);
+    const dayOfYear = Math.floor((now.getTime() - start.getTime()) / 86_400_000);
+    const slot = schedule[dayOfYear % schedule.length]!;
+    const limit = parseInt(env.INGEST_BULK_LIMIT ?? '50', 10);
+    return { categories: slot, limit: isNaN(limit) ? 50 : limit, phase: `bulk/day${dayOfYear % schedule.length}` };
+  }
+
+  // steady
+  const limit = parseInt(env.INGEST_STEADY_LIMIT ?? '5', 10);
+  return {
+    categories: [...ALL_CS_CATEGORIES],
+    limit: isNaN(limit) ? 5 : limit,
+    phase: 'steady',
+  };
+}
+
 /** Async delay in milliseconds. */
 export function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));

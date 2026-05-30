@@ -1,7 +1,7 @@
 'use client';
 // app/search/page.tsx
 // Client-side search results page.
-// Reads ?q= from URL, calls API, renders results.
+// Reads ?q= from URL, validates CS scope, calls API, renders results.
 
 import { useEffect, useState, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
@@ -10,8 +10,9 @@ import { searchPapers } from '@/helper/api';
 import { Navbar } from '../components/Navbar';
 import { PaperCard } from '../components/PaperCard';
 import { CategoryScopeBar } from '../components/CategoryScopeBar';
+import { isCSQuery, CS_BLOCK_MESSAGE } from '@/lib/csGuard';
 import type { SearchResult } from '@/src/shared/types';
-import { Search, AlertCircle, Loader2 } from 'lucide-react';
+import { Search, AlertCircle, Loader2, ShieldX } from 'lucide-react';
 
 function SearchResults() {
   const searchParams = useSearchParams();
@@ -21,8 +22,11 @@ function SearchResults() {
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState<string | null>(null);
 
+  const isAllowed = !query || isCSQuery(query);
+
   const doSearch = useCallback(async (q: string) => {
     if (!q) { setResult(null); setError(null); return; }
+    if (!isCSQuery(q)) { setResult(null); setError(null); return; }
     setLoading(true);
     setError(null);
     try {
@@ -37,6 +41,7 @@ function SearchResults() {
 
   useEffect(() => { doSearch(query); }, [query, doSearch]);
 
+  // ── No query ──────────────────────────────────────────────────────────────
   if (!query) {
     return (
       <div className="flex flex-col items-center justify-center py-32 text-center gap-4">
@@ -47,15 +52,38 @@ function SearchResults() {
     );
   }
 
-  if (loading) {
+  // ── Blocked: non-CS query ─────────────────────────────────────────────────
+  if (!isAllowed) {
     return (
-      <div className="flex flex-col items-center justify-center py-32 gap-3">
-        <Loader2 size={28} className="text-neon-red/50 animate-spin" />
-        <p className="text-neon-red/40 font-mono text-xs">Searching…</p>
+      <div className="flex flex-col items-center justify-center py-32 gap-5 text-center">
+        <ShieldX size={40} className="text-amber-400/60" />
+        <div className="flex flex-col gap-2">
+          <p className="text-amber-300/80 font-mono text-sm font-semibold">
+            Query outside CS scope
+          </p>
+          <p className="text-white/30 font-mono text-xs max-w-md leading-relaxed">
+            {CS_BLOCK_MESSAGE}
+          </p>
+        </div>
+        <CategoryScopeBar />
+        <Link href="/" className="mt-2 text-xs text-neon-red/40 hover:text-neon-red font-mono underline">
+          ← Back to home
+        </Link>
       </div>
     );
   }
 
+  // ── Loading ───────────────────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-32 gap-3">
+        <Loader2 size={28} className="text-neon-red/50 animate-spin" />
+        <p className="text-neon-red/40 font-mono text-xs">Searching CS papers…</p>
+      </div>
+    );
+  }
+
+  // ── Error ─────────────────────────────────────────────────────────────────
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center py-32 gap-3 text-center">
@@ -66,6 +94,7 @@ function SearchResults() {
     );
   }
 
+  // ── Empty results ─────────────────────────────────────────────────────────
   if (result && result.papers.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-32 gap-4 text-center">
@@ -74,9 +103,7 @@ function SearchResults() {
           No results for &ldquo;{query}&rdquo;
         </p>
         <p className="text-white/30 font-mono text-xs max-w-sm leading-relaxed">
-          This index only covers <span className="text-neon-red/50">cs.AI</span> and{' '}
-          <span className="text-neon-red/50">cs.LG</span> papers. Try different keywords
-          or browse a topic below.
+          The index covers CS categories. Try different keywords or browse a topic.
         </p>
         <CategoryScopeBar />
         <Link href="/" className="mt-2 text-xs text-neon-red/40 hover:text-neon-red font-mono underline">
@@ -86,6 +113,7 @@ function SearchResults() {
     );
   }
 
+  // ── Results ───────────────────────────────────────────────────────────────
   return (
     <>
       {result && (
@@ -97,9 +125,8 @@ function SearchResults() {
               <span className="ml-2 text-neon-red/25">(cached)</span>
             )}
           </p>
-          {/* Always visible scope reminder on results */}
           <span className="text-[10px] font-mono text-neon-red/25 uppercase tracking-wider">
-            cs.AI · cs.LG only
+            CS papers only
           </span>
         </div>
       )}

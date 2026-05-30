@@ -1,14 +1,14 @@
 'use client';
 // app/components/Navbar.tsx
-// Sticky top nav — logo + search input.
-// SearchInput is wrapped in Suspense internally so it's safe in all RSC pages.
+// Sticky top nav — logo + search input with CS scope guard.
 
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useState, useEffect, type KeyboardEvent, Suspense } from 'react';
-import { Search } from 'lucide-react';
+import { Search, ShieldX } from 'lucide-react';
 import { loadBookmarks } from '@/lib/bookmarks';
 import { pushSearch } from '@/lib/searchHistory';
+import { isCSQuery } from '@/lib/csGuard';
 import { SearchHistory } from './SearchHistory';
 
 function SearchInput() {
@@ -16,42 +16,68 @@ function SearchInput() {
   const searchParams = useSearchParams();
   const [query,   setQuery]   = useState(searchParams.get('q') ?? '');
   const [focused, setFocused] = useState(false);
+  const [blocked, setBlocked] = useState(false);
 
   useEffect(() => {
     setQuery(searchParams.get('q') ?? '');
+    setBlocked(false);
   }, [searchParams]);
 
   function handleKey(e: KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Enter') {
       const q = query.trim();
-      if (q) { pushSearch(q); router.push(`/search?q=${encodeURIComponent(q)}`); }
+      if (!q) return;
+      if (!isCSQuery(q)) { setBlocked(true); return; }
+      setBlocked(false);
+      pushSearch(q);
+      router.push(`/search?q=${encodeURIComponent(q)}`);
     }
-    if (e.key === 'Escape') setFocused(false);
+    if (e.key === 'Escape') { setFocused(false); setBlocked(false); }
+  }
+
+  function handleChange(v: string) {
+    setQuery(v);
+    if (blocked && isCSQuery(v)) setBlocked(false);
   }
 
   return (
     <div className="relative flex-1 max-w-lg">
       <Search
         size={14}
-        className="absolute left-3 top-1/2 -translate-y-1/2 text-neon-red/35 pointer-events-none"
+        className={`absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none transition-colors ${
+          blocked ? 'text-amber-500/60' : 'text-neon-red/35'
+        }`}
       />
       <input
         type="text"
         value={query}
-        onChange={(e) => setQuery(e.target.value)}
+        onChange={(e) => handleChange(e.target.value)}
         onKeyDown={handleKey}
         onFocus={() => setFocused(true)}
         onBlur={() => setTimeout(() => setFocused(false), 150)}
-        placeholder="Search cs.AI · cs.LG…"
+        placeholder="Search CS papers…"
         autoComplete="off"
         spellCheck={false}
-        className="search-input w-full pl-9 pr-3 py-2 text-xs"
-        aria-label="Search arXiv papers"
+        className={`search-input w-full pl-9 pr-3 py-2 text-xs transition-all ${
+          blocked ? 'border-amber-500/40 ring-1 ring-amber-500/20' : ''
+        }`}
+        aria-label="Search arXiv CS papers"
       />
+      {/* Inline block tooltip */}
+      {blocked && (
+        <div className="absolute top-full left-0 right-0 mt-1 z-50
+          flex items-start gap-1.5 px-2.5 py-2 rounded-lg
+          border border-amber-500/30 bg-[#0a0a0a]/95 backdrop-blur-sm shadow-lg">
+          <ShieldX size={11} className="text-amber-400 flex-shrink-0 mt-0.5" />
+          <p className="text-[10px] font-mono text-amber-300/80 leading-snug">
+            CS topics only — try ML, cryptography, systems, or algorithms
+          </p>
+        </div>
+      )}
       <SearchHistory
         query={query}
-        visible={focused}
-        onSelect={q => { setQuery(q); setFocused(false); }}
+        visible={focused && !blocked}
+        onSelect={q => { setQuery(q); setBlocked(false); setFocused(false); }}
       />
     </div>
   );
@@ -61,7 +87,6 @@ export function Navbar() {
   const [bookmarkCount, setBookmarkCount] = useState(0);
 
   useEffect(() => {
-    // Read on mount, then keep in sync via storage events (other tabs)
     function sync() {
       setBookmarkCount(loadBookmarks().bookmarks.length);
     }
@@ -79,6 +104,9 @@ export function Navbar() {
           <span className="text-neon-red font-mono font-bold text-base tracking-widest uppercase
             group-hover:text-glow transition-all">
             ArXiv
+          </span>
+          <span className="text-white/60 font-mono font-light text-base tracking-widest uppercase">
+            CS
           </span>
           <span className="text-white/60 font-mono font-light text-base tracking-widest uppercase">
             Explorer

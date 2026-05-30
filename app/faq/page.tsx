@@ -6,17 +6,17 @@ import { ChevronDown } from 'lucide-react';
 
 export const metadata: Metadata = {
   title: 'FAQ',
-  description: 'Frequently asked questions about ArxivExplorer — how it works, what AI models are used, and more.',
+  description: 'Frequently asked questions about ArxivCSExplorer — how it works, what AI models are used, and more.',
 };
 
 const FAQS = [
   {
-    q: 'What is ArxivExplorer?',
-    a: 'ArxivExplorer is a fast, AI-powered search engine for arXiv research papers. It indexes recent papers from machine learning, NLP, computer vision, and statistics, and generates concise AI summaries — so you can understand a paper in 60 seconds without reading the full PDF.',
+    q: 'What is ArxivCSExplorer?',
+    a: 'ArxivCSExplorer is a fast, AI-powered search engine for Computer Science arXiv papers. It indexes recent papers from ML, NLP, computer vision, cryptography, systems, algorithms, and more — and generates concise AI summaries so you can understand a paper in 60 seconds without reading the full PDF.',
   },
   {
     q: 'Where does the paper data come from?',
-    a: 'Papers are fetched directly from the official arXiv API (export.arxiv.org) every hour. We index the most recent submissions across cs.LG, cs.CL, cs.CV, and stat.ML categories.',
+    a: 'Papers are fetched directly from the official arXiv API (export.arxiv.org) and are scoped strictly to CS categories: cs.AI, cs.LG, cs.CL, cs.CV, cs.CR, cs.DC, cs.DS, and more.',
   },
   {
     q: 'What AI model generates the summaries?',
@@ -48,7 +48,7 @@ const FAQS = [
   },
   {
     q: 'Who built this?',
-    a: 'ArxivExplorer was built by Teycir Ben Soltane as a fast, cache-first alternative to reading arXiv manually.',
+    a: 'ArxivCSExplorer was built by Teycir Ben Soltane as a fast, cache-first CS paper explorer.',
   },
 ];
 
@@ -66,7 +66,7 @@ export default function FaqPage() {
 
         <h1 className="text-2xl font-mono font-bold text-white/90 mb-1">FAQ</h1>
         <p className="text-sm text-neon-red/40 font-mono mb-10">
-          Frequently asked questions about ArxivExplorer.
+          Frequently asked questions about ArxivCSExplorer.
         </p>
 
         <div className="flex flex-col gap-4">

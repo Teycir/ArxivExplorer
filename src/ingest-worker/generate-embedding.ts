@@ -15,7 +15,11 @@ export async function generateEmbedding(text: string, env: Env): Promise<number[
   // Truncate to avoid exceeding model token limits
   const truncated = text.slice(0, 2000);
 
-  const response = await env.AI.run(embeddingModel(env), {
+  // Rotate between AI accounts
+  const aiBindings = [env.AI, (env as any).AI2, (env as any).AI3].filter(Boolean);
+  const aiBinding = aiBindings[Math.floor(Math.random() * aiBindings.length)] || env.AI;
+
+  const response = await aiBinding.run(embeddingModel(env), {
     text: [truncated],
   }) as unknown as EmbeddingResponse;
 

@@ -6,30 +6,29 @@ import { ScrollProgress } from './components/ScrollProgress';
 export const metadata: Metadata = {
   metadataBase: new URL('https://arxiv-explorer.pages.dev'),
   title: {
-    default: 'ArxivExplorer — Fast semantic arXiv search with AI summaries',
-    template: '%s | ArxivExplorer',
+    default: 'ArxivCSExplorer — Fast semantic CS arXiv search with AI summaries',
+    template: '%s | ArxivCSExplorer',
   },
   description:
-    'Understand any arXiv paper in 60 seconds. Fast semantic search, cached AI summaries, related papers — no login required.',
-  keywords: ['arxiv', 'research papers', 'AI summaries', 'semantic search', 'machine learning', 'NLP', 'computer vision'],
+    'Understand any CS arXiv paper in 60 seconds. Fast semantic search across ML, cryptography, systems, algorithms, and more — no login required.',
+  keywords: ['arxiv', 'computer science', 'research papers', 'AI summaries', 'semantic search', 'machine learning', 'cryptography', 'systems'],
   authors: [{ name: 'Teycir Ben Soltane', url: 'https://teycirbensoltane.tn' }],
   openGraph: {
     type: 'website',
     locale: 'en_US',
     url: 'https://arxiv-explorer.pages.dev',
-    siteName: 'ArxivExplorer',
-    title: 'ArxivExplorer — Fast semantic arXiv search with AI summaries',
-    description: 'Understand any arXiv paper in 60 seconds.',
-    images: [{ url: '/og.png', width: 1200, height: 630, alt: 'ArxivExplorer' }],
+    siteName: 'ArxivCSExplorer',
+    title: 'ArxivCSExplorer — Fast semantic CS arXiv search with AI summaries',
+    description: 'Understand any CS arXiv paper in 60 seconds.',
+    images: [{ url: '/og.png', width: 1200, height: 630, alt: 'ArxivCSExplorer' }],
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'ArxivExplorer',
-    description: 'Fast semantic arXiv search with cached AI summaries.',
+    title: 'ArxivCSExplorer',
+    description: 'Fast semantic CS arXiv search with cached AI summaries.',
     images: ['/og.png'],
   },
   robots: { index: true, follow: true },
-  icons: { icon: '/favicon.ico' },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
