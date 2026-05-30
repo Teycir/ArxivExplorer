@@ -10,26 +10,30 @@ import { CategoryBadge } from '../../components/CategoryBadge';
 export const revalidate = 43200;
 
 interface Props {
-  params: { slug: string };
+  params: Promise<{ slug: string }>;
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { slug } = await params;
   try {
-    const { topic } = await getTopicPapers(params.slug);
+    const { topic } = await getTopicPapers(slug);
     return {
       title: `${topic.label} — arXiv Papers`,
       description: topic.description ?? `Browse ${topic.label} research papers on ArxivExplorer.`,
     };
-  } catch {
+  } catch (err) {
+    console.error('[topic/generateMetadata]', slug, err);
     return { title: 'Topic not found' };
   }
 }
 
 export default async function TopicPage({ params }: Props) {
+  const { slug } = await params;
   let data: Awaited<ReturnType<typeof getTopicPapers>>;
   try {
-    data = await getTopicPapers(params.slug);
-  } catch {
+    data = await getTopicPapers(slug);
+  } catch (err) {
+    console.error('[topic/page]', slug, err);
     notFound();
   }
 

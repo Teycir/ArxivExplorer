@@ -10,11 +10,12 @@ import { Users } from 'lucide-react';
 export const revalidate = 21600;
 
 interface Props {
-  params: { name: string };
+  params: Promise<{ name: string }>;
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const name = decodeURIComponent(params.name);
+  const { name: rawName } = await params;
+  const name = decodeURIComponent(rawName);
   return {
     title: `${name} — arXiv Papers`,
     description: `Browse arXiv papers by ${name} on ArxivExplorer.`,
@@ -22,7 +23,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 }
 
 export default async function AuthorPage({ params }: Props) {
-  const name = decodeURIComponent(params.name);
+  const { name: rawName } = await params;
+  const name = decodeURIComponent(rawName);
 
   let data: Awaited<ReturnType<typeof getAuthorPapers>>;
   try {

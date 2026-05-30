@@ -14,15 +14,16 @@ import { BookmarkButton } from '../../components/BookmarkButton';
 import { CopyBibtex } from '../../components/CopyBibtex';
 
 interface Props {
-  params: { arxiv_id: string };
+  params: Promise<{ arxiv_id: string }>;
 }
 
 // ISR fallback for newly-indexed papers; popular ones are statically generated
 export const revalidate = false; // static, papers are immutable
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { arxiv_id } = await params;
   try {
-    const paper = await getPaper(decodeURIComponent(params.arxiv_id));
+    const paper = await getPaper(decodeURIComponent(arxiv_id));
     return {
       title: paper.title,
       description: paper.summary?.tldr ?? paper.abstract.slice(0, 160),
@@ -55,7 +56,8 @@ async function fetchPaperData(arxivId: string): Promise<{
 }
 
 export default async function PaperPage({ params }: Props) {
-  const arxivId = decodeURIComponent(params.arxiv_id);
+  const { arxiv_id } = await params;
+  const arxivId = decodeURIComponent(arxiv_id);
 
   let paper: PaperWithSummary;
   let related: RelatedPaper[];
