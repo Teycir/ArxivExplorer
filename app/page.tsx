@@ -4,6 +4,7 @@ import { getTrendingPapers } from '@/helper/api';
 import { AnimatedTagline } from './components/AnimatedTagline';
 import { BackgroundBeams } from './components/ui/background-beams';
 import { SearchBoxHome } from './components/SearchBoxHome';
+import { RecentSearches } from './components/RecentSearches';
 import { PaperCard } from './components/PaperCard';
 import { TopicChips } from './components/TopicChips';
 import { PersonalizedFeed } from './components/PersonalizedFeed';
@@ -63,6 +64,11 @@ export default async function HomePage() {
           {/* Search box */}
           <div className="w-full mt-4">
             <SearchBoxHome />
+          </div>
+
+          {/* Recent searches */}
+          <div className="w-full mt-6 max-w-md mx-auto">
+            <RecentSearches />
           </div>
 
           {/* Example queries */}

@@ -44,7 +44,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           className="fixed top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] pointer-events-none"
           style={{
             background:
-              'radial-gradient(ellipse at center top, rgba(255,26,26,0.07) 0%, transparent 70%)',
+              'radial-gradient(ellipse at center top, rgba(0,255,65,0.07) 0%, transparent 70%)',
           }}
           aria-hidden="true"
         />

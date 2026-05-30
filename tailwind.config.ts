@@ -10,7 +10,7 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        'neon-red': '#ff1a1a',
+        'neon-red': '#00ff41',
         'dark-bg':  '#0a0a0a',
       },
       fontFamily: {

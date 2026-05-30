@@ -7,9 +7,9 @@
 /* ─── Base ─────────────────────────────────────────────────────────────────── */
 
 :root {
-  --neon-red:   #ff1a1a;
-  --neon-red-40: rgba(255, 26, 26, 0.40);
-  --neon-red-10: rgba(255, 26, 26, 0.10);
+  --neon-red:   #00ff41;
+  --neon-red-40: rgba(0, 255, 65, 0.40);
+  --neon-red-10: rgba(0, 255, 65, 0.10);
   --dark-bg:    #0a0a0a;
   --card-bg:    rgba(10, 10, 10, 0.60);
 }
@@ -34,7 +34,7 @@ body {
 }
 
 ::selection {
-  background: rgba(255, 26, 26, 0.35);
+  background: rgba(0, 255, 65, 0.35);
   color: #fff;
 }
 
@@ -42,8 +42,8 @@ body {
 
 ::-webkit-scrollbar        { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track  { background: var(--dark-bg); }
-::-webkit-scrollbar-thumb  { background: rgba(255, 26, 26, 0.30); border-radius: 2px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255, 26, 26, 0.60); }
+::-webkit-scrollbar-thumb  { background: rgba(0, 255, 65, 0.30); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(0, 255, 65, 0.60); }
 
 /* ─── Scroll-progress bar ────────────────────────────────────────────────────── */
 
@@ -63,8 +63,8 @@ body {
 
 .bg-grid {
   background-image:
-    linear-gradient(rgba(255, 26, 26, 0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 26, 26, 0.04) 1px, transparent 1px);
+    linear-gradient(rgba(0, 255, 65, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 255, 65, 0.04) 1px, transparent 1px);
   background-size: 40px 40px;
 }
 
@@ -72,19 +72,19 @@ body {
 
 .glow-red {
   box-shadow:
-    0 0 20px rgba(255, 26, 26, 0.15),
-    0 0 60px rgba(255, 26, 26, 0.05);
+    0 0 20px rgba(0, 255, 65, 0.15),
+    0 0 60px rgba(0, 255, 65, 0.05);
 }
 
 .text-glow {
-  text-shadow: 0 0 20px rgba(255, 26, 26, 0.60);
+  text-shadow: 0 0 20px rgba(0, 255, 65, 0.60);
 }
 
 /* ─── Input ──────────────────────────────────────────────────────────────────── */
 
 .search-input {
-  background: rgba(255, 26, 26, 0.04);
-  border: 1px solid rgba(255, 26, 26, 0.20);
+  background: rgba(0, 255, 65, 0.04);
+  border: 1px solid rgba(0, 255, 65, 0.20);
   border-radius: 12px;
   color: #e5e5e5;
   font-family: 'JetBrains Mono', monospace;
@@ -92,13 +92,13 @@ body {
   outline: none;
 }
 
-.search-input::placeholder { color: rgba(255, 26, 26, 0.35); }
+.search-input::placeholder { color: rgba(0, 255, 65, 0.35); }
 
 .search-input:focus {
-  border-color: rgba(255, 26, 26, 0.60);
+  border-color: rgba(0, 255, 65, 0.60);
   box-shadow:
-    0 0 0 3px rgba(255, 26, 26, 0.08),
-    0 0 20px rgba(255, 26, 26, 0.12);
+    0 0 0 3px rgba(0, 255, 65, 0.08),
+    0 0 20px rgba(0, 255, 65, 0.12);
 }
 
 /* ─── Badge ──────────────────────────────────────────────────────────────────── */
@@ -112,9 +112,9 @@ body {
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  border: 1px solid rgba(255, 26, 26, 0.25);
-  color: rgba(255, 26, 26, 0.80);
-  background: rgba(255, 26, 26, 0.06);
+  border: 1px solid rgba(0, 255, 65, 0.25);
+  color: rgba(0, 255, 65, 0.80);
+  background: rgba(0, 255, 65, 0.06);
 }
 
 /* ─── Prose (FAQ / How-to-use) ───────────────────────────────────────────────── */
@@ -123,7 +123,7 @@ body {
   font-family: 'JetBrains Mono', monospace;
   font-size: 1.1rem;
   font-weight: 700;
-  color: #ff1a1a;
+  color: #00ff41;
   margin-top: 2rem;
   margin-bottom: 0.75rem;
   letter-spacing: 0.05em;
@@ -143,18 +143,18 @@ body {
   content: '▸';
   position: absolute;
   left: 0;
-  color: rgba(255, 26, 26, 0.60);
+  color: rgba(0, 255, 65, 0.60);
 }
 
-.prose-arxiv a { color: #ff1a1a; text-decoration: underline; }
+.prose-arxiv a { color: #00ff41; text-decoration: underline; }
 .prose-arxiv a:hover { opacity: 0.80; }
 
 .prose-arxiv code {
   font-family: 'JetBrains Mono', monospace;
   font-size: 0.85em;
-  background: rgba(255, 26, 26, 0.08);
-  border: 1px solid rgba(255, 26, 26, 0.15);
+  background: rgba(0, 255, 65, 0.08);
+  border: 1px solid rgba(0, 255, 65, 0.15);
   border-radius: 4px;
   padding: 1px 5px;
-  color: #ff6666;
+  color: #66ff99;
 }
