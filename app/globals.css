@@ -1,0 +1,160 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Base ─────────────────────────────────────────────────────────────────── */
+
+:root {
+  --neon-red:   #ff1a1a;
+  --neon-red-40: rgba(255, 26, 26, 0.40);
+  --neon-red-10: rgba(255, 26, 26, 0.10);
+  --dark-bg:    #0a0a0a;
+  --card-bg:    rgba(10, 10, 10, 0.60);
+}
+
+* {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--dark-bg);
+  color: #e5e5e5;
+  font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+  min-height: 100vh;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: rgba(255, 26, 26, 0.35);
+  color: #fff;
+}
+
+/* ─── Scrollbar ─────────────────────────────────────────────────────────────── */
+
+::-webkit-scrollbar        { width: 4px; height: 4px; }
+::-webkit-scrollbar-track  { background: var(--dark-bg); }
+::-webkit-scrollbar-thumb  { background: rgba(255, 26, 26, 0.30); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255, 26, 26, 0.60); }
+
+/* ─── Scroll-progress bar ────────────────────────────────────────────────────── */
+
+.scroll-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--neon-red), rgba(255, 26, 26, 0.40));
+  transform-origin: left;
+  z-index: 9999;
+  pointer-events: none;
+}
+
+/* ─── Grid background ────────────────────────────────────────────────────────── */
+
+.bg-grid {
+  background-image:
+    linear-gradient(rgba(255, 26, 26, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 26, 26, 0.04) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+/* ─── Glow effects ───────────────────────────────────────────────────────────── */
+
+.glow-red {
+  box-shadow:
+    0 0 20px rgba(255, 26, 26, 0.15),
+    0 0 60px rgba(255, 26, 26, 0.05);
+}
+
+.text-glow {
+  text-shadow: 0 0 20px rgba(255, 26, 26, 0.60);
+}
+
+/* ─── Input ──────────────────────────────────────────────────────────────────── */
+
+.search-input {
+  background: rgba(255, 26, 26, 0.04);
+  border: 1px solid rgba(255, 26, 26, 0.20);
+  border-radius: 12px;
+  color: #e5e5e5;
+  font-family: 'JetBrains Mono', monospace;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  outline: none;
+}
+
+.search-input::placeholder { color: rgba(255, 26, 26, 0.35); }
+
+.search-input:focus {
+  border-color: rgba(255, 26, 26, 0.60);
+  box-shadow:
+    0 0 0 3px rgba(255, 26, 26, 0.08),
+    0 0 20px rgba(255, 26, 26, 0.12);
+}
+
+/* ─── Badge ──────────────────────────────────────────────────────────────────── */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border: 1px solid rgba(255, 26, 26, 0.25);
+  color: rgba(255, 26, 26, 0.80);
+  background: rgba(255, 26, 26, 0.06);
+}
+
+/* ─── Prose (FAQ / How-to-use) ───────────────────────────────────────────────── */
+
+.prose-arxiv h2 {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #ff1a1a;
+  margin-top: 2rem;
+  margin-bottom: 0.75rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.prose-arxiv p  { color: rgba(229, 229, 229, 0.80); line-height: 1.75; margin-bottom: 1rem; }
+.prose-arxiv ul { list-style: none; padding: 0; }
+.prose-arxiv ul li {
+  color: rgba(229, 229, 229, 0.80);
+  padding-left: 1.25rem;
+  position: relative;
+  margin-bottom: 0.5rem;
+  line-height: 1.7;
+}
+.prose-arxiv ul li::before {
+  content: '▸';
+  position: absolute;
+  left: 0;
+  color: rgba(255, 26, 26, 0.60);
+}
+
+.prose-arxiv a { color: #ff1a1a; text-decoration: underline; }
+.prose-arxiv a:hover { opacity: 0.80; }
+
+.prose-arxiv code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85em;
+  background: rgba(255, 26, 26, 0.08);
+  border: 1px solid rgba(255, 26, 26, 0.15);
+  border-radius: 4px;
+  padding: 1px 5px;
+  color: #ff6666;
+}

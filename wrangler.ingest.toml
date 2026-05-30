@@ -1,0 +1,31 @@
+name = "arxiv-ingest"
+main = "src/ingest-worker/index.ts"
+compatibility_date = "2025-01-01"
+workers_dev = true
+
+[triggers]
+crons = ["0 * * * *"]  # every hour
+
+[[d1_databases]]
+binding = "DB"
+database_name = "arxiv-explorer"
+database_id = "67fa825b-9f3e-478c-99d2-3e5cc1b0f3de"
+
+[[vectorize]]
+binding = "VECTORIZE"
+index_name = "arxiv-papers"
+
+[[kv_namespaces]]
+binding = "CACHE"
+id = "ed3c323de9cc48a4b332beec939597a4"
+
+[ai]
+binding = "AI"
+
+[vars]
+ARXIV_FETCH_CATEGORIES = "cs.LG,cs.CL,cs.CV,stat.ML"
+SUMMARY_MODEL = "@cf/meta/llama-3.1-8b-instruct"
+EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5"
+ARXIV_FETCH_LIMIT_PER_CATEGORY = "30"
+INGEST_MAX_CONCURRENT = "5"
+ARXIV_RATE_LIMIT_DELAY_MS = "3000"

@@ -1,0 +1,42 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "arxivexplorer",
+  "pages_build_output_dir": ".open-next",
+  "compatibility_date": "2025-05-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "kv_namespaces": [
+    {
+      "binding": "CACHE",
+      "id": "ed3c323de9cc48a4b332beec939597a4"
+    }
+  ],
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "arxiv-explorer",
+      "database_id": "67fa825b-9f3e-478c-99d2-3e5cc1b0f3de"
+    }
+  ],
+
+  "vectorize": [
+    {
+      "binding": "VECTORIZE",
+      "index_name": "arxiv-papers"
+    }
+  ],
+
+  "ai": {
+    "binding": "AI"
+  },
+
+  "vars": {
+    "ARXIV_FETCH_CATEGORIES": "cs.LG,cs.CL,cs.CV,stat.ML",
+    "SUMMARY_MODEL": "@cf/meta/llama-3.1-8b-instruct",
+    "EMBEDDING_MODEL": "@cf/baai/bge-base-en-v1.5",
+    "CACHE_TTL_SEARCH_SECONDS": "7200",
+    "CACHE_TTL_TRENDING_SECONDS": "3600",
+    "CACHE_TTL_EMBED_SECONDS": "86400"
+  }
+}
