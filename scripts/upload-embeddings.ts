@@ -4,14 +4,14 @@
  * Run after bulk-ingest.ts and db:push
  */
 
-import { Database } from 'bun:sqlite';
+import Database from 'better-sqlite3';
 
 const API_BASE = process.env.API_BASE || 'https://arxiv-api.arxivexplorer.workers.dev';
 
 async function uploadEmbeddings() {
-  const db = new Database('.wrangler/state/v3/d1/miniflare-D1DatabaseObject/arxiv-explorer.sqlite');
+  const db = new Database('.wrangler/state/v3/d1/miniflare-D1DatabaseObject/arxiv-explorer.sqlite', { readonly: true });
   
-  const rows = db.query('SELECT paper_id, embedding FROM embeddings').all() as Array<{
+  const rows = db.prepare('SELECT paper_id, embedding FROM embeddings').all() as Array<{
     paper_id: string;
     embedding: Buffer;
   }>;
