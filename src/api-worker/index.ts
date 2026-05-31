@@ -22,6 +22,7 @@ import { handleTopic } from './routes/topic';
 import { handleTrending } from './routes/trending';
 import { handleAuthor } from './routes/author';
 import { handleSitemap } from './routes/sitemap';
+import { handleVectorizeUpsert } from './routes/admin';
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -32,8 +33,8 @@ export default {
       return new Response(null, { status: 204, headers: cors });
     }
 
-    // Only GET allowed
-    if (request.method !== 'GET') {
+    // Only GET allowed (except admin routes)
+    if (request.method !== 'GET' && !path.startsWith('/admin/')) {
       return new Response(JSON.stringify({ error: 'Method not allowed' }), {
         status: 405,
         headers: { 'Content-Type': 'application/json', ...cors },
@@ -81,6 +82,11 @@ export default {
       const authorMatch = path.match(/^\/api\/author\/(.+)$/);
       if (authorMatch) {
         return handleAuthor(request, env, ctx, authorMatch[1]!);
+      }
+
+      // /admin/vectorize/upsert (POST)
+      if (path === '/admin/vectorize/upsert' && request.method === 'POST') {
+        return handleVectorizeUpsert(request, env);
       }
 
       return new Response(JSON.stringify({ error: 'Not found', path }), {
