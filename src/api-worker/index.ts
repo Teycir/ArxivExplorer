@@ -22,7 +22,7 @@ import { handleTopic } from './routes/topic';
 import { handleTrending } from './routes/trending';
 import { handleAuthor } from './routes/author';
 import { handleSitemap } from './routes/sitemap';
-import { handleVectorizeUpsert } from './routes/admin';
+import { handleVectorizeUpsert, handleRetryFailed } from './routes/admin';
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -87,6 +87,11 @@ export default {
       // /admin/vectorize/upsert (POST)
       if (path === '/admin/vectorize/upsert' && request.method === 'POST') {
         return handleVectorizeUpsert(request, env);
+      }
+
+      // /admin/retry-failed (POST) — reset summary_ready=2 → 0 for retry
+      if (path === '/admin/retry-failed' && request.method === 'POST') {
+        return handleRetryFailed(request, env);
       }
 
       return new Response(JSON.stringify({ error: 'Not found', path }), {

@@ -80,9 +80,13 @@ export async function runIngestionPipeline(env: Env): Promise<IngestResult> {
 
   console.info(`[pipeline] ${newEntries.length} new papers (${scopedEntries.length - newEntries.length} already indexed, ${dropped} out-of-scope dropped)`);
 
-  // Step 2b: Also fetch papers with summary_ready = 0 (pending processing)
-  const pendingPapers = await getPendingPapers(env.DB, 10);
-  console.info(`[pipeline] ${pendingPapers.length} pending papers need processing`);
+  // Step 2b: Also fetch papers needing (re)processing:
+  //   - summary_ready = 0: newly inserted, never attempted
+  //   - summary_ready = 2: previously failed within the last 7 days (retry on fresh quota)
+  // Limit is the same as maxPerCategory so a single ingest run can drain a full failed batch.
+  const retryLimit = Math.max(maxPerCategory, 20);
+  const pendingPapers = await getPendingPapers(env.DB, retryLimit);
+  console.info(`[pipeline] ${pendingPapers.length} pending/failed-retry papers need processing`);
 
   if (newEntries.length === 0 && pendingPapers.length === 0) {
     return result;
@@ -217,13 +221,19 @@ async function getExistingIds(db: D1Database, ids: string[]): Promise<Set<string
 }
 
 async function getPendingPapers(db: D1Database, limit: number): Promise<ArxivEntry[]> {
+  // Pick up both:
+  //   summary_ready = 0 — newly inserted, never attempted
+  //   summary_ready = 2 — previously failed, indexed within the last 7 days (quota/transient errors)
+  // Papers failed > 7 days ago are left alone to avoid burning quota on truly broken entries.
+  const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const { results } = await db.prepare(`
     SELECT id, title, authors, abstract, categories, published_at, revised_at, pdf_url, html_url
     FROM papers
-    WHERE summary_ready = 0
-    ORDER BY indexed_at ASC
+    WHERE (summary_ready = 0)
+       OR (summary_ready = 2 AND indexed_at >= ?)
+    ORDER BY summary_ready ASC, indexed_at ASC
     LIMIT ?
-  `).bind(limit).all<{
+  `).bind(cutoff, limit).all<{
     id: string;
     title: string;
     authors: string;
