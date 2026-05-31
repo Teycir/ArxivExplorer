@@ -9,6 +9,7 @@ import Link from 'next/link';
 import { searchPapers } from '@/helper/api';
 import { Navbar } from '../components/Navbar';
 import { PaperCard } from '../components/PaperCard';
+import { SearchFilters } from '../components/SearchFilters';
 import { CategoryScopeBar } from '../components/CategoryScopeBar';
 import { isCSQuery, CS_BLOCK_MESSAGE } from '@/lib/csGuard';
 import type { SearchResult } from '@/src/shared/types';
@@ -116,6 +117,7 @@ function SearchResults() {
   // ── Results ───────────────────────────────────────────────────────────────
   return (
     <>
+      <SearchFilters />
       {result && (
         <div className="flex items-baseline justify-between mb-5 flex-wrap gap-2">
           <p className="text-xs font-mono text-neon-red/40">

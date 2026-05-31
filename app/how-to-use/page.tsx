@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Navbar } from '../components/Navbar';
 import { Card } from '../components/Card';
+import { CategoryScopeBar } from '../components/CategoryScopeBar';
 import { Search, FileText, BookOpen, Users, Tag, TrendingUp } from 'lucide-react';
 
 export const metadata: Metadata = {
@@ -81,6 +82,14 @@ export default function HowToUsePage() {
               </div>
             </Card>
           ))}
+        </div>
+
+        {/* Indexed Categories */}
+        <div className="mt-10">
+          <h2 className="text-lg font-mono font-bold text-white/90 mb-4">Indexed Categories</h2>
+          <Card>
+            <CategoryScopeBar />
+          </Card>
         </div>
 
         {/* CTA */}

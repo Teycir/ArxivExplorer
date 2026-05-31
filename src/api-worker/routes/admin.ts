@@ -2,7 +2,7 @@
  * Admin endpoint for bulk Vectorize operations
  */
 
-import { Env } from '../../shared/types';
+import type { Env } from '../../shared/types';
 
 export async function handleVectorizeUpsert(request: Request, env: Env): Promise<Response> {
   try {

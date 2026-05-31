@@ -1,3 +1,34 @@
+<!-- donation:eth:start -->
+<div align="center">
+
+## Support Development
+
+If this project helps your work, support ongoing maintenance and new features.
+
+**ETH Donation Wallet**  
+`0x11282eE5726B3370c8B480e321b3B2aA13686582`
+
+<a href="https://etherscan.io/address/0x11282eE5726B3370c8B480e321b3B2aA13686582">
+  <img src="public/publiceth.svg" alt="Ethereum donation QR code" width="220" />
+</a>
+
+_Scan the QR code or copy the wallet address above._
+
+</div>
+<!-- donation:eth:end -->
+
+
+<div align="center">
+
+![License](https://img.shields.io/badge/license-MIT-neon_green?style=for-the-badge)
+![Framework](https://img.shields.io/badge/Framework-Next.js%2015-neon_green?style=for-the-badge)
+![Hosting](https://img.shields.io/badge/Hosting-Cloudflare%20Pages-neon_green?style=for-the-badge)
+![Database](https://img.shields.io/badge/Database-Cloudflare%20D1-neon_green?style=for-the-badge)
+![Vector](https://img.shields.io/badge/Vector-Cloudflare%20Vectorize-neon_green?style=for-the-badge)
+![AI](https://img.shields.io/badge/AI-Workers%20AI%20%7C%20Llama%203.1-neon_green?style=for-the-badge)
+![Embeddings](https://img.shields.io/badge/Embeddings-BGE%20base%20v1.5-neon_green?style=for-the-badge)
+![Local](https://img.shields.io/badge/Local%20Bulk-Ollama-neon_green?style=for-the-badge)
+
 # arXiv Explorer
 
 > Fast semantic arXiv paper search with AI-powered summaries — no login required.
@@ -5,6 +36,8 @@
 A static-first, AI-enhanced search engine for arXiv research papers. Get paper summaries in 60 seconds without waiting for live LLM calls.
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/yourusername/arxiv-explorer)
+
+</div>
 
 ## Features
 
@@ -304,4 +337,54 @@ MIT License - see [LICENSE](LICENSE) for details
 
 ---
 
-Built with ❤️ for the research community
+<!-- related-projects:start -->
+## 🌐 Related Projects
+
+Explore more privacy-first and security tools:
+
+### Privacy & Encryption
+- **[Timeseal](https://github.com/Teycir/Timeseal)** - Time-locked encryption vault with Dead Man's Switch. AES-256 split-key crypto, ephemeral seals.
+- **[Sanctum](https://github.com/Teycir/Sanctum)** - Zero-trust encrypted vault with cryptographic plausible deniability. XChaCha20-Poly1305, Argon2id.
+- **[GhostChat](https://github.com/Teycir/GhostChat)** - True P2P encrypted chat via WebRTC. No servers, no storage, self-destructing messages.
+- **[xmrproof](https://github.com/Teycir/xmrproof)** - Monero payment verification, 100% client-side.
+- **[GhostReceipt](https://github.com/Teycir/GhostReceipt)** - Anonymous receipt generation with zero-knowledge proofs.
+
+### Security Tools
+- **[BurpAPISecuritySuite](https://github.com/Teycir/BurpAPISecuritySuite)** - Burp Suite extension for API security testing. 15 attack types, 108+ payloads, BOLA/IDOR detection.
+- **[Mcpwn](https://github.com/Teycir/Mcpwn)** - Automated security scanner for Model Context Protocol servers. Detects RCE, path traversal, prompt injection.
+- **[DiffCatcher](https://github.com/Teycir/DiffCatcher)** - Git repo discovery, diff capture, code element extraction.
+- **[HoneypotScan](https://github.com/Teycir/HoneypotScan)** - Honeypot detection service for security research.
+- **[CheckAPI](https://github.com/Teycir/CheckAPI)** - LLM API key validator for multiple providers. Privacy-first, client-side validation.
+- **[SeekYou](https://github.com/Teycir/SeekYou)** - Host intelligence aggregator — unified OSINT across 15 sources for IPs, domains, and ASNs.
+
+### MCP Security Servers
+- **[burp-mcp-server](https://github.com/Teycir/burp-mcp-server)** - MCP server for Burp Suite Professional. Vulnerability scanning via AI assistants.
+- **[nuclei-mcp](https://github.com/Teycir/nuclei-mcp)** - MCP server for Nuclei. Multi-target scanning, severity filtering.
+- **[nmap-mcp](https://github.com/Teycir/nmap-mcp)** - MCP server for Nmap. Stealth recon, vuln/NSE scanning.
+- **[frida-mcp](https://github.com/Teycir/frida-mcp)** - MCP server for Frida. Dynamic instrumentation, SSL pinning bypass.
+<!-- related-projects:end -->
+
+---
+
+<!-- services:start -->
+## 💼 Services Offered
+
+- 🔒 **Privacy-First Development** - P2P applications, encrypted communication, zero-knowledge systems
+- 🚀 **Web Application Development** - Full-stack development with Next.js, React, TypeScript
+- 🔧 **Edge Computing Solutions** - Cloudflare Workers, Pages, D1, KV, Durable Objects
+- 🛡️ **Security Tool Development** - Burp extensions, penetration testing tools, automation frameworks
+- 🤖 **AI Integration** - LLM-powered applications, intelligent automation, custom AI solutions
+- 🔍 **OSINT & Threat Intelligence** - Custom reconnaissance tools, threat feed aggregation, IOC correlation
+
+**Get in Touch**: [teycirbensoltane.tn](https://teycirbensoltane.tn) | Available for freelance projects and consulting
+<!-- services:end -->
+
+---
+
+<!-- attribution:start -->
+<div align="center">
+
+**Built with 💚 by [Teycir Ben Soltane](https://teycirbensoltane.tn)**
+
+</div>
+<!-- attribution:end -->

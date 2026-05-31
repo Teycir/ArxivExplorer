@@ -96,9 +96,6 @@ export default async function HomePage() {
             <SearchBoxHome />
           </div>
 
-          {/* Scope indicator — right below the input */}
-          <CategoryScopeBar />
-
           {/* Recent searches */}
           <div className="w-full mt-2 max-w-md mx-auto">
             <RecentSearches />

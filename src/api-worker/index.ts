@@ -33,6 +33,9 @@ export default {
       return new Response(null, { status: 204, headers: cors });
     }
 
+    const url = new URL(request.url);
+    const path = url.pathname;
+
     // Only GET allowed (except admin routes)
     if (request.method !== 'GET' && !path.startsWith('/admin/')) {
       return new Response(JSON.stringify({ error: 'Method not allowed' }), {
@@ -40,9 +43,6 @@ export default {
         headers: { 'Content-Type': 'application/json', ...cors },
       });
     }
-
-    const url = new URL(request.url);
-    const path = url.pathname;
 
     try {
       // /api/search?q=

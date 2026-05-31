@@ -55,7 +55,7 @@ export function SearchBoxHome() {
           onKeyDown={handleKey}
           onFocus={() => setFocused(true)}
           onBlur={() => setTimeout(() => { setFocused(false); }, 150)}
-          placeholder="Search CS papers — ML, cryptography, systems, algorithms…"
+          placeholder="Try: transformers, diffusion models, reinforcement learning…"
           autoFocus
           autoComplete="off"
           spellCheck={false}

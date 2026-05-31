@@ -55,7 +55,7 @@ function SearchInput() {
         onKeyDown={handleKey}
         onFocus={() => setFocused(true)}
         onBlur={() => setTimeout(() => setFocused(false), 150)}
-        placeholder="Search CS papers…"
+        placeholder="Search by keywords: transformers, diffusion, RL…"
         autoComplete="off"
         spellCheck={false}
         className={`search-input w-full pl-9 pr-3 py-2 text-xs transition-all ${
