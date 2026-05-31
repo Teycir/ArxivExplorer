@@ -210,10 +210,10 @@ async function processPaper(db: Database.Database, paper: Paper): Promise<void> 
     const embedding = await generateEmbedding(`${paper.title} ${paper.abstract}`);
     
     // Insert paper
-    db.run(`
+    db.prepare(`
       INSERT OR REPLACE INTO papers (id, title, authors, abstract, categories, published_at, revised_at, pdf_url, html_url, indexed_at, summary_ready)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-    `, [
+    `).run(
       paper.id,
       paper.title,
       JSON.stringify(paper.authors),
@@ -224,13 +224,13 @@ async function processPaper(db: Database.Database, paper: Paper): Promise<void> 
       paper.pdfUrl,
       paper.htmlUrl || null,
       now,
-    ]);
+    );
     
     // Insert summary
-    db.run(`
+    db.prepare(`
       INSERT OR REPLACE INTO summaries (paper_id, tldr, key_contributions, methods, limitations, beginner_explain, technical_summary, generated_at, model_version)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [
+    `).run(
       paper.id,
       summary.tldr,
       JSON.stringify(summary.key_contributions),
@@ -240,20 +240,20 @@ async function processPaper(db: Database.Database, paper: Paper): Promise<void> 
       summary.technical_summary,
       now,
       SUMMARY_MODEL,
-    ]);
+    );
     
     // Store embedding as blob
     const embeddingBuffer = Buffer.from(new Float32Array(embedding).buffer);
-    db.run(`INSERT OR REPLACE INTO embeddings (paper_id, embedding) VALUES (?, ?)`, [paper.id, embeddingBuffer]);
+    db.prepare(`INSERT OR REPLACE INTO embeddings (paper_id, embedding) VALUES (?, ?)`).run(paper.id, embeddingBuffer);
     
     console.log(`✓ ${paper.id}: ${paper.title.slice(0, 60)}...`);
   } catch (err) {
     console.error(`✗ ${paper.id}: ${err}`);
     // Mark as failed
-    db.run(`
+    db.prepare(`
       INSERT OR REPLACE INTO papers (id, title, authors, abstract, categories, published_at, revised_at, pdf_url, html_url, indexed_at, summary_ready)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 2)
-    `, [
+    `).run(
       paper.id,
       paper.title,
       JSON.stringify(paper.authors),
@@ -264,7 +264,7 @@ async function processPaper(db: Database.Database, paper: Paper): Promise<void> 
       paper.pdfUrl,
       paper.htmlUrl || null,
       now,
-    ]);
+    );
   }
 }
 
