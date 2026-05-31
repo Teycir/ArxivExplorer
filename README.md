@@ -29,13 +29,11 @@ _Scan the QR code or copy the wallet address above._
 ![Embeddings](https://img.shields.io/badge/Embeddings-BGE%20base%20v1.5-neon_green?style=for-the-badge)
 ![Local](https://img.shields.io/badge/Local%20Bulk-Ollama-neon_green?style=for-the-badge)
 
-# arXiv Explorer
+<img src="public/arxiv_ascii.svg" alt="arXiv Explorer Animation">
 
-> Fast semantic arXiv paper search with AI-powered summaries — no login required.
+**Fast semantic arXiv paper search with AI-powered summaries — no login required.**
 
-A static-first, AI-enhanced search engine for arXiv research papers. Get paper summaries in 60 seconds without waiting for live LLM calls.
-
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/yourusername/arxiv-explorer)
+### _"Research papers, decoded.."_
 
 </div>
 
