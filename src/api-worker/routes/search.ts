@@ -23,6 +23,7 @@ import {
 const KEYWORD_WEIGHT = 0.25;
 const SEMANTIC_WEIGHT = 0.75;
 const MAX_RESULTS = 10;
+const MIN_RESULTS = 1;
 const VECTORIZE_TOP_K = 20;
 
 export async function handleSearch(
@@ -41,11 +42,16 @@ export async function handleSearch(
     return errorResponse('Query too long (max 500 characters)', cors, 400);
   }
 
+  // Optional limit param — clamped to [1, MAX_RESULTS]. (BUG-2 fix)
+  const rawLimit = url.searchParams.get('limit');
+  const limit = rawLimit
+    ? Math.min(MAX_RESULTS, Math.max(MIN_RESULTS, parseInt(rawLimit, 10) || MAX_RESULTS))
+    : MAX_RESULTS;
+
   const normalised = normaliseQuery(rawQ);
 
-  // Step 2: KV search cache — use a cheap key first, defer SHA-256 to cache miss
-  // This avoids running crypto on the ~majority of requests that are already cached.
-  const cheapKey = `q:${encodeURIComponent(normalised).slice(0, 180)}`;
+  // Step 2: KV search cache — include limit in key so different limits don't collide.
+  const cheapKey = `q:${encodeURIComponent(normalised).slice(0, 175)}:l${limit}`;
   try {
     const cached = await kvGet<unknown>(env.CACHE, cheapKey);
     if (cached !== null) {
@@ -77,7 +83,7 @@ export async function handleSearch(
   }
 
   // Step 4: Merge, then fetch any semantic-only papers that FTS missed
-  const merged = await mergeResults(env.DB, ftsRows, semanticMatches);
+  const merged = await mergeResults(env.DB, ftsRows, semanticMatches, limit);
 
   const response = {
     papers: merged,
@@ -166,7 +172,8 @@ async function generateEmbedding(env: Env, text: string): Promise<number[]> {
 async function mergeResults(
   db: D1Database,
   ftsRows: Array<{ paper: PaperWithSummary; score: number }>,
-  semanticMatches: Array<{ paperId: string; score: number }>
+  semanticMatches: Array<{ paperId: string; score: number }>,
+  limit: number
 ): Promise<PaperWithSummary[]> {
   const scoreMap = new Map<string, { paper?: PaperWithSummary; score: number }>();
 
@@ -205,11 +212,11 @@ async function mergeResults(
     }
   }
 
-  // Sort by combined score descending
+  // Sort by combined score descending, apply caller-supplied limit
   const ranked = Array.from(scoreMap.values())
     .filter(e => e.paper != null)
     .sort((a, b) => b.score - a.score)
-    .slice(0, MAX_RESULTS);
+    .slice(0, limit);
 
   return ranked.map(e => e.paper!);
 }

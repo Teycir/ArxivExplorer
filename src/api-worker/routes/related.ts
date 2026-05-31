@@ -18,7 +18,8 @@ export async function handleRelated(
 ): Promise<Response> {
   const cors = corsHeaders(env);
 
-  if (!arxivId || !/^[\w./-]+$/.test(arxivId)) {
+  // Same fix as paper.ts — disallow path separators. (BUG-1)
+  if (!arxivId || !/^[\w.-]+$/.test(arxivId)) {
     return errorResponse('Invalid arXiv ID format', cors, 400);
   }
 

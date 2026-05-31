@@ -122,7 +122,7 @@ export async function getPapersByAuthor(
       s.beginner_explain, s.technical_summary, s.generated_at, s.model_version
     FROM papers p
     LEFT JOIN summaries s ON s.paper_id = p.id
-    WHERE p.authors LIKE ? AND p.summary_ready = 1
+    WHERE p.authors LIKE ?
     ORDER BY p.published_at DESC
     LIMIT ?
   `).bind(`%${name}%`, limit).all<PaperRow>();

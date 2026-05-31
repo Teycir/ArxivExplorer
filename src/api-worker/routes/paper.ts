@@ -18,7 +18,10 @@ export async function handlePaper(
 ): Promise<Response> {
   const cors = corsHeaders(env);
 
-  if (!arxivId || !/^[\w./-]+$/.test(arxivId)) {
+  // arXiv IDs are strictly YYMM.NNNNN — no path separators allowed.
+  // The old regex [\w./-]+ let through ../../ traversal paths, returning 404
+  // instead of 400. Fixed: only word chars and dots are valid. (BUG-1)
+  if (!arxivId || !/^[\w.-]+$/.test(arxivId)) {
     return errorResponse('Invalid arXiv ID format', cors, 400);
   }
 
