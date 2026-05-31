@@ -17,6 +17,7 @@
     "ingest:local": "tsx scripts/local-ingest.ts",
     "ingest:bulk": "tsx scripts/bulk-ingest.ts",
     "ingest:process": "tsx scripts/process-existing.ts",
+    "ingest:conclusions": "tsx scripts/extract-conclusions.ts",
     "ingest:upload-embeddings": "tsx scripts/upload-embeddings.ts",
     "db:export": "wrangler d1 export arxiv-explorer --local --output backup.sql",
     "db:push": "wrangler d1 execute arxiv-explorer --remote --file backup.sql"
@@ -40,6 +41,7 @@
     "@types/xml2js": "^0.4.14",
     "autoprefixer": "^10.5.0",
     "better-sqlite3": "^12.10.0",
+    "pdf-parse": "^2.4.5",
     "postcss": "^8.5.15",
     "tailwindcss": "^3.4.17",
     "tsx": "^4.22.3",

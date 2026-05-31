@@ -33,6 +33,10 @@ interface Paper {
   updated: string;
   pdfUrl: string;
   htmlUrl?: string;
+  comment?: string;
+  journalRef?: string;
+  doi?: string;
+  primaryCategory?: string;
 }
 
 async function fetchArxivBatch(category: string, start: number, maxResults: number): Promise<Paper[]> {
@@ -70,6 +74,10 @@ async function fetchArxivBatch(category: string, start: number, maxResults: numb
       updated: e.updated[0].split('T')[0],
       pdfUrl: `https://arxiv.org/pdf/${e.id[0].split('/abs/')[1]}.pdf`,
       htmlUrl: e.link?.find((l: any) => l.$.type === 'text/html')?.$?.href,
+      comment: e['arxiv:comment']?.[0]?._ || e.comment?.[0],
+      journalRef: e['arxiv:journal_ref']?.[0]?._ || e.journal_ref?.[0],
+      doi: e['arxiv:doi']?.[0]?._ || e.doi?.[0],
+      primaryCategory: e['arxiv:primary_category']?.[0]?.$?.term || e.category?.[0]?.$?.term,
     }));
   } catch (err) {
     console.error(`Error fetching ${category}:`, err instanceof Error ? err.message : String(err));
@@ -237,8 +245,8 @@ async function processPaper(db: Database.Database, paper: Paper): Promise<void> 
     
     // Insert paper
     db.prepare(`
-      INSERT OR REPLACE INTO papers (id, title, authors, abstract, categories, published_at, revised_at, pdf_url, html_url, indexed_at, summary_ready)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+      INSERT OR REPLACE INTO papers (id, title, authors, abstract, categories, published_at, revised_at, pdf_url, html_url, comment, journal_ref, doi, primary_category, indexed_at, summary_ready)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
     `).run(
       paper.id,
       paper.title,
@@ -249,6 +257,10 @@ async function processPaper(db: Database.Database, paper: Paper): Promise<void> 
       paper.updated,
       paper.pdfUrl,
       paper.htmlUrl || null,
+      paper.comment || null,
+      paper.journalRef || null,
+      paper.doi || null,
+      paper.primaryCategory || null,
       now,
     );
     
@@ -277,8 +289,8 @@ async function processPaper(db: Database.Database, paper: Paper): Promise<void> 
     console.error(`✗ ${paper.id}: ${err}`);
     // Mark as failed
     db.prepare(`
-      INSERT OR REPLACE INTO papers (id, title, authors, abstract, categories, published_at, revised_at, pdf_url, html_url, indexed_at, summary_ready)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 2)
+      INSERT OR REPLACE INTO papers (id, title, authors, abstract, categories, published_at, revised_at, pdf_url, html_url, comment, journal_ref, doi, primary_category, indexed_at, summary_ready)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 2)
     `).run(
       paper.id,
       paper.title,
@@ -289,6 +301,10 @@ async function processPaper(db: Database.Database, paper: Paper): Promise<void> 
       paper.updated,
       paper.pdfUrl,
       paper.htmlUrl || null,
+      paper.comment || null,
+      paper.journalRef || null,
+      paper.doi || null,
+      paper.primaryCategory || null,
       now,
     );
   }
