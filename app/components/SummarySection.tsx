@@ -1,13 +1,15 @@
 // app/components/SummarySection.tsx
 // Renders the AI-generated summary tabs: TL;DR, Contributions, Methods,
 // Limitations, Beginner, Technical.
+// When the summary is still pending, polls /api/paper/:id every 10 s until ready.
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card } from './Card';
 import type { PaperWithSummary } from '@/src/shared/types';
-import { Sparkles, Info } from 'lucide-react';
+import { getPaper } from '@/helper/api';
+import { Sparkles, Info, Loader2 } from 'lucide-react';
 
 type Tab = 'tldr' | 'contributions' | 'methods' | 'limitations' | 'beginner' | 'technical';
 
@@ -20,17 +22,49 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'technical',    label: 'Technical' },
 ];
 
-export function SummarySection({ paper }: { paper: PaperWithSummary }) {
+export function SummarySection({ paper: initialPaper }: { paper: PaperWithSummary }) {
   const [active, setActive] = useState<Tab>('tldr');
+  const [paper, setPaper] = useState(initialPaper);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Poll every 10 s while summary is still pending
+  useEffect(() => {
+    if (paper.summaryReady === 1 || paper.summaryReady === 2) return;
+
+    pollRef.current = setInterval(async () => {
+      try {
+        const fresh = await getPaper(paper.id);
+        if (fresh.summaryReady !== 0) {
+          setPaper(fresh);
+          if (pollRef.current) clearInterval(pollRef.current);
+        }
+      } catch {
+        // Network hiccup — keep polling
+      }
+    }, 10_000);
+
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, [paper.id, paper.summaryReady]);
+
   const s = paper.summary;
 
   if (!s) {
     return (
       <Card>
         <div className="flex flex-col items-center justify-center py-8 gap-3 text-center">
-          <Sparkles size={28} className="text-neon-red/20 animate-pulse-slow" />
-          <p className="text-xs text-neon-red/40 font-mono">AI summary is being generated…</p>
-          <p className="text-xs text-white/25 font-mono">Check back shortly. The abstract is below.</p>
+          {paper.summaryReady === 2 ? (
+            <>
+              <Sparkles size={28} className="text-neon-red/20" />
+              <p className="text-xs text-neon-red/40 font-mono">Summary generation failed.</p>
+              <p className="text-xs text-white/25 font-mono">The abstract is below.</p>
+            </>
+          ) : (
+            <>
+              <Loader2 size={28} className="text-neon-red/30 animate-spin" />
+              <p className="text-xs text-neon-red/40 font-mono">AI summary is being generated…</p>
+              <p className="text-xs text-white/25 font-mono">Checking every 10 s — no refresh needed.</p>
+            </>
+          )}
         </div>
       </Card>
     );

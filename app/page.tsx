@@ -9,6 +9,7 @@ import { PaperCard } from './components/PaperCard';
 import { TopicChips } from './components/TopicChips';
 import { PersonalizedFeed } from './components/PersonalizedFeed';
 import { CategoryScopeBar } from './components/CategoryScopeBar';
+import { TOPICS } from '@/lib/topics';
 import type { PaperWithSummary } from '@/src/shared/types';
 
 export const metadata: Metadata = {
@@ -17,45 +18,6 @@ export const metadata: Metadata = {
 
 // ISR: revalidate every 30 minutes
 export const revalidate = 1800;
-
-/**
- * Curated CS topics — grouped across ML/AI, Security, Systems, Theory.
- * Each has a `category` badge shown on wider screens.
- */
-const TOPICS = [
-  // ── ML / AI ──────────────────────────────────────────────
-  { slug: 'large-language-models',  label: 'LLMs',          category: 'cs.CL' },
-  { slug: 'reinforcement-learning', label: 'RL',             category: 'cs.LG' },
-  { slug: 'agents-planning',        label: 'Agents',         category: 'cs.AI' },
-  { slug: 'diffusion-models',       label: 'Diffusion',      category: 'cs.CV' },
-  { slug: 'efficient-ml',           label: 'Efficient ML',   category: 'cs.LG' },
-  { slug: 'alignment-safety',       label: 'Alignment',      category: 'cs.AI' },
-  { slug: 'multimodal',             label: 'Multimodal',     category: 'cs.CV' },
-  { slug: 'rag-retrieval',          label: 'RAG',            category: 'cs.IR' },
-  { slug: 'neural-architectures',   label: 'Architectures',  category: 'cs.LG' },
-  { slug: 'computer-vision',        label: 'Vision',         category: 'cs.CV' },
-  { slug: 'speech-audio',           label: 'Speech & Audio', category: 'cs.SD' },
-  // ── Security / Crypto ────────────────────────────────────
-  { slug: 'cryptography',           label: 'Cryptography',   category: 'cs.CR' },
-  { slug: 'zero-knowledge-proofs',  label: 'ZK Proofs',      category: 'cs.CR' },
-  { slug: 'adversarial-ml',         label: 'Adversarial ML', category: 'cs.CR' },
-  { slug: 'privacy',                label: 'Privacy',        category: 'cs.CR' },
-  { slug: 'blockchain',             label: 'Blockchain',     category: 'cs.CR' },
-  // ── Systems & Networking ─────────────────────────────────
-  { slug: 'distributed-systems',    label: 'Distributed',    category: 'cs.DC' },
-  { slug: 'computer-architecture',  label: 'Architecture',   category: 'cs.AR' },
-  { slug: 'networking',             label: 'Networking',     category: 'cs.NI' },
-  { slug: 'operating-systems',      label: 'OS',             category: 'cs.OS' },
-  // ── Algorithms & Theory ──────────────────────────────────
-  { slug: 'algorithms',             label: 'Algorithms',     category: 'cs.DS' },
-  { slug: 'complexity-theory',      label: 'Complexity',     category: 'cs.CC' },
-  { slug: 'information-theory',     label: 'Info Theory',    category: 'cs.IT' },
-  // ── Software & PL ────────────────────────────────────────
-  { slug: 'program-synthesis',      label: 'Prog. Synthesis',category: 'cs.PL' },
-  { slug: 'software-testing',       label: 'Testing',        category: 'cs.SE' },
-  // ── Robotics & HCI ───────────────────────────────────────
-  { slug: 'robotics',               label: 'Robotics',       category: 'cs.RO' },
-];
 
 async function fetchTrending(): Promise<PaperWithSummary[]> {
   try {

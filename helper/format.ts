@@ -10,10 +10,11 @@ export function formatDate(isoDate: string): string {
     const parts = isoDate.split('-').map(Number);
     if (parts.length !== 3 || parts.some(isNaN)) return isoDate;
     const [year, month, day] = parts as [number, number, number];
-    return new Date(year, month - 1, day).toLocaleDateString('en-US', {
+    return new Date(Date.UTC(year, month - 1, day)).toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
+      timeZone: 'UTC',
     });
   } catch {
     return isoDate;

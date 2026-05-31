@@ -247,10 +247,12 @@ async function getPendingPapers(db: D1Database, limit: number): Promise<ArxivEnt
 async function batchInsertPapers(db: D1Database, entries: ArxivEntry[]): Promise<void> {
   const now = new Date().toISOString();
   const CHUNK_SIZE = 20; // D1 limit is ~100 variables per statement, each paper uses 10 bindings
-  
+
   for (let i = 0; i < entries.length; i += CHUNK_SIZE) {
     const chunk = entries.slice(i, i + CHUNK_SIZE);
-    const stmts = chunk.map(e =>
+
+    // Build paper INSERT statements
+    const paperStmts = chunk.map(e =>
       db.prepare(`
         INSERT OR IGNORE INTO papers
           (id, title, authors, abstract, categories, published_at, revised_at,
@@ -269,7 +271,17 @@ async function batchInsertPapers(db: D1Database, entries: ArxivEntry[]): Promise
         now
       )
     );
-    await db.batch(stmts);
+
+    // Build paper_categories INSERT statements (one per category per paper)
+    const catStmts = chunk.flatMap(e =>
+      e.categories.map(cat =>
+        db.prepare(
+          'INSERT OR IGNORE INTO paper_categories (paper_id, category) VALUES (?, ?)'
+        ).bind(e.id, cat)
+      )
+    );
+
+    await db.batch([...paperStmts, ...catStmts]);
   }
 }
 

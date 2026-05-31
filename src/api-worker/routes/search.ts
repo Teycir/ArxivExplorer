@@ -3,18 +3,18 @@
  * GET /api/search?q= — hybrid BM25 + semantic search.
  *
  * Flow:
- * 1. Normalize query → compute cache key
- * 2. Check KV search cache (TTL 2h)
+ * 1. Normalize query → cheap cache lookup (no hash yet)
+ * 2. Check KV search cache (TTL 2h) — exit early if hit
  * 3a. D1 FTS keyword search (parallel)
  * 3b. Vectorize semantic search w/ cached query embedding (parallel)
- * 4. Merge + deduplicate by paper ID
+ * 4. Merge + deduplicate by paper ID; batch-fetch semantic-only papers from D1
  * 5. Return top 10, write to KV (TTL 2h)
  */
 
 import type { Env, PaperWithSummary, EmbeddingResponse } from '../../shared/types';
-import { ftsSearch, rowToPaper } from '../../shared/db';
+import { ftsSearch, getPaperById, rowToPaper } from '../../shared/db';
 import { kvGet, kvPutAsync } from '../cache/kv';
-import { kvSearch, kvEmbed, TTL_SEARCH, TTL_EMBED } from '../cache/keys';
+import { kvEmbed, TTL_SEARCH, TTL_EMBED } from '../cache/keys';
 import {
   sha256Hex, normaliseQuery, embeddingModel,
   corsHeaders, jsonResponse, errorResponse,
@@ -42,18 +42,22 @@ export async function handleSearch(
   }
 
   const normalised = normaliseQuery(rawQ);
-  const queryHash = await sha256Hex(normalised);
-  const searchCacheKey = kvSearch(queryHash);
 
-  // Step 2: KV search cache
+  // Step 2: KV search cache — use a cheap key first, defer SHA-256 to cache miss
+  // This avoids running crypto on the ~majority of requests that are already cached.
+  const cheapKey = `q:${encodeURIComponent(normalised).slice(0, 180)}`;
   try {
-    const cached = await kvGet<unknown>(env.CACHE, searchCacheKey);
+    const cached = await kvGet<unknown>(env.CACHE, cheapKey);
     if (cached !== null) {
       return jsonResponse(cached, cors);
     }
   } catch (err) {
     console.error('[search] KV cache read error:', err);
   }
+
+  // Hash is only needed for the embedding cache key (written on miss)
+  const queryHash = await sha256Hex(normalised);
+  const searchCacheKey = cheapKey; // reuse cheap key for write too
 
   // Step 3: Run FTS and semantic search in parallel
   const [ftsResult, semanticResult] = await Promise.allSettled([
@@ -72,8 +76,8 @@ export async function handleSearch(
     console.error('[search] Semantic search error:', semanticResult.reason);
   }
 
-  // Step 4: Merge and deduplicate
-  const merged = mergeResults(ftsRows, semanticMatches);
+  // Step 4: Merge, then fetch any semantic-only papers that FTS missed
+  const merged = await mergeResults(env.DB, ftsRows, semanticMatches);
 
   const response = {
     papers: merged,
@@ -159,10 +163,11 @@ async function generateEmbedding(env: Env, text: string): Promise<number[]> {
 
 // ─── Merge ─────────────────────────────────────────────────────────────────
 
-function mergeResults(
+async function mergeResults(
+  db: D1Database,
   ftsRows: Array<{ paper: PaperWithSummary; score: number }>,
   semanticMatches: Array<{ paperId: string; score: number }>
-): PaperWithSummary[] {
+): Promise<PaperWithSummary[]> {
   const scoreMap = new Map<string, { paper?: PaperWithSummary; score: number }>();
 
   for (const { paper, score } of ftsRows) {
@@ -174,11 +179,33 @@ function mergeResults(
     if (existing) {
       existing.score += score; // paper in both → combine scores
     } else {
-      scoreMap.set(paperId, { score }); // semantic-only (paper fetched separately)
+      scoreMap.set(paperId, { score }); // semantic-only — paper needs D1 fetch
     }
   }
 
-  // Sort by combined score descending, filter out entries without paper data
+  // Collect IDs of semantic-only hits that have no paper object yet
+  const missingIds = Array.from(scoreMap.entries())
+    .filter(([, v]) => v.paper == null)
+    .map(([id]) => id);
+
+  // Batch-fetch missing papers from D1 in parallel (up to VECTORIZE_TOP_K gaps)
+  if (missingIds.length > 0) {
+    const fetched = await Promise.allSettled(
+      missingIds.map(id => getPaperById(db, id))
+    );
+    for (let i = 0; i < missingIds.length; i++) {
+      const r = fetched[i]!;
+      const id = missingIds[i]!;
+      if (r.status === 'fulfilled' && r.value) {
+        scoreMap.get(id)!.paper = r.value;
+      } else {
+        // Paper not in D1 (index lag) — remove from results
+        scoreMap.delete(id);
+      }
+    }
+  }
+
+  // Sort by combined score descending
   const ranked = Array.from(scoreMap.values())
     .filter(e => e.paper != null)
     .sort((a, b) => b.score - a.score)

@@ -5,11 +5,14 @@
  * Strategy (in order):
  * 1. If the query matches an arXiv ID pattern → always allowed (any paper ID).
  * 2. If the query contains a known CS arXiv category ID (cs.AI, cs.CR, …) → allowed.
- * 3. If the query contains a CS keyword from the allowlist → allowed.
- * 4. Otherwise → blocked.
+ * 3. If the query matches a curated topic label/slug from lib/topics.ts → allowed.
+ * 4. If the query contains a CS keyword from the allowlist → allowed.
+ * 5. Otherwise → blocked.
  *
  * This is a UX guard only — the backend already limits the index to CS categories.
  */
+
+import { TOPIC_LABELS } from './topics';
 
 /** CS arXiv category codes */
 const CS_CATEGORIES = [
@@ -55,7 +58,7 @@ const CS_KEYWORDS = new Set([
   'reading comprehension', 'text classification', 'text generation',
   // Cryptography & Security
   'cryptography', 'cryptographic', 'encryption', 'decryption', 'cipher',
-  'hash', 'hashing', 'zk', 'zero knowledge', 'zkp', 'zk-snark', 'zk-stark',
+  'hash', 'hashing', 'zk', 'snark', 'stark', 'zero knowledge', 'zkp', 'zk-snark', 'zk-stark',
   'proof system', 'commitment', 'signature', 'digital signature', 'pki',
   'tls', 'ssl', 'authentication', 'authorization', 'access control',
   'malware', 'vulnerability', 'exploit', 'fuzzing', 'binary analysis',
@@ -112,8 +115,15 @@ export function isCSQuery(raw: string): boolean {
     if (q.includes(cat)) return true;
   }
 
+  // Allow curated topic labels and slugs (single source of truth from lib/topics.ts)
+  for (const label of TOPIC_LABELS) {
+    if (q.includes(label)) return true;
+  }
+
   // Allow if any CS keyword appears (word-boundary aware via split)
-  const words = q.split(/[\s,./\\()\[\]{}<>:;!?'"]+/).filter(Boolean);
+  // Include '-' in the split chars so "zk-snark" → ["zk", "snark"] for single-word checks;
+  // multi-word phrases like "zero knowledge" are still caught by the phrase loop below.
+  const words = q.split(/[\s,./\\()\[\]{}<>:;!?'"+-]+/).filter(Boolean);
   for (const word of words) {
     if (CS_KEYWORDS.has(word)) return true;
   }

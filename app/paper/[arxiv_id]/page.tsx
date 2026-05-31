@@ -17,8 +17,8 @@ interface Props {
   params: Promise<{ arxiv_id: string }>;
 }
 
-// ISR fallback for newly-indexed papers; popular ones are statically generated
-export const revalidate = false; // static, papers are immutable
+// ISR: revalidate every hour so pending summaries surface without a redeploy
+export const revalidate = 3600;
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { arxiv_id } = await params;

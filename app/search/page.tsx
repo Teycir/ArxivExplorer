@@ -1,11 +1,13 @@
-'use client';
 // app/search/page.tsx
-// Client-side search results page.
-// Reads ?q= from URL, validates CS scope, calls API, renders results.
+// SSR search results page.
+// Reads ?q= (and optional ?category=, ?date=, ?code=) from URL server-side,
+// validates CS scope, fetches results from the API on the server, and streams
+// them to the client.  Shared search links are instantly useful and the page
+// is now SEO-indexable.
 
-import { useEffect, useState, useCallback, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import type { Metadata } from 'next';
 import Link from 'next/link';
+import { Suspense } from 'react';
 import { searchPapers } from '@/helper/api';
 import { Navbar } from '../components/Navbar';
 import { PaperCard } from '../components/PaperCard';
@@ -13,34 +15,46 @@ import { SearchFilters } from '../components/SearchFilters';
 import { CategoryScopeBar } from '../components/CategoryScopeBar';
 import { isCSQuery, CS_BLOCK_MESSAGE } from '@/lib/csGuard';
 import type { SearchResult } from '@/src/shared/types';
-import { Search, AlertCircle, Loader2, ShieldX } from 'lucide-react';
+import { Search, AlertCircle, ShieldX, Loader2 } from 'lucide-react';
 
-function SearchResults() {
-  const searchParams = useSearchParams();
-  const query = searchParams.get('q')?.trim() ?? '';
+// ISR: cache search pages for 2 minutes (matches KV TTL on the API side)
+export const revalidate = 120;
 
-  const [result, setResult]   = useState<SearchResult | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError]     = useState<string | null>(null);
+interface SearchPageProps {
+  searchParams: Promise<{
+    q?: string;
+    category?: string;
+    date?: string;
+    code?: string;
+  }>;
+}
 
-  const isAllowed = !query || isCSQuery(query);
+export async function generateMetadata({ searchParams }: SearchPageProps): Promise<Metadata> {
+  const { q } = await searchParams;
+  const query = q?.trim() ?? '';
+  if (!query) return { title: 'Search — ArxivCSExplorer' };
+  return {
+    title: `"${query}" — ArxivCSExplorer`,
+    description: `CS paper search results for "${query}" on ArxivCSExplorer.`,
+    openGraph: {
+      title: `"${query}" — ArxivCSExplorer`,
+      description: `CS paper search results for "${query}" on ArxivCSExplorer.`,
+    },
+  };
+}
 
-  const doSearch = useCallback(async (q: string) => {
-    if (!q) { setResult(null); setError(null); return; }
-    if (!isCSQuery(q)) { setResult(null); setError(null); return; }
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await searchPapers(q);
-      setResult(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Search failed');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+async function fetchResults(query: string): Promise<{ data: SearchResult | null; error: string | null }> {
+  try {
+    const data = await searchPapers(query);
+    return { data, error: null };
+  } catch (err) {
+    return { data: null, error: err instanceof Error ? err.message : 'Search failed' };
+  }
+}
 
-  useEffect(() => { doSearch(query); }, [query, doSearch]);
+async function SearchResults({ searchParams }: SearchPageProps) {
+  const { q, category, date, code } = await searchParams;
+  const query = q?.trim() ?? '';
 
   // ── No query ──────────────────────────────────────────────────────────────
   if (!query) {
@@ -53,8 +67,8 @@ function SearchResults() {
     );
   }
 
-  // ── Blocked: non-CS query ─────────────────────────────────────────────────
-  if (!isAllowed) {
+  // ── CS scope guard ────────────────────────────────────────────────────────
+  if (!isCSQuery(query)) {
     return (
       <div className="flex flex-col items-center justify-center py-32 gap-5 text-center">
         <ShieldX size={40} className="text-amber-400/60" />
@@ -74,29 +88,22 @@ function SearchResults() {
     );
   }
 
-  // ── Loading ───────────────────────────────────────────────────────────────
-  if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center py-32 gap-3">
-        <Loader2 size={28} className="text-neon-red/50 animate-spin" />
-        <p className="text-neon-red/40 font-mono text-xs">Searching CS papers…</p>
-      </div>
-    );
-  }
+  // ── Server fetch ──────────────────────────────────────────────────────────
+  const { data: result, error } = await fetchResults(query);
 
   // ── Error ─────────────────────────────────────────────────────────────────
-  if (error) {
+  if (error || !result) {
     return (
       <div className="flex flex-col items-center justify-center py-32 gap-3 text-center">
         <AlertCircle size={32} className="text-neon-red/50" />
         <p className="text-neon-red/60 font-mono text-sm">Search failed</p>
-        <p className="text-white/30 font-mono text-xs max-w-md">{error}</p>
+        <p className="text-white/30 font-mono text-xs max-w-md">{error ?? 'Unknown error'}</p>
       </div>
     );
   }
 
-  // ── Empty results ─────────────────────────────────────────────────────────
-  if (result && result.papers.length === 0) {
+  // ── Empty ─────────────────────────────────────────────────────────────────
+  if (result.papers.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-32 gap-4 text-center">
         <Search size={32} className="text-neon-red/20" />
@@ -114,26 +121,28 @@ function SearchResults() {
     );
   }
 
+  // Apply optional client-side filter params to display (category / date / code are
+  // passed as URL params so they survive SSR; the SearchFilters widget updates them).
+  void category; void date; void code; // consumed by SearchFilters client component
+
   // ── Results ───────────────────────────────────────────────────────────────
   return (
     <>
       <SearchFilters />
-      {result && (
-        <div className="flex items-baseline justify-between mb-5 flex-wrap gap-2">
-          <p className="text-xs font-mono text-neon-red/40">
-            {result.total} result{result.total !== 1 ? 's' : ''} for{' '}
-            <span className="text-neon-red/70">&ldquo;{query}&rdquo;</span>
-            {result.cached && (
-              <span className="ml-2 text-neon-red/25">(cached)</span>
-            )}
-          </p>
-          <span className="text-[10px] font-mono text-neon-red/25 uppercase tracking-wider">
-            CS papers only
-          </span>
-        </div>
-      )}
+      <div className="flex items-baseline justify-between mb-5 flex-wrap gap-2">
+        <p className="text-xs font-mono text-neon-red/40">
+          {result.total} result{result.total !== 1 ? 's' : ''} for{' '}
+          <span className="text-neon-red/70">&ldquo;{query}&rdquo;</span>
+          {result.cached && (
+            <span className="ml-2 text-neon-red/25">(cached)</span>
+          )}
+        </p>
+        <span className="text-[10px] font-mono text-neon-red/25 uppercase tracking-wider">
+          CS papers only
+        </span>
+      </div>
       <div className="grid gap-4">
-        {result?.papers.map((paper) => (
+        {result.papers.map((paper) => (
           <PaperCard key={paper.id} paper={paper} />
         ))}
       </div>
@@ -141,7 +150,7 @@ function SearchResults() {
   );
 }
 
-export default function SearchPage() {
+export default async function SearchPage(props: SearchPageProps) {
   return (
     <>
       <Navbar />
@@ -151,7 +160,7 @@ export default function SearchPage() {
             <Loader2 size={28} className="text-neon-red/50 animate-spin" />
           </div>
         }>
-          <SearchResults />
+          <SearchResults {...props} />
         </Suspense>
       </main>
     </>

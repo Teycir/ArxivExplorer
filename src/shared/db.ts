@@ -91,13 +91,14 @@ export async function getRelatedPapers(db: D1Database, paperId: string): Promise
 }
 
 export async function getTrendingPapers(db: D1Database, limit = 10): Promise<PaperWithSummary[]> {
-  const since = '2026-05-20'; // Hardcoded for testing
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  // Select only the columns the home page needs — skip heavy summary fields like
+  // technical_summary, methods, limitations, beginner_explain to cut payload ~60%.
   const { results } = await db.prepare(`
     SELECT
       p.id, p.title, p.authors, p.abstract, p.categories,
       p.published_at, p.revised_at, p.pdf_url, p.html_url, p.indexed_at, p.summary_ready,
-      s.tldr, s.key_contributions, s.methods, s.limitations,
-      s.beginner_explain, s.technical_summary, s.generated_at, s.model_version
+      s.tldr, s.generated_at, s.model_version
     FROM papers p
     LEFT JOIN summaries s ON s.paper_id = p.id
     WHERE p.published_at >= ?
@@ -105,7 +106,6 @@ export async function getTrendingPapers(db: D1Database, limit = 10): Promise<Pap
     LIMIT ?
   `).bind(since, limit).all<PaperRow>();
 
-  console.log('[getTrendingPapers] Raw results count:', results.length);
   return results.map(rowToPaper);
 }
 
@@ -144,8 +144,35 @@ export async function getPapersByTopic(
   const tags = safeJsonParse<string[]>(topic.category_tags, []);
   if (tags.length === 0) return [];
 
-  // Build a LIKE clause for each tag
-  const placeholders = tags.map(() => "p.categories LIKE ?").join(' OR ');
+  // Use the paper_categories junction table (indexed) instead of LIKE scans.
+  // Fall back to the old LIKE path if the junction table hasn't been backfilled
+  // yet (row count == 0), so the transition is seamless.
+  const { results: junctionCheck } = await db.prepare(
+    'SELECT 1 FROM paper_categories LIMIT 1'
+  ).all<{ 1: number }>();
+
+  if (junctionCheck.length > 0) {
+    // Fast path: join through indexed junction table
+    const placeholders = tags.map(() => '?').join(', ');
+    const { results } = await db.prepare(`
+      SELECT DISTINCT
+        p.id, p.title, p.authors, p.abstract, p.categories,
+        p.published_at, p.revised_at, p.pdf_url, p.html_url, p.indexed_at, p.summary_ready,
+        s.tldr, s.key_contributions, s.methods, s.limitations,
+        s.beginner_explain, s.technical_summary, s.generated_at, s.model_version
+      FROM paper_categories pc
+      JOIN papers p ON p.id = pc.paper_id
+      LEFT JOIN summaries s ON s.paper_id = p.id
+      WHERE pc.category IN (${placeholders})
+      ORDER BY p.published_at DESC
+      LIMIT ?
+    `).bind(...tags, limit).all<PaperRow>();
+
+    return results.map(rowToPaper);
+  }
+
+  // Slow path: original LIKE scan (used until backfill script runs)
+  const placeholders = tags.map(() => 'p.categories LIKE ?').join(' OR ');
   const binds = tags.map(t => `%${t}%`);
 
   const { results } = await db.prepare(`

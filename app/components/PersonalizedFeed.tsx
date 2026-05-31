@@ -5,6 +5,9 @@
  * Picks up to 3 random bookmarks, fires /api/paper/:id/related for each,
  * deduplicates against the bookmark list itself, and renders a compact list.
  * Renders nothing if the user has no bookmarks.
+ *
+ * Performance: results are cached in sessionStorage so repeat visits render
+ * instantly (stale-while-revalidate pattern — refresh happens in background).
  */
 'use client';
 
@@ -22,6 +25,18 @@ interface SuggestedPaper extends RelatedPaper {
 const MAX_SEEDS    = 3;  // how many bookmarks to use as seeds
 const MAX_PER_SEED = 2;  // related papers to show per seed
 const MIN_SCORE    = 0.72;
+const SESSION_KEY  = 'arxiv_personalized_feed';
+
+function readCache(): SuggestedPaper[] | null {
+  try {
+    const raw = sessionStorage.getItem(SESSION_KEY);
+    return raw ? (JSON.parse(raw) as SuggestedPaper[]) : null;
+  } catch { return null; }
+}
+
+function writeCache(data: SuggestedPaper[]): void {
+  try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(data)); } catch {}
+}
 
 export function PersonalizedFeed() {
   const [suggestions, setSuggestions] = useState<SuggestedPaper[]>([]);
@@ -33,6 +48,29 @@ export function PersonalizedFeed() {
       const { bookmarks } = loadBookmarks();
       if (bookmarks.length === 0) { setLoading(false); return; }
 
+      // Render stale data immediately — eliminates the spinner on repeat visits
+      const stale = readCache();
+      if (stale && stale.length > 0) {
+        setSuggestions(stale);
+        setLoading(false);
+        // Refresh in background without blocking render
+        fetchSuggestions(bookmarks).then(fresh => {
+          if (fresh.length > 0) {
+            setSuggestions(fresh);
+            writeCache(fresh);
+          }
+        }).catch(() => {/* non-fatal */});
+        return;
+      }
+
+      // No cache — fetch and show loader
+      const fresh = await fetchSuggestions(bookmarks);
+      setSuggestions(fresh);
+      if (fresh.length > 0) writeCache(fresh);
+      setLoading(false);
+    }
+
+    async function fetchSuggestions(bookmarks: ReturnType<typeof loadBookmarks>['bookmarks']) {
       // Pick seeds — prefer unread/reading, then newest
       const candidates = [...bookmarks]
         .sort((a, b) => {
@@ -67,9 +105,9 @@ export function PersonalizedFeed() {
         if (!existing || p.similarityScore > existing.similarityScore) seen.set(p.id, p);
       }
 
-      setSuggestions([...seen.values()].sort((a, b) => b.similarityScore - a.similarityScore).slice(0, 6));
-      setLoading(false);
+      return [...seen.values()].sort((a, b) => b.similarityScore - a.similarityScore).slice(0, 6);
     }
+
     load();
   }, []);
 
