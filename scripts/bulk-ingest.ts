@@ -118,31 +118,57 @@ async function generateSummary(paper: Paper): Promise<any> {
   const prompt = `Analyze this CS research paper and provide a structured JSON summary.
 
 Title: ${paper.title}
-Abstract: ${paper.abstract}
+Abstract: ${paper.abstract.slice(0, 1000)}
 
 Return ONLY valid JSON with this exact structure:
 {
-  "tldr": "80-120 word summary of the paper's main contribution",
-  "key_contributions": ["contribution 1", "contribution 2", "contribution 3"],
-  "methods": ["method/technique 1", "method/technique 2"],
-  "limitations": ["limitation 1", "limitation 2"],
-  "beginner_explain": "Simple 2-3 sentence explanation for non-experts",
-  "technical_summary": "Detailed technical summary for researchers"
+  "tldr": "80-120 word summary",
+  "key_contributions": ["contribution 1", "contribution 2"],
+  "methods": ["method 1", "method 2"],
+  "limitations": ["limitation 1"],
+  "beginner_explain": "Simple explanation",
+  "technical_summary": "Technical details"
 }`;
 
-  const res = await fetch(`${OLLAMA_BASE}/api/generate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: SUMMARY_MODEL,
-      prompt,
-      stream: false,
-      format: 'json',
-    }),
-  });
-  
-  const data = await res.json();
-  return JSON.parse(data.response);
+  try {
+    const res = await fetch(`${OLLAMA_BASE}/api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: SUMMARY_MODEL,
+        prompt,
+        stream: false,
+        format: 'json',
+        options: {
+          temperature: 0.3,
+          num_predict: 1000,
+        },
+      }),
+    });
+    
+    const data = await res.json();
+    const response = (data.response || data.thinking || '').trim();
+    
+    if (!response) {
+      throw new Error('Empty response from Ollama');
+    }
+    
+    // Try to extract JSON if wrapped in markdown
+    const jsonMatch = response.match(/```json\s*([\s\S]*?)```/) || response.match(/```\s*([\s\S]*?)```/);
+    const jsonStr = jsonMatch ? jsonMatch[1].trim() : response;
+    
+    return JSON.parse(jsonStr);
+  } catch (err) {
+    // Fallback to simple summary
+    return {
+      tldr: paper.abstract.slice(0, 120),
+      key_contributions: ["See abstract"],
+      methods: ["See paper"],
+      limitations: ["Not analyzed"],
+      beginner_explain: paper.abstract.slice(0, 200),
+      technical_summary: paper.abstract,
+    };
+  }
 }
 
 async function generateEmbedding(text: string): Promise<number[]> {
