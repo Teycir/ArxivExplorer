@@ -25,6 +25,7 @@ export async function handleAuthor(
   const cacheKey = kvAuthor(decoded);
 
   // 1. KV cache (6h)
+  // KV errors surface as 503, not as silent cache misses (same policy as paper.ts).
   try {
     const cached = await kvGet<unknown>(env.CACHE, cacheKey);
     if (cached !== null) {
@@ -32,6 +33,7 @@ export async function handleAuthor(
     }
   } catch (err) {
     console.error(`[author] KV get error for "${decoded}":`, err);
+    return errorResponse(`Cache error: ${String(err)}`, cors, 503);
   }
 
   // 2. D1 fallback

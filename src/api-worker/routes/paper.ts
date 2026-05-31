@@ -2,6 +2,9 @@
  * src/api-worker/routes/paper.ts
  * GET /api/paper/:id — paper metadata + cached AI summary.
  * Lazy KV write: populate cache on first access.
+ *
+ * Cache strategy: KV read errors are NOT silently swallowed — they surface
+ * as 503 so broken KV namespaces are visible, not hidden as cache misses.
  */
 
 import type { Env } from '../../shared/types';
@@ -19,13 +22,12 @@ export async function handlePaper(
   const cors = corsHeaders(env);
 
   // arXiv IDs are strictly YYMM.NNNNN — no path separators allowed.
-  // The old regex [\w./-]+ let through ../../ traversal paths, returning 404
-  // instead of 400. Fixed: only word chars and dots are valid. (BUG-1)
   if (!arxivId || !/^[\w.-]+$/.test(arxivId)) {
     return errorResponse('Invalid arXiv ID format', cors, 400);
   }
 
-  // 1. Try KV cache (permanent — papers are immutable)
+  // 1. KV cache (permanent — papers are immutable).
+  // KV errors surface as 503, not as silent cache misses.
   const cacheKey = kvPaperFull(arxivId);
   try {
     const cached = await kvGet<unknown>(env.CACHE, cacheKey);
@@ -33,11 +35,11 @@ export async function handlePaper(
       return jsonResponse(cached, cors);
     }
   } catch (err) {
-    // KV parse error — log it but continue to D1 fallback
-    console.error(`[paper] KV get error for ${arxivId}:`, err);
+    console.error(`[paper] KV read error for ${arxivId}:`, err);
+    return errorResponse(`Cache error: ${String(err)}`, cors, 503);
   }
 
-  // 2. D1 fallback
+  // 2. D1 — primary source of truth
   let paper;
   try {
     paper = await getPaperById(env.DB, arxivId);
@@ -50,9 +52,8 @@ export async function handlePaper(
     return errorResponse(`Paper not found: ${arxivId}`, cors, 404);
   }
 
-  // 3. Lazy KV write (fire-and-forget) — only for papers with summaries.
-  // TTL 7 days so updated summaries eventually surface; papers are immutable
-  // but summaries can be regenerated and we don't want stale data cached forever.
+  // 3. Lazy KV write (fire-and-forget) — only cache complete papers.
+  // TTL 7 days: summaries are regenerable; immutable fields never change.
   if (paper.summaryReady === 1) {
     kvPutAsync(ctx, env.CACHE, cacheKey, paper, 7 * 24 * 3600);
   }

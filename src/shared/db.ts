@@ -48,7 +48,10 @@ function safeJsonParse<T>(value: string | undefined, fallback: T): T {
   if (!value) return fallback;
   try {
     return JSON.parse(value) as T;
-  } catch {
+  } catch (err) {
+    // Log so corrupted rows in D1 are visible in worker logs rather than silently
+    // becoming empty arrays/objects that look like legitimate missing data.
+    console.error(`[db] safeJsonParse: corrupt JSON value (${String(err)}) — snippet: ${value.slice(0, 120)}`);
     return fallback;
   }
 }

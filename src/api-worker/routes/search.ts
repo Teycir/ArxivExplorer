@@ -71,15 +71,20 @@ export async function handleSearch(
     runSemanticSearch(env, ctx, normalised, queryHash),
   ]);
 
-  // Gather results — surface errors but don't block
+  // Gather results — surface per-leg errors in the response so clients can
+  // distinguish "no results" from "one or both search legs failed".
+  const warnings: string[] = [];
+
   const ftsRows = ftsResult.status === 'fulfilled' ? ftsResult.value : [];
   if (ftsResult.status === 'rejected') {
     console.error('[search] FTS error:', ftsResult.reason);
+    warnings.push(`keyword_search_failed: ${String(ftsResult.reason)}`);
   }
 
   const semanticMatches = semanticResult.status === 'fulfilled' ? semanticResult.value : [];
   if (semanticResult.status === 'rejected') {
     console.error('[search] Semantic search error:', semanticResult.reason);
+    warnings.push(`semantic_search_failed: ${String(semanticResult.reason)}`);
   }
 
   // Step 4: Merge, then fetch any semantic-only papers that FTS missed
@@ -90,10 +95,14 @@ export async function handleSearch(
     total: merged.length,
     cached: false, // will be flipped to true in the cached copy written below
     query: rawQ,
+    ...(warnings.length > 0 && { degraded: true, warnings }),
   };
 
-  // Step 5: Write cached copy (flag set to true so readers know it came from cache)
-  kvPutAsync(ctx, env.CACHE, searchCacheKey, { ...response, cached: true }, TTL_SEARCH);
+  // Step 5: Write cached copy — only cache clean (non-degraded) results so a
+  // transient leg failure doesn't persist as the canonical answer for 2 hours.
+  if (warnings.length === 0) {
+    kvPutAsync(ctx, env.CACHE, searchCacheKey, { ...response, cached: true }, TTL_SEARCH);
+  }
 
   return jsonResponse(response, cors);
 }
@@ -206,7 +215,12 @@ async function mergeResults(
       if (r.status === 'fulfilled' && r.value) {
         scoreMap.get(id)!.paper = r.value;
       } else {
-        // Paper not in D1 (index lag) — remove from results
+        if (r.status === 'rejected') {
+          // D1 fetch error — log so it's visible; remove from results so the
+          // client doesn't see a half-populated entry with no paper data.
+          console.error(`[search] D1 fetch failed for semantic-only paper ${id}:`, r.reason);
+        }
+        // 'fulfilled' + null means index lag (paper in Vectorize but not yet in D1) — silent drop is fine.
         scoreMap.delete(id);
       }
     }

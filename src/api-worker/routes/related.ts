@@ -26,6 +26,7 @@ export async function handleRelated(
   const cacheKey = kvPaperRelated(arxivId);
 
   // 1. KV cache (permanent)
+  // KV errors surface as 503, not as silent cache misses (same policy as paper.ts).
   try {
     const cached = await kvGet<unknown>(env.CACHE, cacheKey);
     if (cached !== null) {
@@ -33,6 +34,7 @@ export async function handleRelated(
     }
   } catch (err) {
     console.error(`[related] KV get error for ${arxivId}:`, err);
+    return errorResponse(`Cache error: ${String(err)}`, cors, 503);
   }
 
   // 2. D1 fallback

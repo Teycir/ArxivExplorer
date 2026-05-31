@@ -37,8 +37,10 @@ export async function runIngestionPipeline(env: Env): Promise<IngestResult> {
     neuronsEstimate: 0,
   };
 
-  // Step 1: Fetch all categories with 3s delay between each
+  // Step 1: Fetch all categories with 3s delay between each.
+  // Category failures are non-fatal but are counted and surfaced in the result.
   const allEntries: ArxivEntry[] = [];
+  let categoryFetchErrors = 0;
   for (let i = 0; i < categories.length; i++) {
     const category = categories[i]!;
     try {
@@ -46,8 +48,9 @@ export async function runIngestionPipeline(env: Env): Promise<IngestResult> {
       allEntries.push(...entries);
       console.info(`[pipeline] Fetched ${entries.length} entries for ${category}`);
     } catch (err) {
-      // Don't abort the whole pipeline for one category failure
+      // Don't abort the whole pipeline for one category failure, but count it.
       console.error(`[pipeline] Failed to fetch category ${category}:`, err);
+      categoryFetchErrors++;
     }
     if (i < categories.length - 1) {
       await delay(CATEGORY_DELAY_MS);
@@ -56,7 +59,7 @@ export async function runIngestionPipeline(env: Env): Promise<IngestResult> {
 
   result.fetched = allEntries.length;
   if (allEntries.length === 0) {
-    console.warn('[pipeline] No entries fetched — nothing to ingest');
+    console.warn(`[pipeline] No entries fetched — nothing to ingest (${categoryFetchErrors}/${categories.length} categories failed)`);
     return result;
   }
 
@@ -123,7 +126,7 @@ export async function runIngestionPipeline(env: Env): Promise<IngestResult> {
     console.warn('[pipeline] Failed to invalidate trending cache:', err);
   }
 
-  console.info(`[pipeline] Done — ${result.summarized} summarized, ${result.failed} failed, ~${result.neuronsEstimate} neurons`);
+  console.info(`[pipeline] Done — ${result.summarized} summarized, ${result.failed} failed, ~${result.neuronsEstimate} neurons${categoryFetchErrors > 0 ? `, ${categoryFetchErrors}/${categories.length} category fetches failed` : ''}`);
   return result;
 }
 
@@ -292,6 +295,9 @@ async function markFailed(db: D1Database, paperId: string): Promise<void> {
       'UPDATE papers SET summary_ready = 2 WHERE id = ?'
     ).bind(paperId).run();
   } catch (err) {
-    console.error(`[pipeline] Failed to mark paper ${paperId} as failed:`, err);
+    // Re-throw — if we can't mark the paper as failed, the pipeline caller must know
+    // so the paper doesn't silently stay at summary_ready=0 and cycle through retries
+    // forever without ever recording the terminal failure.
+    throw new Error(`[pipeline] markFailed: D1 write error for paper ${paperId}: ${String(err)}`);
   }
 }

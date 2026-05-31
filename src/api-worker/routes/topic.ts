@@ -24,6 +24,7 @@ export async function handleTopic(
   const cacheKey = kvTopic(slug);
 
   // 1. KV cache (12h)
+  // KV errors surface as 503, not as silent cache misses (same policy as paper.ts).
   try {
     const cached = await kvGet<unknown>(env.CACHE, cacheKey);
     if (cached !== null) {
@@ -31,6 +32,7 @@ export async function handleTopic(
     }
   } catch (err) {
     console.error(`[topic] KV get error for ${slug}:`, err);
+    return errorResponse(`Cache error: ${String(err)}`, cors, 503);
   }
 
   // 2. D1 — topic metadata + papers

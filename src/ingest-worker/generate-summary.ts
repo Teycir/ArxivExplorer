@@ -56,21 +56,13 @@ export async function generateSummary(
     }
   }
 
-  // Guaranteed fallback: extract from abstract
-  console.warn(`[generate-summary] All AI models failed, using abstract-based fallback`);
-  const sentences = abstract.split(/[.!?]+/).filter(s => s.trim().length > 20);
-  return {
-    tldr: sentences[0]?.trim() || abstract.slice(0, 200),
-    key_contributions: sentences.slice(0, 2).map(s => s.trim()).filter(Boolean).length > 0 
-      ? sentences.slice(0, 2).map(s => s.trim()).filter(Boolean)
-      : ['Research contribution described in abstract'],
-    methods: sentences.slice(2, 4).map(s => s.trim()).filter(Boolean).length > 0
-      ? sentences.slice(2, 4).map(s => s.trim()).filter(Boolean)
-      : ['Methodology described in paper'],
-    limitations: [],
-    beginner_explain: abstract.slice(0, 300),
-    technical_summary: abstract.slice(0, 600),
-  };
+  // All models exhausted — throw so processSinglePaper marks the paper as
+  // failed (summary_ready=2) for later retry. Returning fabricated abstract
+  // sentences and writing summary_ready=1 is worse than failing: it makes
+  // garbage data appear as a completed summary with no way to detect it.
+  throw new Error(
+    `[generate-summary] All ${models.length} AI models exhausted — no summary produced`
+  );
 }
 
 async function generateSummaryAttempt(
@@ -80,8 +72,11 @@ async function generateSummaryAttempt(
 ): Promise<SummaryFields> {
   const prompt = USER_PROMPT.replace('{abstract}', abstract.slice(0, 4000));
 
-  // Rotate between AI accounts
+  // Rotate between AI accounts if additional bindings are configured.
   const aiBindings = [env.AI, (env as any).AI2, (env as any).AI3].filter(Boolean);
+  if (aiBindings.length < 3) {
+    console.debug(`[generate-summary] Only ${aiBindings.length} AI binding(s) available — AI2/AI3 may not be bound`);
+  }
   const aiBinding = aiBindings[Math.floor(Math.random() * aiBindings.length)] || env.AI;
 
   const aiResponse = await aiBinding.run(model, {

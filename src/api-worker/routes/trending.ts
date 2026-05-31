@@ -17,6 +17,7 @@ export async function handleTrending(
   const cors = corsHeaders(env);
 
   // 1. KV cache (60min TTL)
+  // KV errors surface as 503, not as silent cache misses (same policy as paper.ts).
   try {
     const cached = await kvGet<unknown>(env.CACHE, KV_TRENDING);
     if (cached !== null) {
@@ -24,6 +25,7 @@ export async function handleTrending(
     }
   } catch (err) {
     console.error('[trending] KV cache read error:', err);
+    return errorResponse(`Cache error: ${String(err)}`, cors, 503);
   }
 
   // 2. D1 fallback
