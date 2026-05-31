@@ -1,10 +1,13 @@
 #!/usr/bin/env tsx
 /**
- * Bulk CS arXiv ingestion with Ollama
- * Fetches ALL CS papers, generates summaries/embeddings locally, exports to production
+ * Bulk CS arXiv ingestion with Ollama - FULLY SEQUENTIAL
+ * - Fetches ALL 40 CS categories
+ * - 5-second delay between each arXiv API request
+ * - NO parallel processing (one paper at a time)
+ * - Skips duplicates automatically
  * 
  * Usage:
- *   npm run ingest:bulk -- --days 30 --batch 10
+ *   npm run ingest:bulk -- --days 7
  */
 
 import { parseStringPromise } from 'xml2js';
@@ -42,12 +45,28 @@ interface Paper {
 async function fetchArxivBatch(category: string, start: number, maxResults: number): Promise<Paper[]> {
   const url = `http://export.arxiv.org/api/query?search_query=cat:${category}&sortBy=submittedDate&sortOrder=descending&start=${start}&max_results=${maxResults}`;
   
+  // CONSERVATIVE: Wait 5 seconds before each request to respect arXiv rate limits
+  console.log(`Waiting 5s before fetching ${category} (start=${start})...`);
+  await new Promise(r => setTimeout(r, 5000));
+  
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30000); // 30s timeout
     
     const res = await fetch(url, { signal: controller.signal });
     clearTimeout(timeout);
+    
+    // Handle rate limiting
+    if (res.status === 429) {
+      console.warn(`Rate limited on ${category}. Waiting 60s...`);
+      await new Promise(r => setTimeout(r, 60000));
+      return []; // Skip this batch
+    }
+    
+    if (!res.ok) {
+      console.warn(`HTTP ${res.status} for ${category}`);
+      return [];
+    }
     
     const xml = await res.text();
     
@@ -115,7 +134,7 @@ async function fetchAllCS(daysBack: number): Promise<Paper[]> {
       
       if (hitCutoff || batch.length < batchSize) break;
       start += batchSize;
-      await new Promise(r => setTimeout(r, 3000)); // Rate limit
+      // REMOVED: No additional delay here, already handled in fetchArxivBatch
     }
   }
   
@@ -238,8 +257,15 @@ async function initLocalDB(): Promise<Database.Database> {
 async function processPaper(db: Database.Database, paper: Paper): Promise<void> {
   const now = new Date().toISOString();
   
+  // Check if already exists
+  const existing = db.prepare('SELECT id FROM papers WHERE id = ?').get(paper.id);
+  if (existing) {
+    console.log(`⊘ ${paper.id}: Already exists, skipping`);
+    return;
+  }
+  
   try {
-    // Generate summary and embedding
+    // Generate summary and embedding SEQUENTIALLY (no parallel)
     const summary = await generateSummary(paper);
     const embedding = await generateEmbedding(`${paper.title} ${paper.abstract}`);
     
@@ -313,23 +339,60 @@ async function processPaper(db: Database.Database, paper: Paper): Promise<void> 
 async function main() {
   const args = process.argv.slice(2);
   const daysIdx = args.indexOf('--days');
-  const batchIdx = args.indexOf('--batch');
   
-  const daysBack = daysIdx >= 0 ? parseInt(args[daysIdx + 1]) : 30;
-  const batchSize = batchIdx >= 0 ? parseInt(args[batchIdx + 1]) : 5;
+  const daysBack = daysIdx >= 0 ? parseInt(args[daysIdx + 1]) : 7;
   
-  console.log(`Fetching CS papers from last ${daysBack} days...`);
-  const papers = await fetchAllCS(daysBack);
-  console.log(`Found ${papers.length} papers\n`);
+  console.log(`\n⚠️  CONSERVATIVE MODE - NO PARALLEL PROCESSING`);
+  console.log(`Fetching ALL CS categories (40 categories)`);
+  console.log(`Days back: ${daysBack}`);
+  console.log(`5-second delay between each arXiv request`);
+  console.log(`Papers processed ONE AT A TIME (sequential)`);
+  console.log(`Estimated time: 2-4 hours\n`);
+  
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - daysBack);
+  
+  const allPapers: Paper[] = [];
+  const seen = new Set<string>();
+  
+  // Fetch from ALL CS categories
+  for (const cat of CS_CATEGORIES) {
+    console.log(`\nFetching ${cat}...`);
+    let start = 0;
+    const fetchSize = 50;
+    
+    while (true) {
+      const batch = await fetchArxivBatch(cat, start, fetchSize);
+      if (batch.length === 0) break;
+      
+      let hitCutoff = false;
+      for (const paper of batch) {
+        if (new Date(paper.published) < cutoffDate) {
+          hitCutoff = true;
+          break;
+        }
+        if (!seen.has(paper.id)) {
+          seen.add(paper.id);
+          allPapers.push(paper);
+        }
+      }
+      
+      if (hitCutoff || batch.length < fetchSize) break;
+      start += fetchSize;
+    }
+  }
+  
+  console.log(`\nFound ${allPapers.length} papers\n`);
   
   console.log('Initializing local database...');
   const db = await initLocalDB();
   
-  console.log(`Processing ${batchSize} papers at a time...\n`);
-  for (let i = 0; i < papers.length; i += batchSize) {
-    const batch = papers.slice(i, i + batchSize);
-    await Promise.all(batch.map(p => processPaper(db, p)));
-    console.log(`Progress: ${Math.min(i + batchSize, papers.length)}/${papers.length}\n`);
+  console.log(`Processing papers ONE AT A TIME (no parallel)...\n`);
+  
+  // Process papers SEQUENTIALLY - no parallel processing
+  for (let i = 0; i < allPapers.length; i++) {
+    await processPaper(db, allPapers[i]);
+    console.log(`Progress: ${i + 1}/${allPapers.length}\n`);
   }
   
   db.close();
@@ -338,7 +401,7 @@ async function main() {
   console.log('\nNext steps:');
   console.log('1. Export: npm run db:export');
   console.log('2. Push to production: npm run db:push');
-  console.log('3. Upload embeddings to Vectorize (separate script needed)');
+  console.log('3. Upload embeddings: npm run ingest:upload-embeddings');
 }
 
 main().catch(console.error);

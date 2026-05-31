@@ -14,11 +14,8 @@
     "deploy:ingest": "wrangler deploy --config wrangler.ingest.toml",
     "db:migrate": "wrangler d1 execute arxiv-explorer --file=migrations/0001_schema.sql",
     "db:migrate:remote": "wrangler d1 execute arxiv-explorer --remote --file=migrations/0001_schema.sql",
-    "ingest:local": "tsx scripts/local-ingest.ts",
-    "ingest:bulk": "tsx scripts/bulk-ingest.ts",
-    "ingest:process": "tsx scripts/process-existing.ts",
-    "ingest:conclusions": "tsx scripts/extract-conclusions.ts",
-    "ingest:upload-embeddings": "tsx scripts/upload-embeddings.ts",
+    "ingest": "npx tsx scripts/bulk-ingest.ts",
+    "upload-embeddings": "npx tsx scripts/upload-embeddings.ts",
     "db:export": "wrangler d1 export arxiv-explorer --local --output backup.sql",
     "db:push": "wrangler d1 execute arxiv-explorer --remote --file backup.sql"
   },
