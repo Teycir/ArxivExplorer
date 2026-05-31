@@ -99,15 +99,23 @@ export function SearchHistory({ query, visible, onSelect }: SearchHistoryProps) 
       {/* Entries */}
       <ul className="max-h-[320px] overflow-y-auto">
         {filtered.slice(0, 10).map(entry => (
-          <li key={entry.query}>
-            <button
+          <li
+            key={entry.query}
+            className="flex items-center gap-3 px-4 py-2.5
+                       hover:bg-neon-red/5 transition-colors group
+                       border-b border-neon-red/5 last:border-0"
+          >
+            {/* BUG-10: row is now a div (not a button) so the remove button
+                is a sibling, not a nested interactive element — valid HTML. */}
+            <div
+              role="button"
+              tabIndex={0}
               onMouseDown={() => handleSelect(entry.query)}
-              className="w-full flex items-center gap-3 px-4 py-2.5
-                         hover:bg-neon-red/5 transition-colors group
-                         border-b border-neon-red/5 last:border-0"
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') handleSelect(entry.query); }}
+              className="flex flex-1 min-w-0 items-center gap-3 cursor-pointer"
             >
               <Clock size={12} className="text-neon-red/30 flex-shrink-0" />
-              
+
               <div className="flex-1 min-w-0 text-left">
                 <div className="text-xs font-mono text-white/80 group-hover:text-white truncate">
                   {entry.query}
@@ -117,18 +125,18 @@ export function SearchHistory({ query, visible, onSelect }: SearchHistoryProps) 
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <ChevronRight size={12} className="text-neon-red/20 group-hover:text-neon-red/40 transition-colors" />
-                <button
-                  onMouseDown={e => handleRemove(e, entry.query)}
-                  className="opacity-0 group-hover:opacity-100
-                             text-neon-red/40 hover:text-red-400
-                             transition-all"
-                  aria-label="Remove"
-                >
-                  <X size={12} />
-                </button>
-              </div>
+              <ChevronRight size={12} className="text-neon-red/20 group-hover:text-neon-red/40 transition-colors flex-shrink-0" />
+            </div>
+
+            {/* Remove button — sibling of the row div, never nested inside it */}
+            <button
+              onMouseDown={e => handleRemove(e, entry.query)}
+              className="opacity-0 group-hover:opacity-100 flex-shrink-0
+                         text-neon-red/40 hover:text-red-400
+                         transition-all"
+              aria-label="Remove"
+            >
+              <X size={12} />
             </button>
           </li>
         ))}

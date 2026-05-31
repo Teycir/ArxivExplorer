@@ -13,7 +13,7 @@
  */
 
 import type { Env, ArxivEntry, IngestResult } from '../shared/types';
-import { runConcurrent, delay, ingestCategories, ingestConcurrency, maxPapersPerCategory, isInScope } from '../shared/utils';
+import { runConcurrent, delay, resolveIngestPlan, ingestConcurrency, isInScope } from '../shared/utils';
 import { fetchArxivBatch } from './fetch-arxiv';
 import { generateEmbedding, upsertToVectorize } from './generate-embedding';
 import { generateSummary } from './generate-summary';
@@ -24,9 +24,10 @@ import { KV_TRENDING } from '../api-worker/cache/keys';
 const CATEGORY_DELAY_MS = 3_000;
 
 export async function runIngestionPipeline(env: Env): Promise<IngestResult> {
-  const categories = ingestCategories(env);
+  const { categories, limit: maxPerCategory, phase } = resolveIngestPlan(env);
   const concurrency = ingestConcurrency(env);
-  const maxPerCategory = maxPapersPerCategory(env);
+
+  console.info(`[pipeline] Phase: ${phase} | categories: ${categories.join(', ')} | limit: ${maxPerCategory}/cat`);
 
   const result: IngestResult = {
     fetched: 0,

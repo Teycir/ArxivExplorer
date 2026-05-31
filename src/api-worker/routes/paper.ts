@@ -47,9 +47,11 @@ export async function handlePaper(
     return errorResponse(`Paper not found: ${arxivId}`, cors, 404);
   }
 
-  // 3. Lazy KV write (fire-and-forget) — only for papers with summaries
+  // 3. Lazy KV write (fire-and-forget) — only for papers with summaries.
+  // TTL 7 days so updated summaries eventually surface; papers are immutable
+  // but summaries can be regenerated and we don't want stale data cached forever.
   if (paper.summaryReady === 1) {
-    kvPutAsync(ctx, env.CACHE, cacheKey, paper);
+    kvPutAsync(ctx, env.CACHE, cacheKey, paper, 7 * 24 * 3600);
   }
 
   return jsonResponse(paper, cors);

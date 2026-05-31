@@ -91,8 +91,14 @@ export function Navbar() {
       setBookmarkCount(loadBookmarks().bookmarks.length);
     }
     sync();
+    // BUG-09: 'storage' only fires in other tabs; 'arxiv:bookmarks-changed'
+    // is dispatched by writeRaw() in lib/bookmarks.ts after every same-tab write.
     window.addEventListener('storage', sync);
-    return () => window.removeEventListener('storage', sync);
+    window.addEventListener('arxiv:bookmarks-changed', sync);
+    return () => {
+      window.removeEventListener('storage', sync);
+      window.removeEventListener('arxiv:bookmarks-changed', sync);
+    };
   }, []);
 
   return (

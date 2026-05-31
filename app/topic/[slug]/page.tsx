@@ -65,15 +65,20 @@ export default async function TopicPage({ params }: Props) {
           </div>
         </div>
 
-        {/* Scope notice — makes the data source explicit */}
+        {/* Scope notice — dynamically reflects this topic's actual category tags */}
         <div className="flex items-start gap-2.5 px-3 py-2.5 mb-6 rounded-lg
           border border-neon-red/15 bg-neon-red/5">
           <Database size={13} className="text-neon-red/40 mt-0.5 flex-shrink-0" />
           <p className="text-[11px] font-mono text-neon-red/45 leading-relaxed">
-            Papers sourced exclusively from{' '}
-            <span className="text-neon-red/70 font-semibold">cs.AI</span> and{' '}
-            <span className="text-neon-red/70 font-semibold">cs.LG</span> on arXiv.
-            Results within this topic are filtered to those two categories only.
+            Papers sourced from{' '}
+            {topic.categoryTags.map((tag, i) => (
+              <span key={tag}>
+                <span className="text-neon-red/70 font-semibold">{tag}</span>
+                {i < topic.categoryTags.length - 1 && <span className="text-neon-red/30">{' · '}</span>}
+              </span>
+            ))}{' '}
+            on arXiv. Results are filtered to{' '}
+            {topic.categoryTags.length === 1 ? 'this category' : 'these categories'} only.
           </p>
         </div>
 

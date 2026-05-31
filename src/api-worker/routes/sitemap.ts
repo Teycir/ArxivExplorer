@@ -9,7 +9,7 @@ import { kvGet, kvPutAsync } from '../cache/kv';
 import { KV_SITEMAP, TTL_SITEMAP } from '../cache/keys';
 import { corsHeaders, errorResponse } from '../../shared/utils';
 
-const BASE_URL = 'https://arxiv-explorer.pages.dev';
+const BASE_URL = 'https://arxivexplorer.arxivexplorer.workers.dev';
 
 export async function handleSitemap(
   request: Request,

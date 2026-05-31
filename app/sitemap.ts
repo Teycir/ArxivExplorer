@@ -1,6 +1,7 @@
 import type { MetadataRoute } from 'next';
+import { TOPICS } from '@/lib/topics';
 
-const BASE_URL = 'https://arxiv-explorer.pages.dev';
+const BASE_URL = 'https://arxivexplorer.arxivexplorer.workers.dev';
 
 /**
  * app/sitemap.ts
@@ -31,20 +32,9 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: 'monthly',
       priority: 0.5,
     },
-    // Topic pages
-    ...[
-      'large-language-models',
-      'diffusion-models',
-      'rag-retrieval',
-      'reinforcement-learning',
-      'computer-vision',
-      'multimodal',
-      'efficient-ml',
-      'agents-planning',
-      'alignment-safety',
-      'graph-neural-networks',
-    ].map((slug) => ({
-      url: `${BASE_URL}/topic/${slug}`,
+    // Topic pages — derived from lib/topics.ts (single source of truth)
+    ...TOPICS.map((t) => ({
+      url: `${BASE_URL}/topic/${t.slug}`,
       lastModified: new Date(),
       changeFrequency: 'daily' as const,
       priority: 0.7,

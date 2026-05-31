@@ -103,8 +103,11 @@ function parseEntry(block: string): ArxivEntry | null {
   const pdfMatch = block.match(/<link[^>]+title="pdf"[^>]+href="([^"]+)"/);
   const pdfUrl = pdfMatch ? pdfMatch[1]!.replace('http://', 'https://') : `https://arxiv.org/pdf/${id}`;
 
-  // HTML link
-  const htmlMatch = block.match(/<link[^>]+type="text\/html"[^>]+href="([^"]+)"/);
+  // HTML link — BUG-11: XML attribute order is not guaranteed by spec.
+  // Try type-before-href first, then href-before-type, so either ordering works.
+  const htmlMatch =
+    block.match(/<link[^>]+type="text\/html"[^>]+href="([^"]+)"/) ??
+    block.match(/<link[^>]+href="([^"]+)"[^>]+type="text\/html"/);
   const htmlUrl = htmlMatch ? htmlMatch[1]!.replace('http://', 'https://') : undefined;
 
   if (!title || !summary || !published) return null;

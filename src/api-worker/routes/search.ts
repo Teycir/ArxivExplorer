@@ -82,12 +82,12 @@ export async function handleSearch(
   const response = {
     papers: merged,
     total: merged.length,
-    cached: false,
+    cached: false, // will be flipped to true in the cached copy written below
     query: rawQ,
   };
 
-  // Step 5: Write to KV (fire-and-forget, TTL 2h)
-  kvPutAsync(ctx, env.CACHE, searchCacheKey, response, TTL_SEARCH);
+  // Step 5: Write cached copy (flag set to true so readers know it came from cache)
+  kvPutAsync(ctx, env.CACHE, searchCacheKey, { ...response, cached: true }, TTL_SEARCH);
 
   return jsonResponse(response, cors);
 }

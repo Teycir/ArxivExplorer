@@ -9,6 +9,6 @@ export default function robots(): MetadataRoute.Robots {
         disallow: ['/api/'],
       },
     ],
-    sitemap: 'https://arxiv-explorer.pages.dev/sitemap.xml',
+    sitemap: 'https://arxivexplorer.arxivexplorer.workers.dev/sitemap.xml',
   };
 }

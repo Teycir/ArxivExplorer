@@ -59,6 +59,9 @@ function writeRaw(bookmarks: Bookmark[]): void {
   if (typeof window === 'undefined') return;
   try {
     localStorage.setItem(LS_KEY, JSON.stringify(bookmarks));
+    // BUG-09: 'storage' events only fire in *other* tabs.  Dispatch a custom
+    // event so same-tab listeners (e.g. Navbar) can react immediately.
+    window.dispatchEvent(new CustomEvent('arxiv:bookmarks-changed'));
   } catch {
     // Storage full or unavailable — silent fail
   }

@@ -139,6 +139,8 @@ export interface Env {
   CACHE_TTL_TRENDING_SECONDS?: string;
   CACHE_TTL_EMBED_SECONDS?: string;
   ALLOWED_ORIGIN?: string;
+  // Admin
+  ADMIN_SECRET?: string;
   // Phase control
   // 'bulk'   → rotating daily topic fill (uses BULK_SCHEDULE + BULK_LIMIT)
   // 'steady' → low-volume daily trickle of new papers across all categories
