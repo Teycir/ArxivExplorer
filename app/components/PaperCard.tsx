@@ -9,6 +9,7 @@ import type { PaperWithSummary } from '@/src/shared/types';
 import { FileText, Calendar, Users } from 'lucide-react';
 import { BookmarkDot } from './BookmarkDot';
 import { MoreLikeThisButton } from './MoreLikeThisButton';
+import { AuthorLinks } from './AuthorLinks';
 
 interface PaperCardProps {
   paper: PaperWithSummary;
@@ -42,23 +43,7 @@ export function PaperCard({ paper, showAbstract = false }: PaperCardProps) {
         <div className="flex items-start gap-1.5 mb-3">
           <Users size={11} className="flex-shrink-0 text-neon-red/40 mt-0.5" />
           <p className="text-xs text-neon-red/40 font-mono leading-relaxed">
-            {paper.authors.slice(0, 4).map((author, i) => (
-              <span key={`${author}-${i}`}>
-                <Link
-                  href={`/author/${encodeURIComponent(author)}`}
-                  onClick={(e) => e.stopPropagation()}
-                  className="hover:text-neon-red hover:underline decoration-neon-red/30 transition-colors"
-                >
-                  {author}
-                </Link>
-                {i < Math.min(paper.authors.length, 4) - 1 && (
-                  <span className="text-neon-red/25">, </span>
-                )}
-              </span>
-            ))}
-            {paper.authors.length > 4 && (
-              <span className="text-neon-red/25"> +{paper.authors.length - 4} more</span>
-            )}
+            <AuthorLinks authors={paper.authors} max={4} />
           </p>
         </div>
 

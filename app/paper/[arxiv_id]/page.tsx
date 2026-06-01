@@ -13,6 +13,7 @@ import { ExternalLink, FileText, Users, Calendar } from 'lucide-react';
 import { BookmarkButton } from '../../components/BookmarkButton';
 import { ExportButton } from '../../components/ExportButton';
 import { ShareButton } from '../../components/ShareButton';
+import { AuthorLinks } from '../../components/AuthorLinks';
 
 interface Props {
   params: Promise<{ arxiv_id: string }>;
@@ -105,22 +106,7 @@ export default async function PaperPage({ params }: Props) {
               <div className="flex items-start gap-2 text-xs text-neon-red/50 font-mono mb-3">
                 <Users size={13} className="flex-shrink-0 mt-0.5" />
                 <span className="leading-relaxed">
-                  {paper.authors.slice(0, 10).map((author, i) => (
-                    <span key={`${author}-${i}`}>
-                      <Link
-                        href={`/author/${encodeURIComponent(author)}`}
-                        className="hover:text-neon-red hover:underline decoration-neon-red/30 transition-colors"
-                      >
-                        {author}
-                      </Link>
-                      {i < Math.min(paper.authors.length, 10) - 1 && (
-                        <span className="text-neon-red/25">, </span>
-                      )}
-                    </span>
-                  ))}
-                  {paper.authors.length > 10 && (
-                    <span className="text-neon-red/25"> +{paper.authors.length - 10} more</span>
-                  )}
+                  <AuthorLinks authors={paper.authors} max={10} />
                 </span>
               </div>
 
