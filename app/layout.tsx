@@ -29,6 +29,11 @@ export const metadata: Metadata = {
     images: ['/og.png'],
   },
   robots: { index: true, follow: true },
+  alternates: {
+    types: {
+      'application/rss+xml': [{ url: '/rss.xml', title: 'ArxivCSExplorer RSS Feed' }],
+    },
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

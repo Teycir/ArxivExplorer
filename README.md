@@ -43,6 +43,7 @@ _Scan the QR code or copy the wallet address above._
 - **AI Summaries** — Pre-generated summaries with TL;DR, key contributions, methods, and limitations
 - **Related Papers** — Discover similar papers through semantic similarity
 - **Topic Browsing** — Curated collections for popular research areas
+- **RSS Feed** — Subscribe to recent papers with summaries at `/rss.xml`
 - **Zero Latency AI** — All summaries pre-computed, served from edge cache
 - **No Login Required** — Instant access to all features
 
@@ -193,6 +194,7 @@ GET  /api/paper/:id                       # Paper detail + summary
 GET  /api/paper/:id/related               # Semantically similar papers
 GET  /api/trending                        # Trending papers (KV cached)
 GET  /api/topic/:slug                     # Topic paper collection
+GET  /rss.xml                             # RSS feed (20 recent papers, 1h cache)
 
 POST /admin/vectorize/upsert              # Bulk embed upsert (x-admin-secret)
 POST /admin/retry-failed                  # Reset summary_ready=2 → 0
