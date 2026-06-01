@@ -20,7 +20,7 @@ _Scan the QR code or copy the wallet address above._
 
 <div align="center">
 
-![License](https://img.shields.io/badge/license-MIT-neon_green?style=for-the-badge)
+![License](https://img.shields.io/badge/license-BSL%201.1-neon_green?style=for-the-badge)
 ![Framework](https://img.shields.io/badge/Framework-Next.js%2015-neon_green?style=for-the-badge)
 ![Hosting](https://img.shields.io/badge/Hosting-Cloudflare%20Workers-neon_green?style=for-the-badge)
 ![Database](https://img.shields.io/badge/Database-Cloudflare%20D1-neon_green?style=for-the-badge)
@@ -416,7 +416,13 @@ Deploying the Next.js frontend as a Cloudflare Worker (via OpenNext `main` + `as
 
 ## License
 
-MIT License — see [LICENSE](LICENSE) for details.
+This project is licensed under the **Business Source License 1.1 (BSL 1.1)**.
+
+- ✅ Free for personal, academic, and non-commercial use
+- ❌ Commercial use requires a separate license
+- 📅 Converts to **MIT License** on **2029-06-01**
+
+See [LICENSE.md](LICENSE.md) for full terms, or [contact the author](https://teycirbensoltane.tn) for commercial licensing.
 
 ## Acknowledgments
 

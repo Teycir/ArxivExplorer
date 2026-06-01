@@ -18,7 +18,7 @@ import { parseStringPromise } from 'xml2js';
 import Database from 'better-sqlite3';
 
 const OLLAMA_BASE          = process.env.OLLAMA_BASE          || 'http://localhost:11434';
-const SUMMARY_MODEL        = process.env.OLLAMA_SUMMARY_MODEL || 'qwen3.5:4b';
+const SUMMARY_MODEL        = process.env.OLLAMA_SUMMARY_MODEL || 'gemma4:e4b';
 const EMBEDDING_MODEL      = process.env.OLLAMA_EMBEDDING_MODEL || 'nomic-embed-text';
 
 const CS_CATEGORIES = [
@@ -176,13 +176,12 @@ JSON format:
   });
 
   if (!res.ok) throw new Error(`Ollama HTTP ${res.status}`);
-  const data = await res.json() as { response?: string; error?: string };
+  const data = await res.json() as { response?: string; thinking?: string; error?: string };
   if (data.error) throw new Error(`Ollama: ${data.error}`);
-  if (!data.response?.trim()) throw new Error('Ollama empty response');
+  const raw = (data.response?.trim() || data.thinking?.trim() || '');
+  if (!raw) throw new Error('Ollama empty response');
 
-  // Strip markdown fences if present
-  let cleaned = data.response.trim()
-    .replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+  let cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
   const first = cleaned.indexOf('{');
   const last  = cleaned.lastIndexOf('}');
   if (first === -1 || last === -1) throw new Error('No JSON in Ollama response');
@@ -191,17 +190,21 @@ JSON format:
 }
 
 async function generateEmbedding(text: string): Promise<number[]> {
-  const res = await fetch(`${OLLAMA_BASE}/api/embeddings`, {
+  const res = await fetch(`${OLLAMA_BASE}/api/embed`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model: EMBEDDING_MODEL,
-      prompt: text,
+      input: text.slice(0, 2000),
     }),
+    signal: AbortSignal.timeout(30_000),
   });
-  
-  const data = await res.json();
-  return data.embedding;
+  if (!res.ok) throw new Error(`Ollama embed HTTP ${res.status}`);
+  const data = await res.json() as { embeddings?: number[][]; error?: string };
+  if (data.error) throw new Error(`Ollama embed error: ${data.error}`);
+  const emb = data.embeddings?.[0];
+  if (!Array.isArray(emb) || emb.length === 0) throw new Error('Ollama returned empty embedding');
+  return emb;
 }
 
 async function initLocalDB(): Promise<Database.Database> {
@@ -369,6 +372,14 @@ async function main() {
   const cutoffDate = new Date();
   cutoffDate.setDate(cutoffDate.getDate() - daysBack);
 
+  const db = await initLocalDB();
+
+  // Load all existing paper IDs from local DB to skip already-processed papers
+  const existingIds = new Set<string>(
+    (db.prepare('SELECT id FROM papers WHERE summary_ready = 1').all() as { id: string }[]).map(r => r.id)
+  );
+  console.log(`Local DB has ${existingIds.size} already-processed papers — skipping those\n`);
+
   const allPapers: Paper[] = [];
   const seen = new Set<string>();
 
@@ -382,19 +393,25 @@ async function main() {
       if (batch.length === 0) break;
 
       let hitCutoff = false;
+      let allKnown = true;
       for (const paper of batch) {
         if (new Date(paper.published) < cutoffDate) { hitCutoff = true; break; }
-        if (!seen.has(paper.id)) { seen.add(paper.id); allPapers.push(paper); }
+        if (!seen.has(paper.id) && !existingIds.has(paper.id)) {
+          seen.add(paper.id);
+          allPapers.push(paper);
+          allKnown = false;
+        } else if (!seen.has(paper.id)) {
+          seen.add(paper.id); // track seen even if skipping
+        }
       }
 
-      if (hitCutoff || batch.length < fetchSize) break;
+      // Stop paginating if we hit the date cutoff or every paper in the batch is already in DB
+      if (hitCutoff || batch.length < fetchSize || allKnown) break;
       start += fetchSize;
     }
   }
 
-  console.log(`\nFound ${allPapers.length} papers to process\n`);
-
-  const db = await initLocalDB();
+  console.log(`\nFound ${allPapers.length} new papers to process\n`);
 
   let done = 0, failed = 0;
   for (let i = 0; i < allPapers.length; i++) {
