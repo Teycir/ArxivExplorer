@@ -13,9 +13,11 @@
  *   - Configurable concurrency (default 1 — Ollama is already GPU-saturated)
  *
  * Usage:
- *   ADMIN_SECRET=xxx npx tsx scripts/retry-failed-local.ts
- *   ADMIN_SECRET=xxx LIMIT=20 CONCURRENCY=2 npx tsx scripts/retry-failed-local.ts
+ *   npx tsx scripts/retry-failed-local.ts  (reads from config.local.ts)
+ *   LIMIT=20 CONCURRENCY=2 npx tsx scripts/retry-failed-local.ts
  */
+
+import { CF_TOKEN, CF_ACCOUNT_ID, CF_D1_ID } from './config.local';
 
 const OLLAMA_BASE     = process.env.OLLAMA_BASE            || 'http://localhost:11434';
 const SUMMARY_MODEL   = process.env.OLLAMA_SUMMARY_MODEL   || 'gemma4:e4b';
@@ -26,9 +28,6 @@ const LIMIT           = parseInt(process.env.LIMIT         || '141', 10);
 const CONCURRENCY     = parseInt(process.env.CONCURRENCY   || '1',   10);
 
 // Cloudflare D1 REST API — avoids spawning wrangler subprocess per paper
-const CF_TOKEN      = process.env.CF_TOKEN      || 'cfoat_MVYfSJvv6_TqF_57-1cGqRXNhgKkApXTRZsOiILgLyw.aNz14wZ4AxyiJCYDjtXmddA9fXpdems4YSiEfldDFPA';
-const CF_ACCOUNT_ID = process.env.CF_ACCOUNT_ID || '654138bf69495500265ef8536b778244';
-const CF_D1_ID      = process.env.CF_D1_ID      || '67fa825b-9f3e-478c-99d2-3e5cc1b0f3de';
 const D1_API        = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/d1/database/${CF_D1_ID}`;
 
 // ── D1 REST API helpers ───────────────────────────────────────────────────

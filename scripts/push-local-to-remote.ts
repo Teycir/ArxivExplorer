@@ -18,7 +18,8 @@
  *   ADMIN_SECRET=xxx npx tsx scripts/push-local-to-remote.ts
  */
 
-import Database = require('better-sqlite3');
+import { CF_TOKEN, CF_ACCOUNT_ID, CF_D1_ID } from './config.local';
+import BetterSqlite3 from 'better-sqlite3';
 import { execSync } from 'child_process';
 import { existsSync } from 'fs';
 import { join } from 'path';
@@ -32,10 +33,7 @@ const WR_CONFIG    = join(ROOT, 'wrangler.api.toml');
 const API_BASE     = process.env.API_BASE      || 'https://arxiv-api.arxivexplorer.workers.dev';
 const ADMIN_SECRET = process.env.ADMIN_SECRET  || '';
 
-// Cloudflare credentials (from wrangler auth)
-const CF_TOKEN      = 'cfoat_MVYfSJvv6_TqF_57-1cGqRXNhgKkApXTRZsOiILgLyw.aNz14wZ4AxyiJCYDjtXmddA9fXpdems4YSiEfldDFPA';
-const CF_ACCOUNT_ID = '654138bf69495500265ef8536b778244';
-const CF_D1_ID      = '67fa825b-9f3e-478c-99d2-3e5cc1b0f3de';
+// Cloudflare credentials (from config.local.ts)
 const D1_URL        = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/d1/database/${CF_D1_ID}/query`;
 
 const D1_BATCH     = parseInt(process.env.BATCH_SIZE      || '40',  10);  // statements per progress tick
@@ -103,7 +101,7 @@ async function main() {
   if (!existsSync(LOCAL_DB))    { console.error('❌ Local DB not found:', LOCAL_DB); process.exit(1); }
   if (!existsSync(SCHEMA_FILE)) { console.error('❌ Schema file not found:', SCHEMA_FILE); process.exit(1); }
 
-  const db = new Database(LOCAL_DB, { readonly: true });
+  const db = new BetterSqlite3(LOCAL_DB, { readonly: true });
 
   const nPapers    = (db.prepare('SELECT COUNT(*) as n FROM papers').get()    as any).n as number;
   const nSummaries = (db.prepare('SELECT COUNT(*) as n FROM summaries').get() as any).n as number;

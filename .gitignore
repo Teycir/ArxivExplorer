@@ -19,6 +19,9 @@ dist/
 .env.local
 .env.*.local
 
+# Local config with secrets
+scripts/config.local.ts
+
 # Wrangler
 .wrangler/
 
