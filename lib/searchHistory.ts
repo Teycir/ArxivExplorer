@@ -6,7 +6,7 @@
  * No TTL — history is cheap and users want it to persist.
  */
 
-export const HISTORY_CAP = 20;
+export const HISTORY_CAP = 5;
 const LS_KEY = 'arxiv_search_history';
 
 export interface HistoryEntry {
