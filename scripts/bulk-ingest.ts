@@ -349,8 +349,10 @@ async function processPaper(db: Database.Database, paper: Paper): Promise<void> 
 
 async function main() {
   const args = process.argv.slice(2);
-  const daysBack   = parseInt(args[args.indexOf('--days') + 1]       || '7');
-  const catArg     = args[args.indexOf('--categories') + 1];
+  const daysIdx = args.indexOf('--days');
+  const catIdx  = args.indexOf('--categories');
+  const daysBack   = daysIdx  !== -1 ? parseInt(args[daysIdx  + 1] || '7') : 7;
+  const catArg     = catIdx   !== -1 ? args[catIdx + 1] : undefined;
   const categories = catArg ? catArg.split(',').map(s => s.trim()) : CS_CATEGORIES;
 
   console.log(`\n🦙 Ollama bulk ingest`);
