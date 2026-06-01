@@ -31,9 +31,15 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export async function searchPapers(query: string): Promise<SearchResult> {
+export async function searchPapers(
+  query: string,
+  opts: { category?: string; date?: string } = {}
+): Promise<SearchResult> {
   if (!query.trim()) throw new Error('Search query must not be empty');
-  return apiFetch<SearchResult>(`/api/search?q=${encodeURIComponent(query)}`);
+  const params = new URLSearchParams({ q: query });
+  if (opts.category) params.set('category', opts.category);
+  if (opts.date)     params.set('date',     opts.date);
+  return apiFetch<SearchResult>(`/api/search?${params.toString()}`);
 }
 
 export async function getPaper(arxivId: string): Promise<PaperWithSummary> {
@@ -44,8 +50,16 @@ export async function getRelatedPapers(arxivId: string): Promise<RelatedPaper[]>
   return apiFetch<RelatedPaper[]>(`/api/paper/${encodeURIComponent(arxivId)}/related`);
 }
 
-export async function getTrendingPapers(): Promise<{ papers: PaperWithSummary[]; total: number }> {
-  return apiFetch<{ papers: PaperWithSummary[]; total: number }>('/api/trending');
+export async function getTrendingPapers(
+  window: 'day' | 'week' | 'month' = 'week'
+): Promise<{ papers: PaperWithSummary[]; total: number; window: string }> {
+  return apiFetch<{ papers: PaperWithSummary[]; total: number; window: string }>(
+    `/api/trending?window=${window}`
+  );
+}
+
+export async function getMoreLikeThis(paperId: string): Promise<SearchResult> {
+  return apiFetch<SearchResult>(`/api/search?like=${encodeURIComponent(paperId)}`);
 }
 
 export async function getTopicPapers(

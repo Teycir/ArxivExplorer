@@ -4,10 +4,11 @@
 import Link from 'next/link';
 import { Card } from './Card';
 import { CategoryBadge } from './CategoryBadge';
-import { formatDate, formatAuthors, truncate } from '@/helper/format';
+import { formatDate, truncate } from '@/helper/format';
 import type { PaperWithSummary } from '@/src/shared/types';
 import { FileText, Calendar, Users } from 'lucide-react';
 import { BookmarkDot } from './BookmarkDot';
+import { MoreLikeThisButton } from './MoreLikeThisButton';
 
 interface PaperCardProps {
   paper: PaperWithSummary;
@@ -37,11 +38,29 @@ export function PaperCard({ paper, showAbstract = false }: PaperCardProps) {
           {paper.title}
         </h3>
 
-        {/* Authors */}
-        <p className="flex items-center gap-1.5 text-xs text-neon-red/40 font-mono mb-3">
-          <Users size={11} className="flex-shrink-0" />
-          {formatAuthors(paper.authors, 3)}
-        </p>
+        {/* Authors — each name is a clickable link to the author page */}
+        <div className="flex items-start gap-1.5 mb-3">
+          <Users size={11} className="flex-shrink-0 text-neon-red/40 mt-0.5" />
+          <p className="text-xs text-neon-red/40 font-mono leading-relaxed">
+            {paper.authors.slice(0, 4).map((author, i) => (
+              <span key={`${author}-${i}`}>
+                <Link
+                  href={`/author/${encodeURIComponent(author)}`}
+                  onClick={(e) => e.stopPropagation()}
+                  className="hover:text-neon-red hover:underline decoration-neon-red/30 transition-colors"
+                >
+                  {author}
+                </Link>
+                {i < Math.min(paper.authors.length, 4) - 1 && (
+                  <span className="text-neon-red/25">, </span>
+                )}
+              </span>
+            ))}
+            {paper.authors.length > 4 && (
+              <span className="text-neon-red/25"> +{paper.authors.length - 4} more</span>
+            )}
+          </p>
+        </div>
 
         {/* TL;DR or abstract */}
         {tldr ? (
@@ -58,13 +77,14 @@ export function PaperCard({ paper, showAbstract = false }: PaperCardProps) {
           </p>
         )}
 
-        {/* Footer: arXiv ID + bookmark indicator */}
-        <div className="mt-3 pt-3 border-t border-neon-red/10 flex items-center justify-between">
-          <span className="flex items-center gap-1 text-xs text-neon-red/30 font-mono">
+        {/* Footer: arXiv ID + more-like-this + bookmark indicator */}
+        <div className="mt-3 pt-3 border-t border-neon-red/10 flex items-center justify-between gap-2">
+          <span className="flex items-center gap-1 text-xs text-neon-red/30 font-mono shrink-0">
             <FileText size={11} />
             {paper.id}
           </span>
           <span className="flex items-center gap-2">
+            <MoreLikeThisButton id={paper.id} />
             <BookmarkDot id={paper.id} />
             <span className="text-xs text-neon-red/40 font-mono group-hover:text-neon-red/70 transition-colors">
               View →

@@ -12,7 +12,8 @@
  */
 
 import type { Env, PaperWithSummary, EmbeddingResponse } from '../../shared/types';
-import { ftsSearch, getPaperById, rowToPaper } from '../../shared/db';
+import { ftsSearch, getPaperById, rowToPaper, dateWindowStart } from '../../shared/db';
+import type { SearchFilters } from '../../shared/db';
 import { kvGet, kvPutAsync } from '../cache/kv';
 import { kvEmbed, TTL_SEARCH, TTL_EMBED } from '../cache/keys';
 import {
@@ -33,7 +34,15 @@ export async function handleSearch(
 ): Promise<Response> {
   const cors = corsHeaders(env);
   const url = new URL(request.url);
-  const rawQ = url.searchParams.get('q')?.trim() ?? '';
+  const rawQ      = url.searchParams.get('q')?.trim() ?? '';
+  const rawCat    = url.searchParams.get('category')?.trim() ?? '';
+  const rawDate   = url.searchParams.get('date')?.trim() ?? '';
+  const rawLike   = url.searchParams.get('like')?.trim() ?? '';  // arXiv ID for "more like this"
+
+  // "More like this" mode: resolve the paper's embedding, skip text query
+  if (rawLike) {
+    return handleMoreLikeThis(rawLike, env, ctx, cors);
+  }
 
   if (!rawQ) {
     return errorResponse('Missing query parameter: q', cors, 400);
@@ -41,6 +50,11 @@ export async function handleSearch(
   if (rawQ.length > 500) {
     return errorResponse('Query too long (max 500 characters)', cors, 400);
   }
+
+  const filters: SearchFilters = {
+    ...(rawCat  && { category: rawCat }),
+    ...(rawDate && { date:     rawDate }),
+  };
 
   // Optional limit param — clamped to [1, MAX_RESULTS]. (BUG-2 fix)
   const rawLimit = url.searchParams.get('limit');
@@ -50,8 +64,9 @@ export async function handleSearch(
 
   const normalised = normaliseQuery(rawQ);
 
-  // Step 2: KV search cache — include limit in key so different limits don't collide.
-  const cheapKey = `q:${encodeURIComponent(normalised).slice(0, 175)}:l${limit}`;
+  // Step 2: KV search cache — include limit + filters in key so different combos don't collide.
+  const filterSuffix = [rawCat, rawDate].filter(Boolean).join(':');
+  const cheapKey = `q:${encodeURIComponent(normalised).slice(0, 160)}:l${limit}${filterSuffix ? ':f:' + filterSuffix : ''}`;
   try {
     const cached = await kvGet<unknown>(env.CACHE, cheapKey);
     if (cached !== null) {
@@ -67,8 +82,8 @@ export async function handleSearch(
 
   // Step 3: Run FTS and semantic search in parallel
   const [ftsResult, semanticResult] = await Promise.allSettled([
-    runFtsSearch(env.DB, normalised),
-    runSemanticSearch(env, ctx, normalised, queryHash),
+    runFtsSearch(env.DB, normalised, filters),
+    runSemanticSearch(env, ctx, normalised, queryHash, filters),
   ]);
 
   // Gather results — surface per-leg errors in the response so clients can
@@ -111,9 +126,10 @@ export async function handleSearch(
 
 async function runFtsSearch(
   db: D1Database,
-  query: string
+  query: string,
+  filters: SearchFilters = {}
 ): Promise<Array<{ paper: PaperWithSummary; score: number }>> {
-  const rows = await ftsSearch(db, query);
+  const rows = await ftsSearch(db, query, 20, filters);
   if (rows.length === 0) return [];
 
   // Normalise BM25 scores (BM25 returns negative values in SQLite FTS5)
@@ -132,7 +148,8 @@ async function runSemanticSearch(
   env: Env,
   ctx: ExecutionContext,
   query: string,
-  queryHash: string
+  queryHash: string,
+  filters: SearchFilters = {}
 ): Promise<Array<{ paperId: string; score: number }>> {
   const embedCacheKey = kvEmbed(queryHash);
 
@@ -154,9 +171,14 @@ async function runSemanticSearch(
     embedding = await generateEmbedding(env, query);
   }
 
+  // Build optional Vectorize metadata filter for date
+  const vecFilter: VectorizeVectorMetadataFilter | undefined =
+    filters.date ? { published_at: { $gte: dateWindowStart(filters.date) ?? '' } } : undefined;
+
   const results = await env.VECTORIZE.query(embedding, {
     topK: VECTORIZE_TOP_K,
     returnMetadata: true,
+    ...(vecFilter ? { filter: vecFilter } : {}),
   });
 
   return results.matches.map(m => ({
@@ -233,4 +255,68 @@ async function mergeResults(
     .slice(0, limit);
 
   return ranked.map(e => e.paper!);
+}
+
+// ─── More Like This ────────────────────────────────────────────────────────
+
+/**
+ * Find papers semantically similar to a given paper ID.
+ * Looks up the paper's own Vectorize vector by ID, queries nearest neighbours,
+ * then fetches the paper objects from D1.  The source paper is excluded.
+ */
+async function handleMoreLikeThis(
+  paperId: string,
+  env: Env,
+  ctx: ExecutionContext,
+  cors: Record<string, string>,
+): Promise<Response> {
+  const cacheKey = `q:like:${encodeURIComponent(paperId)}`;
+  try {
+    const cached = await kvGet<unknown>(env.CACHE, cacheKey);
+    if (cached !== null) return jsonResponse(cached, cors);
+  } catch { /* cache miss — continue */ }
+
+  // Fetch the source paper's vector by ID
+  let sourceVectors;
+  try {
+    sourceVectors = await env.VECTORIZE.getByIds([paperId]);
+  } catch (err) {
+    console.error('[search/like] Vectorize getByIds error:', err);
+    return errorResponse(`Vectorize error: ${String(err)}`, cors, 500);
+  }
+
+  if (!sourceVectors.length || !sourceVectors[0]?.values) {
+    return errorResponse(`No vector found for paper ${paperId}`, cors, 404);
+  }
+
+  const embedding = sourceVectors[0].values as number[];
+
+  const results = await env.VECTORIZE.query(embedding, {
+    topK: VECTORIZE_TOP_K + 1,  // +1 because we'll strip the source paper
+    returnMetadata: true,
+  });
+
+  // Exclude the source paper itself
+  const matches = results.matches
+    .filter(m => (m.metadata?.paper_id as string) !== paperId)
+    .slice(0, MAX_RESULTS);
+
+  // Fetch paper objects from D1
+  const papers = (await Promise.allSettled(
+    matches.map(m => getPaperById(env.DB, m.metadata?.paper_id as string))
+  ))
+    .filter((r): r is PromiseFulfilledResult<PaperWithSummary> =>
+      r.status === 'fulfilled' && r.value !== null
+    )
+    .map(r => r.value);
+
+  const response = {
+    papers,
+    total: papers.length,
+    cached: false,
+    query: `like:${paperId}`,
+  };
+
+  kvPutAsync(ctx, env.CACHE, cacheKey, { ...response, cached: true }, TTL_SEARCH);
+  return jsonResponse(response, cors);
 }

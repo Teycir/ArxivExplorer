@@ -38,3 +38,4 @@ Thumbs.db
 *.log
 npm-debug.log*
 .open-next
+tsconfig.tsbuildinfo

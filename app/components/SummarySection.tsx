@@ -5,11 +5,11 @@
 
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Card } from './Card';
 import type { PaperWithSummary } from '@/src/shared/types';
 import { getPaper } from '@/helper/api';
-import { Sparkles, Info, Loader2 } from 'lucide-react';
+import { Sparkles, Info, Loader2, Copy, Check } from 'lucide-react';
 
 type Tab = 'tldr' | 'contributions' | 'methods' | 'limitations' | 'beginner' | 'technical';
 
@@ -25,7 +25,34 @@ const TABS: { id: Tab; label: string }[] = [
 export function SummarySection({ paper: initialPaper }: { paper: PaperWithSummary }) {
   const [active, setActive] = useState<Tab>('tldr');
   const [paper, setPaper] = useState(initialPaper);
+  const [copied, setCopied] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const getTabText = useCallback((tab: Tab, s: NonNullable<typeof paper.summary>): string => {
+    switch (tab) {
+      case 'tldr':          return s.tldr;
+      case 'beginner':      return s.beginnerExplain;
+      case 'technical':     return s.technicalSummary;
+      case 'contributions': return s.keyContributions.map((c, i) => `${i + 1}. ${c}`).join('\n');
+      case 'methods':       return s.methods.map(m => `• ${m}`).join('\n');
+      case 'limitations':   return s.limitations.map(l => `⚠ ${l}`).join('\n');
+    }
+  }, []);
+
+  async function copyTab() {
+    if (!paper.summary) return;
+    const text = getTabText(active, paper.summary);
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.style.cssText = 'position:fixed;opacity:0';
+      document.body.appendChild(ta); ta.select();
+      document.execCommand('copy'); document.body.removeChild(ta);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
 
   // Poll every 10 s while summary is still pending
   useEffect(() => {
@@ -122,9 +149,21 @@ export function SummarySection({ paper: initialPaper }: { paper: PaperWithSummar
         <span className="text-xs font-mono font-bold uppercase tracking-wider text-neon-red/60">
           AI Summary
         </span>
-        <span className="ml-auto flex items-center gap-1 text-xs text-neon-red/25 font-mono">
+        <span className="ml-auto flex items-center gap-2 text-xs text-neon-red/25 font-mono">
           <Info size={10} />
           {s.modelVersion.split('/').pop()}
+          <button
+            onClick={copyTab}
+            aria-label="Copy summary to clipboard"
+            className={[
+              'inline-flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] transition-all',
+              copied
+                ? 'border-green-500/40 text-green-400 bg-green-500/10'
+                : 'border-neon-red/20 text-neon-red/40 hover:border-neon-red/50 hover:text-neon-red/70',
+            ].join(' ')}
+          >
+            {copied ? <><Check size={9} /> copied</> : <><Copy size={9} /> copy</>}
+          </button>
         </span>
       </div>
 

@@ -7,11 +7,12 @@ import { CategoryBadge } from '../../components/CategoryBadge';
 import { Card } from '../../components/Card';
 import { SummarySection } from '../../components/SummarySection';
 import { RelatedPapersList } from '../../components/RelatedPapersList';
-import { formatDate, formatAuthors, arxivAbsUrl, arxivPdfUrl } from '@/helper/format';
+import { formatDate, arxivAbsUrl, arxivPdfUrl } from '@/helper/format';
 import type { PaperWithSummary, RelatedPaper } from '@/src/shared/types';
-import { ExternalLink, FileText, Users, Calendar, Download } from 'lucide-react';
+import { ExternalLink, FileText, Users, Calendar } from 'lucide-react';
 import { BookmarkButton } from '../../components/BookmarkButton';
-import { CopyBibtex } from '../../components/CopyBibtex';
+import { ExportButton } from '../../components/ExportButton';
+import { ShareButton } from '../../components/ShareButton';
 
 interface Props {
   params: Promise<{ arxiv_id: string }>;
@@ -100,10 +101,27 @@ export default async function PaperPage({ params }: Props) {
                 {paper.title}
               </h1>
 
-              {/* Authors */}
+              {/* Authors — each name links to the author page */}
               <div className="flex items-start gap-2 text-xs text-neon-red/50 font-mono mb-3">
                 <Users size={13} className="flex-shrink-0 mt-0.5" />
-                <span className="leading-relaxed">{formatAuthors(paper.authors, 10)}</span>
+                <span className="leading-relaxed">
+                  {paper.authors.slice(0, 10).map((author, i) => (
+                    <span key={`${author}-${i}`}>
+                      <Link
+                        href={`/author/${encodeURIComponent(author)}`}
+                        className="hover:text-neon-red hover:underline decoration-neon-red/30 transition-colors"
+                      >
+                        {author}
+                      </Link>
+                      {i < Math.min(paper.authors.length, 10) - 1 && (
+                        <span className="text-neon-red/25">, </span>
+                      )}
+                    </span>
+                  ))}
+                  {paper.authors.length > 10 && (
+                    <span className="text-neon-red/25"> +{paper.authors.length - 10} more</span>
+                  )}
+                </span>
               </div>
 
               {/* Date + ID */}
@@ -129,12 +147,18 @@ export default async function PaperPage({ params }: Props) {
                   authors={paper.authors}
                   categories={paper.categories}
                 />
-                <CopyBibtex
+                <ShareButton
+                  id={arxivId}
+                  title={paper.title}
+                  tldr={paper.summary?.tldr}
+                />
+                <ExportButton
                   id={arxivId}
                   title={paper.title}
                   authors={paper.authors}
                   categories={paper.categories}
                   publishedAt={paper.publishedAt}
+                  summary={paper.summary}
                 />
                 <a
                   href={absUrl}
@@ -154,7 +178,7 @@ export default async function PaperPage({ params }: Props) {
                     border border-neon-red/30 text-neon-red/70 rounded-lg
                     hover:border-neon-red/60 hover:text-neon-red hover:bg-neon-red/5 transition-all"
                 >
-                  <Download size={12} /> PDF
+                  <ExternalLink size={12} /> PDF
                 </a>
                 {paper.htmlUrl && (
                   <a

@@ -11,22 +11,25 @@
  *  - Inline note editing (pencil → input → confirm/cancel)
  *  - Purge-all with confirm step
  *  - Progress bar showing fill vs SOFT_CAP
+ *  - Status filter tabs (all / unread / reading / done) with per-tab counts
  */
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import Link from 'next/link';
 import { Bookmark, FileText, Users, Tag, Clock, AlertTriangle } from 'lucide-react';
 import {
   loadBookmarks,
   removeBookmark,
   updateNote,
+  updateStatus,
   purgeAllBookmarks,
   daysUntilExpiry,
   SOFT_CAP,
   WARN_THRESHOLD,
   EXPIRY_WARN_DAYS,
   type Bookmark as BM,
+  type ReadStatus,
 } from '@/lib/bookmarks';
 import { formatAuthors } from '@/helper/format';
 
@@ -153,16 +156,59 @@ function PurgeAllButton({ onPurge }: { onPurge: () => void }) {
   );
 }
 
+// ── Status toggle ─────────────────────────────────────────────────────────────
+
+const STATUS_CYCLE: ReadStatus[] = ['unread', 'reading', 'done'];
+const STATUS_LABEL: Record<ReadStatus, string> = {
+  unread:  '○ unread',
+  reading: '◑ reading',
+  done:    '✓ done',
+};
+const STATUS_CLASS: Record<ReadStatus, string> = {
+  unread:  'text-neon-red/30 border-neon-red/15',
+  reading: 'text-amber-400/70 border-amber-500/30',
+  done:    'text-green-400/70 border-green-500/30',
+};
+
+function StatusToggle({
+  status,
+  onChange,
+}: {
+  status: ReadStatus;
+  onChange: (next: ReadStatus) => void;
+}) {
+  function cycle() {
+    const idx  = STATUS_CYCLE.indexOf(status);
+    const next = STATUS_CYCLE[(idx + 1) % STATUS_CYCLE.length]!;
+    onChange(next);
+  }
+  return (
+    <button
+      onClick={cycle}
+      title={`Status: ${status} — click to cycle`}
+      className={[
+        'inline-flex items-center px-2 py-0.5 rounded border text-[10px] font-mono',
+        'transition-colors duration-150 hover:opacity-80',
+        STATUS_CLASS[status],
+      ].join(' ')}
+    >
+      {STATUS_LABEL[status]}
+    </button>
+  );
+}
+
 // ── Row ───────────────────────────────────────────────────────────────────────
 
 function BookmarkRow({
   bookmark,
   onDelete,
   onNote,
+  onStatus,
 }: {
   bookmark: BM;
-  onDelete: (id: string) => void;
-  onNote:   (id: string, note: string) => void;
+  onDelete:  (id: string) => void;
+  onNote:    (id: string, note: string) => void;
+  onStatus:  (id: string, status: ReadStatus) => void;
 }) {
   const [editing,  setEditing]  = useState(false);
   const [noteVal,  setNoteVal]  = useState(bookmark.note ?? '');
@@ -207,7 +253,7 @@ function BookmarkRow({
         <ExpiryPill bookmark={bookmark} />
       </div>
 
-      {/* Authors + categories */}
+      {/* Authors + categories + status */}
       <div className="flex flex-wrap items-center gap-3 mb-3">
         <span className="flex items-center gap-1 text-[11px] text-neon-red/40 font-mono">
           <Users size={10} />
@@ -221,6 +267,10 @@ function BookmarkRow({
           <Clock size={10} />
           saved {savedDate}
         </span>
+        <StatusToggle
+          status={bookmark.status}
+          onChange={(next) => onStatus(bookmark.id, next)}
+        />
       </div>
 
       {/* Note row */}
@@ -269,12 +319,73 @@ function BookmarkRow({
   );
 }
 
+// ── Status filter tabs ────────────────────────────────────────────────────────
+
+type FilterTab = 'all' | ReadStatus;
+
+const FILTER_TABS: { key: FilterTab; label: string; icon: string }[] = [
+  { key: 'all',     label: 'all',     icon: '≡'  },
+  { key: 'unread',  label: 'unread',  icon: '○'  },
+  { key: 'reading', label: 'reading', icon: '◑'  },
+  { key: 'done',    label: 'done',    icon: '✓'  },
+];
+
+const FILTER_TAB_ACTIVE: Record<FilterTab, string> = {
+  all:     'border-neon-red/50 text-neon-red bg-neon-red/10',
+  unread:  'border-neon-red/50 text-neon-red bg-neon-red/10',
+  reading: 'border-amber-500/50 text-amber-400 bg-amber-500/10',
+  done:    'border-green-500/50 text-green-400 bg-green-500/10',
+};
+
+function StatusFilterTabs({
+  active,
+  counts,
+  onSelect,
+}: {
+  active: FilterTab;
+  counts: Record<FilterTab, number>;
+  onSelect: (tab: FilterTab) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      {FILTER_TABS.map(({ key, label, icon }) => {
+        const isActive = active === key;
+        const count    = counts[key];
+        return (
+          <button
+            key={key}
+            onClick={() => onSelect(key)}
+            className={[
+              'inline-flex items-center gap-1 rounded border px-2.5 py-1 text-[11px] font-mono',
+              'transition-colors duration-150',
+              isActive
+                ? FILTER_TAB_ACTIVE[key]
+                : 'border-neutral-800 text-neutral-500 hover:border-neutral-600 hover:text-neutral-300',
+            ].join(' ')}
+          >
+            <span>{icon}</span>
+            <span>{label}</span>
+            {count > 0 && (
+              <span className={`rounded px-1 text-[9px] ${
+                isActive ? 'bg-white/10' : 'bg-neutral-800'
+              }`}>
+                {count}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── Main list ─────────────────────────────────────────────────────────────────
 
 export function BookmarksList() {
-  const [bookmarks, setBookmarks] = useState<BM[]>([]);
-  const [toast,     setToast]     = useState<string | null>(null);
-  const [loaded,    setLoaded]    = useState(false);
+  const [bookmarks,   setBookmarks]   = useState<BM[]>([]);
+  const [toast,       setToast]       = useState<string | null>(null);
+  const [loaded,      setLoaded]      = useState(false);
+  const [activeTab,   setActiveTab]   = useState<FilterTab>('all');
 
   useEffect(() => {
     const { bookmarks: bms, prunedCount } = loadBookmarks();
@@ -294,10 +405,29 @@ export function BookmarksList() {
     setBookmarks(updated);
   }
 
+  function handleStatus(id: string, status: ReadStatus) {
+    const updated = updateStatus(id, status);
+    setBookmarks(updated);
+  }
+
   function handlePurge() {
     purgeAllBookmarks();
     setBookmarks([]);
   }
+
+  // Counts per tab (memoised so they don't flicker on status changes)
+  const counts = useMemo<Record<FilterTab, number>>(() => ({
+    all:     bookmarks.length,
+    unread:  bookmarks.filter(b => b.status === 'unread').length,
+    reading: bookmarks.filter(b => b.status === 'reading').length,
+    done:    bookmarks.filter(b => b.status === 'done').length,
+  }), [bookmarks]);
+
+  // Filtered view
+  const visible = useMemo(
+    () => activeTab === 'all' ? bookmarks : bookmarks.filter(b => b.status === activeTab),
+    [bookmarks, activeTab],
+  );
 
   const nearingCap = bookmarks.length >= WARN_THRESHOLD;
 
@@ -325,8 +455,9 @@ export function BookmarksList() {
     <>
       {nearingCap && <ThresholdBanner count={bookmarks.length} />}
 
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-neutral-600 font-mono flex items-center gap-1.5">
+      {/* Toolbar: count + filter tabs + purge */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <span className="text-xs text-neutral-600 font-mono flex items-center gap-1.5 shrink-0">
           <FileText size={11} />
           {bookmarks.length} {bookmarks.length === 1 ? 'paper' : 'papers'}
           {nearingCap && (
@@ -335,19 +466,38 @@ export function BookmarksList() {
             </span>
           )}
         </span>
-        <PurgeAllButton onPurge={handlePurge} />
+
+        <StatusFilterTabs
+          active={activeTab}
+          counts={counts}
+          onSelect={setActiveTab}
+        />
+
+        <span className="ml-auto">
+          <PurgeAllButton onPurge={handlePurge} />
+        </span>
       </div>
 
-      <div className="space-y-3">
-        {bookmarks.map(b => (
-          <BookmarkRow
-            key={b.id}
-            bookmark={b}
-            onDelete={handleDelete}
-            onNote={handleNote}
-          />
-        ))}
-      </div>
+      {/* Paper list */}
+      {visible.length === 0 ? (
+        <div className="rounded-xl border border-neon-red/10 bg-dark-bg px-5 py-10 text-center">
+          <p className="text-sm text-neutral-600 font-mono">
+            No <span className="text-neon-red/40">{activeTab}</span> papers.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {visible.map(b => (
+            <BookmarkRow
+              key={b.id}
+              bookmark={b}
+              onDelete={handleDelete}
+              onNote={handleNote}
+              onStatus={handleStatus}
+            />
+          ))}
+        </div>
+      )}
 
       {toast && <Toast message={toast} onDismiss={() => setToast(null)} />}
     </>

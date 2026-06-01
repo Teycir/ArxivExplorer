@@ -16,20 +16,36 @@ export const metadata: Metadata = {
   title: 'ArxivCSExplorer — Fast semantic CS arXiv search with AI summaries',
 };
 
-// ISR: revalidate every 30 minutes
-export const revalidate = 1800;
+// ISR: revalidate every 10 minutes (day-window changes fast)
+export const revalidate = 600;
 
-async function fetchTrending(): Promise<PaperWithSummary[]> {
+type TrendingWindow = 'day' | 'week' | 'month';
+
+const WINDOW_LABELS: Record<TrendingWindow, string> = {
+  day:   'Today',
+  week:  'This week',
+  month: 'This month',
+};
+
+interface HomePageProps {
+  searchParams: Promise<{ window?: string }>;
+}
+
+async function fetchTrending(window: TrendingWindow): Promise<PaperWithSummary[]> {
   try {
-    const data = await getTrendingPapers();
+    const data = await getTrendingPapers(window);
     return data.papers ?? [];
   } catch {
     return [];
   }
 }
 
-export default async function HomePage() {
-  const trending = await fetchTrending();
+export default async function HomePage({ searchParams }: HomePageProps) {
+  const { window: rawWindow } = await searchParams;
+  const activeWindow: TrendingWindow =
+    rawWindow === 'day' || rawWindow === 'month' ? rawWindow : 'week';
+
+  const trending = await fetchTrending(activeWindow);
 
   return (
     <main className="flex-1 flex flex-col">
@@ -104,26 +120,53 @@ export default async function HomePage() {
         <PersonalizedFeed />
 
         {/* ── Trending ──────────────────────────────────────────────────────── */}
-        {trending.length > 0 && (
-          <section>
-            <div className="flex items-baseline justify-between mb-5">
-              <h2 className="text-xs font-mono font-bold text-neon-red/50 uppercase tracking-widest">
-                Trending this week
-              </h2>
-              <Link
-                href="/search?q=recent"
-                className="text-xs text-neon-red/40 hover:text-neon-red/70 transition-colors font-mono"
-              >
-                See more →
-              </Link>
+        <section>
+          <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
+            <h2 className="text-xs font-mono font-bold text-neon-red/50 uppercase tracking-widest">
+              Trending
+            </h2>
+
+            {/* Window segmented control */}
+            <div className="flex items-center gap-1">
+              {(['day', 'week', 'month'] as TrendingWindow[]).map((w) => (
+                <Link
+                  key={w}
+                  href={w === 'week' ? '/' : `/?window=${w}`}
+                  className={[
+                    'px-2.5 py-1 text-[10px] font-mono font-semibold uppercase tracking-wider',
+                    'rounded border transition-all duration-150',
+                    activeWindow === w
+                      ? 'border-neon-red/50 bg-neon-red/10 text-neon-red'
+                      : 'border-neon-red/15 text-neon-red/35 hover:border-neon-red/30 hover:text-neon-red/60',
+                  ].join(' ')}
+                >
+                  {WINDOW_LABELS[w]}
+                </Link>
+              ))}
             </div>
+
+            <Link
+              href="/search?q=recent"
+              className="text-xs text-neon-red/40 hover:text-neon-red/70 transition-colors font-mono"
+            >
+              See more →
+            </Link>
+          </div>
+
+          {trending.length === 0 ? (
+            <div className="rounded-xl border border-neon-red/10 bg-dark-bg px-5 py-12 text-center">
+              <p className="text-sm text-neon-red/30 font-mono">
+                No papers indexed in the last {activeWindow === 'day' ? '24 hours' : activeWindow === 'week' ? '7 days' : '30 days'} yet.
+              </p>
+            </div>
+          ) : (
             <div className="grid gap-4">
               {trending.slice(0, 6).map((paper) => (
                 <PaperCard key={paper.id} paper={paper} />
               ))}
             </div>
-          </section>
-        )}
+          )}
+        </section>
       </div>
     </main>
   );

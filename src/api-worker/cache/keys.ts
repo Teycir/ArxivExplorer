@@ -19,8 +19,9 @@ export const kvEmbed = (queryHash: string) => `kv:embed:${queryHash}`;
 /** Topic page results (TTL 12h). */
 export const kvTopic = (slug: string) => `kv:topic:${slug}`;
 
-/** Trending papers list (TTL 60min). */
-export const KV_TRENDING = 'kv:trending';
+/** Trending papers — one key per window. */
+export const KV_TRENDING = 'kv:trending:week';  // kept for back-compat
+export const kvTrending = (window: 'day' | 'week' | 'month') => `kv:trending:${window}`;
 
 /** Author page results (TTL 6h). */
 export const kvAuthor = (name: string) => `kv:author:${encodeURIComponent(name)}`;
@@ -30,7 +31,9 @@ export const KV_SITEMAP = 'kv:sitemap';
 
 // ─── TTL constants (in seconds) ────────────────────────────────────────────
 export const TTL_SEARCH = 7_200;          // 2h
-export const TTL_TRENDING = 3_600;        // 60min
+export const TTL_TRENDING_DAY   = 600;    // 10min  (day window — changes fast)
+export const TTL_TRENDING       = 3_600;  // 60min  (week window — default)
+export const TTL_TRENDING_MONTH = 10_800; // 3h     (month window — stable)
 export const TTL_EMBED = 86_400;          // 24h
 export const TTL_TOPIC = 43_200;          // 12h
 export const TTL_AUTHOR = 21_600;         // 6h

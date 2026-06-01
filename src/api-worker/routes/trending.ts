@@ -1,13 +1,27 @@
 /**
  * src/api-worker/routes/trending.ts
- * GET /api/trending — trending papers from the last 7 days.
+ * GET /api/trending?window=day|week|month
+ *
+ * Returns trending papers within the requested time window.
+ * Separate KV cache keys per window, with window-appropriate TTLs:
+ *   day   → 10 min  (fresh signal)
+ *   week  → 60 min  (default, stable)
+ *   month → 3 h     (very stable)
  */
 
 import type { Env } from '../../shared/types';
-import { getTrendingPapers } from '../../shared/db';
+import { getTrendingPapers, type TrendingWindow } from '../../shared/db';
 import { kvGet, kvPutAsync } from '../cache/kv';
-import { KV_TRENDING, TTL_TRENDING } from '../cache/keys';
+import { kvTrending, TTL_TRENDING_DAY, TTL_TRENDING, TTL_TRENDING_MONTH } from '../cache/keys';
 import { corsHeaders, jsonResponse, errorResponse } from '../../shared/utils';
+
+const VALID_WINDOWS: TrendingWindow[] = ['day', 'week', 'month'];
+
+const TTL_BY_WINDOW: Record<TrendingWindow, number> = {
+  day:   TTL_TRENDING_DAY,
+  week:  TTL_TRENDING,
+  month: TTL_TRENDING_MONTH,
+};
 
 export async function handleTrending(
   request: Request,
@@ -15,11 +29,19 @@ export async function handleTrending(
   ctx: ExecutionContext
 ): Promise<Response> {
   const cors = corsHeaders(env);
+  const url  = new URL(request.url);
 
-  // 1. KV cache (60min TTL)
-  // KV errors surface as 503, not as silent cache misses (same policy as paper.ts).
+  const rawWindow = url.searchParams.get('window') ?? 'week';
+  const window: TrendingWindow = (VALID_WINDOWS as string[]).includes(rawWindow)
+    ? rawWindow as TrendingWindow
+    : 'week';
+
+  const cacheKey = kvTrending(window);
+  const ttl      = TTL_BY_WINDOW[window];
+
+  // 1. KV cache
   try {
-    const cached = await kvGet<unknown>(env.CACHE, KV_TRENDING);
+    const cached = await kvGet<unknown>(env.CACHE, cacheKey);
     if (cached !== null) {
       return jsonResponse(cached, cors);
     }
@@ -31,16 +53,16 @@ export async function handleTrending(
   // 2. D1 fallback
   let papers;
   try {
-    papers = await getTrendingPapers(env.DB, 10);
+    papers = await getTrendingPapers(env.DB, 10, window);
   } catch (err) {
     console.error('[trending] D1 query error:', err);
     return errorResponse(`Database error: ${String(err)}`, cors, 500);
   }
 
-  const response = { papers, total: papers.length };
+  const response = { papers, total: papers.length, window };
 
-  // 3. Fire-and-forget KV write (TTL 60min)
-  kvPutAsync(ctx, env.CACHE, KV_TRENDING, response, TTL_TRENDING);
+  // 3. Fire-and-forget KV write
+  kvPutAsync(ctx, env.CACHE, cacheKey, response, ttl);
 
   return jsonResponse(response, cors);
 }

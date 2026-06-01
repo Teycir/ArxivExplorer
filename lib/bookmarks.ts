@@ -142,6 +142,8 @@ export function updateNote(id: string, note: string): Bookmark[] {
 export function purgeAllBookmarks(): void {
   if (typeof window === 'undefined') return;
   localStorage.removeItem(LS_KEY);
+  // Notify same-tab listeners (e.g. Navbar badge) that bookmarks are now empty.
+  window.dispatchEvent(new CustomEvent('arxiv:bookmarks-changed'));
 }
 
 /** Returns true if the given arXiv ID is bookmarked. */

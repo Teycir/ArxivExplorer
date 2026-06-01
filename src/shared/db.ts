@@ -93,8 +93,19 @@ export async function getRelatedPapers(db: D1Database, paperId: string): Promise
   return results;
 }
 
-export async function getTrendingPapers(db: D1Database, limit = 10): Promise<PaperWithSummary[]> {
-  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+export type TrendingWindow = 'day' | 'week' | 'month';
+
+export async function getTrendingPapers(
+  db: D1Database,
+  limit = 10,
+  window: TrendingWindow = 'week'
+): Promise<PaperWithSummary[]> {
+  const MS: Record<TrendingWindow, number> = {
+    day:   86_400_000,
+    week:  7 * 86_400_000,
+    month: 30 * 86_400_000,
+  };
+  const since = new Date(Date.now() - MS[window]).toISOString().slice(0, 10);
   // Select only the columns the home page needs — skip heavy summary fields like
   // technical_summary, methods, limitations, beginner_explain to cut payload ~60%.
   const { results } = await db.prepare(`
@@ -209,12 +220,49 @@ export async function getAllPaperIds(db: D1Database): Promise<string[]> {
   return results.map(r => r.id);
 }
 
-/** FTS keyword search with BM25 title boost */
+export interface SearchFilters {
+  category?: string;   // arXiv category code e.g. "cs.LG"
+  date?:     string;   // "day" | "week" | "month" | "year"
+}
+
+/** Resolve a date-range label → ISO date string for published_at >= */
+export function dateWindowStart(window: string): string | null {
+  const MS: Record<string, number> = {
+    day:   86_400_000,
+    week:  7 * 86_400_000,
+    month: 30 * 86_400_000,
+    year:  365 * 86_400_000,
+  };
+  const ms = MS[window];
+  if (!ms) return null;
+  return new Date(Date.now() - ms).toISOString().slice(0, 10);
+}
+
+/** FTS keyword search with BM25 title boost + optional category / date filters */
 export async function ftsSearch(
   db: D1Database,
   query: string,
-  limit = 20
+  limit = 20,
+  filters: SearchFilters = {}
 ): Promise<Array<PaperRow & { keyword_score: number }>> {
+  const since = filters.date ? dateWindowStart(filters.date) : null;
+  const cat   = filters.category?.trim() || null;
+
+  const whereParts: string[] = ['papers_fts MATCH ?', 'p.summary_ready = 1'];
+  const binds: (string | number)[] = [query];
+
+  if (since) {
+    whereParts.push('p.published_at >= ?');
+    binds.push(since);
+  }
+  if (cat) {
+    whereParts.push(
+      'EXISTS (SELECT 1 FROM paper_categories pc WHERE pc.paper_id = p.id AND pc.category = ?)'
+    );
+    binds.push(cat);
+  }
+  binds.push(limit);
+
   const { results } = await db.prepare(`
     SELECT
       p.id, p.title, p.authors, p.abstract, p.categories,
@@ -225,11 +273,10 @@ export async function ftsSearch(
     FROM papers_fts f
     JOIN papers p ON p.id = f.paper_id
     LEFT JOIN summaries s ON s.paper_id = p.id
-    WHERE papers_fts MATCH ?
-      AND p.summary_ready = 1
+    WHERE ${whereParts.join(' AND ')}
     ORDER BY keyword_score
     LIMIT ?
-  `).bind(query, limit).all<PaperRow & { keyword_score: number }>();
+  `).bind(...binds).all<PaperRow & { keyword_score: number }>();
 
   return results;
 }
