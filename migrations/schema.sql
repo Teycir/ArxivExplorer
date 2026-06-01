@@ -102,6 +102,7 @@ CREATE TABLE topics (
 );
 
 INSERT INTO topics (slug, label, description, category_tags, updated_at) VALUES
+  -- ML / AI core
   ('large-language-models',  'Large Language Models',  'Research on LLMs, transformers, and language model scaling', '["cs.CL","cs.LG"]',         datetime('now')),
   ('diffusion-models',       'Diffusion Models',       'Score-based and denoising diffusion probabilistic models',   '["cs.LG","cs.CV","stat.ML"]',datetime('now')),
   ('rag-retrieval',          'RAG & Retrieval',        'Retrieval-augmented generation and dense retrieval methods', '["cs.CL","cs.IR"]',         datetime('now')),
@@ -111,7 +112,30 @@ INSERT INTO topics (slug, label, description, category_tags, updated_at) VALUES
   ('efficient-ml',           'Efficient ML',           'Model compression, quantization, pruning, and distillation','["cs.LG","cs.AR"]',         datetime('now')),
   ('agents-planning',        'Agents & Planning',      'AI agents, tool use, and autonomous decision-making',       '["cs.AI","cs.CL"]',         datetime('now')),
   ('alignment-safety',       'Alignment & Safety',     'AI alignment, robustness, interpretability, and safety',    '["cs.AI","cs.LG"]',         datetime('now')),
-  ('graph-neural-networks',  'Graph Neural Networks',  'GNNs, message passing, and graph representation learning',  '["cs.LG","stat.ML"]',       datetime('now'));
+  ('graph-neural-networks',  'Graph Neural Networks',  'GNNs, message passing, and graph representation learning',  '["cs.LG","stat.ML"]',       datetime('now')),
+  ('neural-architectures',   'Neural Architectures',   'Novel neural network architectures, attention mechanisms, and model design', '["cs.LG","cs.NE"]', datetime('now')),
+  -- Speech / Audio
+  ('speech-audio',           'Speech & Audio',         'Speech recognition, synthesis, audio processing, and music generation', '["cs.SD","eess.AS","cs.CL"]', datetime('now')),
+  -- Security / Crypto
+  ('cryptography',           'Cryptography',           'Classical and post-quantum cryptographic primitives and protocols', '["cs.CR"]', datetime('now')),
+  ('zero-knowledge-proofs',  'Zero-Knowledge Proofs',  'ZK-SNARKs, ZK-STARKs, and zero-knowledge proof systems',           '["cs.CR"]', datetime('now')),
+  ('adversarial-ml',         'Adversarial ML',         'Adversarial attacks, defenses, and robustness of machine learning models', '["cs.CR","cs.LG","cs.CV"]', datetime('now')),
+  ('privacy',                'Privacy',                'Differential privacy, federated learning, and privacy-preserving ML', '["cs.CR","cs.LG"]', datetime('now')),
+  ('blockchain',             'Blockchain',             'Distributed ledgers, smart contracts, and decentralized protocols',  '["cs.CR","cs.DC"]', datetime('now')),
+  -- Systems
+  ('distributed-systems',    'Distributed Systems',    'Consensus protocols, fault tolerance, and distributed computing', '["cs.DC"]',         datetime('now')),
+  ('computer-architecture',  'Computer Architecture',  'CPU/GPU design, memory systems, and hardware accelerators',       '["cs.AR"]',         datetime('now')),
+  ('networking',             'Networking',             'Network protocols, SDN, CDN, and Internet infrastructure',        '["cs.NI"]',         datetime('now')),
+  ('operating-systems',      'Operating Systems',      'OS design, scheduling, virtualization, and systems software',     '["cs.OS","cs.DC"]', datetime('now')),
+  -- Theory
+  ('algorithms',             'Algorithms',             'Algorithm design, data structures, and combinatorial optimization', '["cs.DS","cs.DM"]', datetime('now')),
+  ('complexity-theory',      'Complexity Theory',      'Computational complexity, P vs NP, and lower bounds',             '["cs.CC"]',         datetime('now')),
+  ('information-theory',     'Information Theory',     'Coding theory, channel capacity, and data compression',           '["cs.IT","eess.SP"]', datetime('now')),
+  -- SE / PL
+  ('program-synthesis',      'Program Synthesis',      'Automated programming, code generation, and program induction', '["cs.PL","cs.SE","cs.LG"]', datetime('now')),
+  ('software-testing',       'Software Testing',       'Fuzzing, test generation, verification, and software quality',  '["cs.SE"]',         datetime('now')),
+  -- Robotics
+  ('robotics',               'Robotics',               'Robot learning, motion planning, manipulation, and embodied AI', '["cs.RO","cs.AI"]', datetime('now'));
 
 -- ─── 3. Full-text search (self-contained FTS5) ────────────────────────────
 

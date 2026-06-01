@@ -7,6 +7,7 @@ import { PaperCard } from '../../components/PaperCard';
 import { CategoryBadge } from '../../components/CategoryBadge';
 import { CategoryScopeBar } from '../../components/CategoryScopeBar';
 import { Database } from 'lucide-react';
+import { TOPICS, TOPIC_SLUGS } from '@/lib/topics';
 
 // ISR: 12h (matches KV TTL)
 export const revalidate = 43200;
@@ -24,6 +25,14 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       description: topic.description ?? `Browse ${topic.label} research papers on ArxivExplorer.`,
     };
   } catch (err) {
+    // Fallback to lib/topics label if the slug is known
+    const localTopic = TOPICS.find(t => t.slug === slug);
+    if (localTopic) {
+      return {
+        title: `${localTopic.label} — arXiv Papers`,
+        description: `Browse ${localTopic.label} research papers on ArxivExplorer.`,
+      };
+    }
     console.error('[topic/generateMetadata]', slug, err);
     return { title: 'Topic not found' };
   }
@@ -31,15 +40,29 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function TopicPage({ params }: Props) {
   const { slug } = await params;
-  let data: Awaited<ReturnType<typeof getTopicPapers>>;
+
+  // Hard 404 only for slugs that are completely unknown (not in lib/topics and not in DB)
+  let data: Awaited<ReturnType<typeof getTopicPapers>> | null = null;
   try {
     data = await getTopicPapers(slug);
   } catch (err) {
     console.error('[topic/page]', slug, err);
-    notFound();
+    // If the slug isn't known in our local topics list either, 404
+    if (!TOPIC_SLUGS.has(slug)) {
+      notFound();
+    }
+    // Otherwise fall through: show an empty state for a known topic with no DB entry yet
   }
 
-  const { topic, papers } = data;
+  // If we got data, use it. Otherwise synthesise a minimal topic shell from lib/topics.
+  const localTopic = TOPICS.find(t => t.slug === slug);
+  const topic = data?.topic ?? (localTopic
+    ? { slug, label: localTopic.label, categoryTags: [localTopic.category], updatedAt: '' }
+    : null);
+
+  if (!topic) notFound();
+
+  const papers = data?.papers ?? [];
 
   return (
     <>

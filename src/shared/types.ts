@@ -11,8 +11,8 @@ export interface Paper {
   categories: string[]; // JSON-parsed from D1 TEXT column
   publishedAt: string; // ISO date YYYY-MM-DD
   revisedAt?: string;
-  pdfUrl: string;
-  htmlUrl?: string;
+  pdfUrl: string | null;   // stored in DB; never synthesised from the arXiv ID
+  htmlUrl: string | null;  // stored in DB; null when not provided by arXiv
   indexedAt: string;
   summaryReady: 0 | 1 | 2; // 0=pending, 1=ready, 2=failed
 }

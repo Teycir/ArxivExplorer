@@ -16,14 +16,14 @@ export function rowToPaper(row: PaperRow): PaperWithSummary {
     abstract: row.abstract,
     categories: safeJsonParse<string[]>(row.categories, []),
     publishedAt: row.published_at,
-    pdfUrl: row.pdf_url,
+    pdfUrl: row.pdf_url ?? null,
+    htmlUrl: row.html_url ?? null,
     indexedAt: row.indexed_at,
     summaryReady: row.summary_ready as 0 | 1 | 2,
     summary: null,
   };
 
   if (row.revised_at) paper.revisedAt = row.revised_at;
-  if (row.html_url) paper.htmlUrl = row.html_url;
 
   if (row.tldr && row.key_contributions && row.methods && row.limitations &&
       row.beginner_explain && row.technical_summary && row.generated_at && row.model_version) {
@@ -75,6 +75,12 @@ export async function getPaperById(db: D1Database, id: string): Promise<PaperWit
 }
 
 export async function getRelatedPapers(db: D1Database, paperId: string): Promise<RelatedPaper[]> {
+  // Join on papers without filtering by summary_ready — a related paper is
+  // valid even if its summary is still pending (summary_ready=0) or failed
+  // (summary_ready=2).  Filtering by summary_ready=1 here silently drops
+  // entire related lists when neighbouring papers haven't been summarised yet,
+  // producing the "No related papers yet" empty state that users see.
+  // tldr comes from summaries via LEFT JOIN and will simply be null when absent.
   const { results } = await db.prepare(`
     SELECT
       r.related_paper_id AS id,
@@ -115,10 +121,10 @@ export async function getTrendingPapers(
       s.tldr, s.generated_at, s.model_version
     FROM papers p
     LEFT JOIN summaries s ON s.paper_id = p.id
-    WHERE p.published_at >= ? AND p.summary_ready = 1
+    WHERE p.summary_ready = 1
     ORDER BY p.indexed_at DESC
     LIMIT ?
-  `).bind(since, limit).all<PaperRow>();
+  `).bind(limit).all<PaperRow>();
 
   return results.map(rowToPaper);
 }
@@ -136,7 +142,7 @@ export async function getPapersByAuthor(
       s.beginner_explain, s.technical_summary, s.generated_at, s.model_version
     FROM papers p
     LEFT JOIN summaries s ON s.paper_id = p.id
-    WHERE p.authors LIKE ?
+    WHERE p.summary_ready = 1 AND p.authors LIKE ?
     ORDER BY p.published_at DESC
     LIMIT ?
   `).bind(`%${name}%`, limit).all<PaperRow>();
@@ -171,7 +177,7 @@ export async function getPapersByTopic(
     FROM paper_categories pc
     JOIN papers p ON p.id = pc.paper_id
     LEFT JOIN summaries s ON s.paper_id = p.id
-    WHERE pc.category IN (${placeholders})
+    WHERE pc.category IN (${placeholders}) AND p.summary_ready = 1
     ORDER BY p.published_at DESC
     LIMIT ?
   `).bind(...tags, limit).all<PaperRow>();

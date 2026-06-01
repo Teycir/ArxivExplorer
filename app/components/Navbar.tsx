@@ -1,6 +1,10 @@
 'use client';
 // app/components/Navbar.tsx
 // Sticky top nav — logo + search input.
+//
+// Bookmark count is kept live via two listeners:
+//   • 'arxiv:bookmarks-changed'  – same-tab instant update (fired by bookmarks.ts)
+//   • 'storage'                  – cross-tab update when localStorage is written elsewhere
 
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -57,13 +61,22 @@ export function Navbar() {
   const [bookmarkCount, setBookmarkCount] = useState(0);
 
   useEffect(() => {
-    const bm = loadBookmarks();
-    setBookmarkCount(bm.bookmarks.length);
-    const interval = setInterval(() => {
-      const updated = loadBookmarks();
-      setBookmarkCount(updated.bookmarks.length);
-    }, 2000);
-    return () => clearInterval(interval);
+    // Initial read
+    setBookmarkCount(loadBookmarks().bookmarks.length);
+
+    function refresh() {
+      setBookmarkCount(loadBookmarks().bookmarks.length);
+    }
+
+    // Same-tab instant update — fired by bookmarks.ts writeRaw()
+    window.addEventListener('arxiv:bookmarks-changed', refresh);
+    // Cross-tab update — fired by browser when localStorage changes in another tab
+    window.addEventListener('storage', refresh);
+
+    return () => {
+      window.removeEventListener('arxiv:bookmarks-changed', refresh);
+      window.removeEventListener('storage', refresh);
+    };
   }, []);
 
   return (
@@ -71,7 +84,7 @@ export function Navbar() {
       bg-dark-bg/80 backdrop-blur-md">
       <div className="max-w-5xl mx-auto px-4 h-14 flex items-center gap-4">
         {/* RSS Icon - top left */}
-        <Link href="/rss.xml" target="_blank" 
+        <Link href="/rss.xml" target="_blank"
           className="flex-shrink-0 text-neon-red/40 hover:text-neon-red transition-colors"
           title="RSS Feed">
           <Rss size={18} />

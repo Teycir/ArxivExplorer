@@ -22,7 +22,7 @@ import { handleTopic } from './routes/topic';
 import { handleTrending } from './routes/trending';
 import { handleAuthor } from './routes/author';
 import { handleSitemap } from './routes/sitemap';
-import { handleVectorizeUpsert, handleRetryFailed } from './routes/admin';
+import { handleVectorizeUpsert, handleRetryFailed, handleBackfillRelated } from './routes/admin';
 import { handleTopics } from './routes/topics';
 import { handleCitations } from './routes/citations';
 
@@ -105,6 +105,11 @@ export default {
       // /admin/retry-failed (POST) — reset summary_ready=2 → 0 for retry
       if (path === '/admin/retry-failed' && request.method === 'POST') {
         return handleRetryFailed(request, env);
+      }
+
+      // /admin/backfill-related (POST) — compute related for papers missing them
+      if (path === '/admin/backfill-related' && request.method === 'POST') {
+        return handleBackfillRelated(request, env);
       }
 
       return new Response(JSON.stringify({ error: 'Not found', path }), {

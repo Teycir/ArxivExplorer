@@ -7,7 +7,7 @@ import { CategoryBadge } from '../../components/CategoryBadge';
 import { Card } from '../../components/Card';
 import { SummarySection } from '../../components/SummarySection';
 import { RelatedPapersList } from '../../components/RelatedPapersList';
-import { formatDate, arxivAbsUrl, arxivPdfUrl } from '@/helper/format';
+import { formatDate } from '@/helper/format';
 import type { PaperWithSummary, RelatedPaper } from '@/src/shared/types';
 import { ExternalLink, FileText, Users, Calendar } from 'lucide-react';
 import { BookmarkButton } from '../../components/BookmarkButton';
@@ -49,6 +49,7 @@ async function fetchPaperData(arxivId: string): Promise<{
     getRelatedPapers(arxivId),
   ]);
 
+  // Paper not in DB → hard 404. No fallback to arXiv or anywhere else.
   if (paper.status === 'rejected') throw new Error('Paper not found');
 
   return {
@@ -69,9 +70,6 @@ export default async function PaperPage({ params }: Props) {
   } catch {
     notFound();
   }
-
-  const absUrl = arxivAbsUrl(arxivId);
-  const pdfUrl = paper.pdfUrl ?? arxivPdfUrl(arxivId);
 
   return (
     <>
@@ -102,7 +100,7 @@ export default async function PaperPage({ params }: Props) {
                 {paper.title}
               </h1>
 
-              {/* Authors — each name links to the author page */}
+              {/* Authors */}
               <div className="flex items-start gap-2 text-xs text-neon-red/50 font-mono mb-3">
                 <Users size={13} className="flex-shrink-0 mt-0.5" />
                 <span className="leading-relaxed">
@@ -125,7 +123,7 @@ export default async function PaperPage({ params }: Props) {
                 </span>
               </div>
 
-              {/* Action links */}
+              {/* Action buttons — only DB-backed URLs rendered, never synthesised */}
               <div className="flex flex-wrap gap-2">
                 <BookmarkButton
                   id={arxivId}
@@ -146,26 +144,20 @@ export default async function PaperPage({ params }: Props) {
                   publishedAt={paper.publishedAt}
                   summary={paper.summary}
                 />
-                <a
-                  href={absUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono font-bold uppercase
-                    border border-neon-red/30 text-neon-red/70 rounded-lg
-                    hover:border-neon-red/60 hover:text-neon-red hover:bg-neon-red/5 transition-all"
-                >
-                  <ExternalLink size={12} /> Abstract
-                </a>
-                <a
-                  href={pdfUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono font-bold uppercase
-                    border border-neon-red/30 text-neon-red/70 rounded-lg
-                    hover:border-neon-red/60 hover:text-neon-red hover:bg-neon-red/5 transition-all"
-                >
-                  <ExternalLink size={12} /> PDF
-                </a>
+                {/* PDF — only when the URL was stored in the DB at ingest time */}
+                {paper.pdfUrl && (
+                  <a
+                    href={paper.pdfUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono font-bold uppercase
+                      border border-neon-red/30 text-neon-red/70 rounded-lg
+                      hover:border-neon-red/60 hover:text-neon-red hover:bg-neon-red/5 transition-all"
+                  >
+                    <ExternalLink size={12} /> PDF
+                  </a>
+                )}
+                {/* HTML — only when the URL was stored in the DB at ingest time */}
                 {paper.htmlUrl && (
                   <a
                     href={paper.htmlUrl}

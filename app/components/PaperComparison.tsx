@@ -1,6 +1,9 @@
 /**
  * app/components/PaperComparison.tsx
- * Side-by-side comparison of papers
+ * Side-by-side comparison of papers.
+ *
+ * POLICY: Only render links (PDF, HTML) that are stored in the DB.
+ * Never synthesise arxiv.org URLs from a bare paper ID.
  */
 'use client';
 
@@ -22,7 +25,8 @@ interface PaperWithSummary {
   authors: string[];
   categories: string[];
   publishedAt: string;
-  pdfUrl: string;
+  pdfUrl: string | null;   // null when not stored in DB — never synthesised
+  htmlUrl?: string | null; // null when not stored in DB
   summary: Summary | null;
 }
 
@@ -62,15 +66,30 @@ export function PaperComparison({ papers }: PaperComparisonProps) {
               </div>
               <div className="flex items-center gap-2 text-neon-red/25">
                 <span>{new Date(paper.publishedAt).toLocaleDateString()}</span>
-                <a
-                  href={paper.pdfUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1 hover:text-neon-red transition-colors"
-                >
-                  <ExternalLink size={10} />
-                  PDF
-                </a>
+                {/* PDF link — only rendered when the URL is present in the DB */}
+                {paper.pdfUrl && (
+                  <a
+                    href={paper.pdfUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 hover:text-neon-red transition-colors"
+                  >
+                    <ExternalLink size={10} />
+                    PDF
+                  </a>
+                )}
+                {/* HTML link — only rendered when the URL is present in the DB */}
+                {paper.htmlUrl && (
+                  <a
+                    href={paper.htmlUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 hover:text-neon-red transition-colors"
+                  >
+                    <ExternalLink size={10} />
+                    HTML
+                  </a>
+                )}
               </div>
             </div>
           </div>
@@ -120,7 +139,7 @@ function ComparisonSection({ title, papers, field, isList }: ComparisonSectionPr
           }
 
           const content = summary[field];
-          
+
           return (
             <div key={paper.id} className="border border-neon-red/10 rounded-lg p-4 bg-dark-bg">
               {isList && Array.isArray(content) ? (

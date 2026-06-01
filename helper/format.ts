@@ -2,6 +2,10 @@
  * helper/format.ts
  * Pure display-formatting helpers for the UI layer.
  * No Cloudflare globals, no side effects — safe to import in any context.
+ *
+ * POLICY: No external URL construction here. Every URL shown in the UI must
+ * come from the database (pdfUrl / htmlUrl stored at ingest time). We never
+ * synthesise arxiv.org links from a bare ID.
  */
 
 /** Formats a YYYY-MM-DD date string to "Jan 15, 2024" */
@@ -38,16 +42,6 @@ export function formatAuthors(authors: string[], max = 3): string {
 export function truncate(text: string, max: number): string {
   if (text.length <= max) return text;
   return text.slice(0, max).trimEnd() + '…';
-}
-
-/** Returns the direct arXiv abstract URL from a bare arXiv ID. */
-export function arxivAbsUrl(id: string): string {
-  return `https://arxiv.org/abs/${id}`;
-}
-
-/** Returns the arXiv PDF URL from a bare arXiv ID. */
-export function arxivPdfUrl(id: string): string {
-  return `https://arxiv.org/pdf/${id}`;
 }
 
 /**

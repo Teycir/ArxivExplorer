@@ -98,3 +98,21 @@ export async function handleRetryFailed(request: Request, env: Env): Promise<Res
     });
   }
 }
+
+/**
+ * POST /admin/backfill-related
+ * Lightweight trigger — the actual heavy backfill runs via:
+ *   npx tsx scripts/backfill-related.ts
+ * which executes locally without Worker CPU limits.
+ * This endpoint exists only to confirm the route is wired up.
+ */
+export async function handleBackfillRelated(request: Request, env: Env): Promise<Response> {
+  if (!checkAuth(request, env)) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401, headers: { 'Content-Type': 'application/json' },
+    });
+  }
+  return new Response(JSON.stringify({
+    message: 'Run `npx tsx scripts/backfill-related.ts` locally — Worker CPU limits prevent bulk backfill in-process.',
+  }), { headers: { 'Content-Type': 'application/json' } });
+}

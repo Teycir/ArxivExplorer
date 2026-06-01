@@ -2,17 +2,19 @@
  * app/components/CopyBibtex.tsx
  *
  * One-click BibTeX copy button for a paper.
- * Constructs the citation entirely from existing paper data — no API call.
+ * Constructs the citation entirely from existing page data — no API call.
+ *
+ * POLICY: No external URLs are synthesised. The `url` field is intentionally
+ * omitted; callers that need it should use ExportButton instead.
  *
  * Output format:
  *   @misc{authorYYYY_id,
- *     title     = {...},
- *     author    = {Last, First and ...},
- *     year      = {YYYY},
- *     eprint    = {NNNN.NNNNN},
+ *     title         = {...},
+ *     author        = {Last, First and ...},
+ *     year          = {YYYY},
+ *     eprint        = {NNNN.NNNNN},
  *     archivePrefix = {arXiv},
  *     primaryClass  = {cs.LG},
- *     url       = {https://arxiv.org/abs/NNNN.NNNNN},
  *   }
  */
 'use client';
@@ -21,23 +23,21 @@ import { useState } from 'react';
 import { Copy, Check } from 'lucide-react';
 
 interface CopyBibtexProps {
-  id:         string;
-  title:      string;
-  authors:    string[];
-  categories: string[];
+  id:          string;
+  title:       string;
+  authors:     string[];
+  categories:  string[];
   publishedAt: string; // YYYY-MM-DD
 }
 
 function buildBibtex({ id, title, authors, categories, publishedAt }: CopyBibtexProps): string {
-  const year   = publishedAt.split('-')[0] ?? '2024';
-  const first  = authors[0] ?? 'Unknown';
-  // Build citation key: firstAuthorLastName + year + first4 of arxiv id (no dots)
+  const year      = publishedAt.split('-')[0] ?? '2024';
+  const first     = authors[0] ?? 'Unknown';
   const lastName  = first.split(' ').pop()?.toLowerCase().replace(/[^a-z]/g, '') ?? 'unknown';
   const shortId   = id.replace('.', '').slice(0, 6);
   const citeKey   = `${lastName}${year}_${shortId}`;
   const primary   = categories[0] ?? 'cs.LG';
 
-  // Format authors as "Last, First and Last, First"
   const authorStr = authors
     .map(a => {
       const parts = a.trim().split(' ');
@@ -47,7 +47,6 @@ function buildBibtex({ id, title, authors, categories, publishedAt }: CopyBibtex
     })
     .join(' and ');
 
-  // Escape title braces for BibTeX
   const safeTitle = title.replace(/[{}]/g, '');
 
   return [
@@ -58,7 +57,6 @@ function buildBibtex({ id, title, authors, categories, publishedAt }: CopyBibtex
     `  eprint        = {${id}},`,
     `  archivePrefix = {arXiv},`,
     `  primaryClass  = {${primary}},`,
-    `  url           = {https://arxiv.org/abs/${id}},`,
     `}`,
   ].join('\n');
 }
@@ -73,7 +71,6 @@ export function CopyBibtex(props: CopyBibtexProps) {
       setState('copied');
       setTimeout(() => setState('idle'), 2500);
     } catch {
-      // Fallback for non-secure contexts
       const ta = document.createElement('textarea');
       ta.value = bib;
       ta.style.position = 'fixed';

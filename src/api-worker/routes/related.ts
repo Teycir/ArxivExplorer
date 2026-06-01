@@ -1,7 +1,10 @@
 /**
  * src/api-worker/routes/related.ts
- * GET /api/paper/:id/related — pre-computed related papers from D1.
- * Vectorize is NOT queried here — only during ingestion.
+ * GET /api/paper/:id/related — reads pre-computed related papers from D1.
+ *
+ * Related papers are always populated by the ingest worker (compute-related.ts)
+ * using TF-IDF similarity at ingestion time.  This route only reads the result.
+ * Vectorize is never queried here.
  */
 
 import type { Env } from '../../shared/types';
@@ -18,26 +21,23 @@ export async function handleRelated(
 ): Promise<Response> {
   const cors = corsHeaders(env);
 
-  // Same fix as paper.ts — disallow path separators. (BUG-1)
   if (!arxivId || !/^[\w.-]+$/.test(arxivId)) {
     return errorResponse('Invalid arXiv ID format', cors, 400);
   }
 
   const cacheKey = kvPaperRelated(arxivId);
 
-  // 1. KV cache (permanent)
-  // KV errors surface as 503, not as silent cache misses (same policy as paper.ts).
+  // 1. KV cache (permanent — related papers are immutable once computed)
   try {
     const cached = await kvGet<unknown>(env.CACHE, cacheKey);
-    if (cached !== null) {
-      return jsonResponse(cached, cors);
-    }
+    if (cached !== null) return jsonResponse(cached, cors);
   } catch (err) {
-    console.error(`[related] KV get error for ${arxivId}:`, err);
-    return errorResponse(`Cache error: ${String(err)}`, cors, 503);
+    // KV errors are non-fatal for related papers — fall through to D1
+    // rather than returning 503. An empty sidebar is worse than a cache miss.
+    console.warn(`[related] KV get error for ${arxivId} — falling through to D1:`, err);
   }
 
-  // 2. D1 fallback
+  // 2. D1 — always populated by the ingest worker
   let related;
   try {
     related = await getRelatedPapers(env.DB, arxivId);
@@ -46,7 +46,7 @@ export async function handleRelated(
     return errorResponse(`Database error: ${String(err)}`, cors, 500);
   }
 
-  // 3. Lazy KV write (fire-and-forget)
+  // Warm the KV cache so subsequent requests skip D1
   if (related.length > 0) {
     kvPutAsync(ctx, env.CACHE, cacheKey, related);
   }

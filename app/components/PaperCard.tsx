@@ -56,6 +56,10 @@ export function PaperCard({ paper, showAbstract = false }: PaperCardProps) {
           <p className="text-xs text-white/40 leading-relaxed italic">
             {truncate(paper.abstract, 200)}
           </p>
+        ) : paper.summaryReady === 2 ? (
+          <p className="text-xs text-white/40 leading-relaxed italic">
+            {truncate(paper.abstract, 200)}
+          </p>
         ) : (
           <p className="text-xs text-neon-red/25 italic font-mono">
             AI summary generating…

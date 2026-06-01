@@ -18,7 +18,7 @@ export function RelatedPapersList({ related }: { related: RelatedPaper[] }) {
           </span>
         </div>
         <p className="text-xs text-neon-red/25 font-mono italic py-4 text-center">
-          No related papers yet.
+          Related papers will appear here once more papers are indexed.
         </p>
       </Card>
     );
@@ -59,7 +59,7 @@ export function RelatedPapersList({ related }: { related: RelatedPaper[] }) {
                 {truncate(r.title, 100)}
               </p>
 
-              {/* TL;DR */}
+              {/* TL;DR — only rendered when present (may be null for pending-summary papers) */}
               {r.tldr && (
                 <p className="mt-1 text-xs text-white/35 leading-snug">
                   {truncate(r.tldr, 80)}

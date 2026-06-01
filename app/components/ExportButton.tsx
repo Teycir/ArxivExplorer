@@ -52,21 +52,19 @@ function buildBibtex(p: ExportButtonProps): string {
     `  eprint        = {${p.id}},`,
     `  archivePrefix = {arXiv},`,
     `  primaryClass  = {${primary}},`,
-    `  url           = {https://arxiv.org/abs/${p.id}},`,
     `}`,
   ].join('\n');
 }
 
 function buildMarkdown(p: ExportButtonProps): string {
   const s = p.summary;
-  const url = `https://arxiv.org/abs/${p.id}`;
   const lines: string[] = [
     `# ${p.title}`,
     ``,
     `**Authors:** ${p.authors.join(', ')}  `,
     `**Published:** ${p.publishedAt}  `,
     `**Categories:** ${p.categories.join(', ')}  `,
-    `**arXiv:** [${p.id}](${url})`,
+    `**arXiv ID:** ${p.id}`,
     ``,
   ];
   if (s?.tldr) {
@@ -92,14 +90,13 @@ function buildMarkdown(p: ExportButtonProps): string {
 
 function buildPlainText(p: ExportButtonProps): string {
   const s = p.summary;
-  const url = `https://arxiv.org/abs/${p.id}`;
   const lines: string[] = [
     p.title,
     `${'─'.repeat(60)}`,
     `Authors:    ${p.authors.join(', ')}`,
     `Published:  ${p.publishedAt}`,
     `Categories: ${p.categories.join(', ')}`,
-    `arXiv:      ${url}`,
+    `arXiv ID:   ${p.id}`,
     ``,
   ];
   if (s?.tldr) {
@@ -130,7 +127,6 @@ function buildJson(p: ExportButtonProps): string {
     authors:     p.authors,
     categories:  p.categories,
     publishedAt: p.publishedAt,
-    url:         `https://arxiv.org/abs/${p.id}`,
     summary:     p.summary ?? null,
   };
   return JSON.stringify(payload, null, 2);
