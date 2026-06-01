@@ -39,15 +39,25 @@ export async function handleTrending(
   const cacheKey = kvTrending(window);
   const ttl      = TTL_BY_WINDOW[window];
 
-  // 1. KV cache
+  // 1. KV cache — validate that the first paper still exists with summary_ready = 1
   try {
-    const cached = await kvGet<unknown>(env.CACHE, cacheKey);
+    const cached = await kvGet<{ papers: { id: string }[] }>(env.CACHE, cacheKey);
     if (cached !== null) {
-      return jsonResponse(cached, cors);
+      const firstId = cached.papers?.[0]?.id;
+      if (firstId) {
+        const row = await env.DB.prepare(
+          'SELECT id FROM papers WHERE id = ? AND summary_ready = 1'
+        ).bind(firstId).first();
+        if (row) return jsonResponse(cached, cors);
+        // Cache is stale — fall through to re-query
+        console.warn('[trending] KV cache stale, busting');
+        ctx.waitUntil(env.CACHE.delete(cacheKey));
+      } else {
+        return jsonResponse(cached, cors);
+      }
     }
   } catch (err) {
     console.error('[trending] KV cache read error:', err);
-    return errorResponse(`Cache error: ${String(err)}`, cors, 503);
   }
 
   // 2. D1 fallback

@@ -115,7 +115,7 @@ export async function getTrendingPapers(
       s.tldr, s.generated_at, s.model_version
     FROM papers p
     LEFT JOIN summaries s ON s.paper_id = p.id
-    WHERE p.published_at >= ?
+    WHERE p.published_at >= ? AND p.summary_ready = 1
     ORDER BY p.indexed_at DESC
     LIMIT ?
   `).bind(since, limit).all<PaperRow>();
