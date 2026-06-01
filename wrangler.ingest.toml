@@ -36,3 +36,17 @@ EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5"
 ARXIV_FETCH_LIMIT_PER_CATEGORY = "10"
 INGEST_MAX_CONCURRENT = "3"
 ARXIV_RATE_LIMIT_DELAY_MS = "3000"
+
+# ── Ollama (optional) ─────────────────────────────────────────────────────────
+# When OLLAMA_BASE is set the ingest-worker calls Ollama FIRST and only falls
+# back to Workers AI if Ollama fails. Set this to your machine's LAN IP so the
+# Cloudflare Worker can reach it (Cloudflare → your router → Ollama).
+#
+# Requires a tunnel or port-forward from a public IP to localhost:11434.
+# Fastest option: cloudflared tunnel (free):
+#   cloudflared tunnel --url http://localhost:11434
+# Then set OLLAMA_BASE to the generated https://*.trycloudflare.com URL.
+#
+# OLLAMA_BASE = "https://your-tunnel.trycloudflare.com"
+# OLLAMA_SUMMARY_MODEL = "qwen3.5:4b"       # default: qwen2.5:3b
+# OLLAMA_EMBEDDING_MODEL = "nomic-embed-text" # default: nomic-embed-text

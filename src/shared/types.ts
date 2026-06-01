@@ -141,6 +141,11 @@ export interface Env {
   ALLOWED_ORIGIN?: string;
   // Admin
   ADMIN_SECRET?: string;
+  // Ollama (local AI — zero neuron cost, used before Workers AI when set)
+  // Set to e.g. "http://192.168.1.10:11434" (must be reachable from the Worker)
+  OLLAMA_BASE?: string;
+  OLLAMA_SUMMARY_MODEL?: string;    // default: qwen2.5:3b
+  OLLAMA_EMBEDDING_MODEL?: string;  // default: nomic-embed-text
   // Phase control
   // 'bulk'   → rotating daily topic fill (uses BULK_SCHEDULE + BULK_LIMIT)
   // 'steady' → low-volume daily trickle of new papers across all categories

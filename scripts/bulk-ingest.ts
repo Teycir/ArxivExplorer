@@ -1,22 +1,25 @@
 #!/usr/bin/env tsx
 /**
- * Bulk CS arXiv ingestion with Ollama - FULLY SEQUENTIAL
- * - Fetches ALL 40 CS categories
- * - 5-second delay between each arXiv API request
- * - NO parallel processing (one paper at a time)
- * - Skips duplicates automatically
- * 
+ * Bulk CS arXiv ingestion with Ollama — FULLY SEQUENTIAL
+ *
+ * Flow:
+ *   1. Fetch arXiv papers for requested categories / date range
+ *   2. Generate summary  → Ollama (local, zero neuron cost)
+ *   3. Generate embedding → Ollama (local, zero neuron cost)
+ *   4. Write to local SQLite (schema matches D1 production exactly)
+ *   5. After all papers: db:export → db:push → ingest:upload-embeddings
+ *
  * Usage:
  *   npm run ingest:bulk -- --days 7
+ *   npm run ingest:bulk -- --days 30 --categories cs.LG,cs.CL
  */
 
 import { parseStringPromise } from 'xml2js';
 import Database from 'better-sqlite3';
-import fs from 'fs';
 
-const OLLAMA_BASE = process.env.OLLAMA_BASE || 'http://localhost:11434';
-const EMBEDDING_MODEL = 'nomic-embed-text';
-const SUMMARY_MODEL = 'qwen3.5:4b';
+const OLLAMA_BASE          = process.env.OLLAMA_BASE          || 'http://localhost:11434';
+const SUMMARY_MODEL        = process.env.OLLAMA_SUMMARY_MODEL || 'qwen3.5:4b';
+const EMBEDDING_MODEL      = process.env.OLLAMA_EMBEDDING_MODEL || 'nomic-embed-text';
 
 const CS_CATEGORIES = [
   'cs.AI', 'cs.AR', 'cs.CC', 'cs.CE', 'cs.CG', 'cs.CL', 'cs.CR', 'cs.CV',
@@ -142,60 +145,49 @@ async function fetchAllCS(daysBack: number): Promise<Paper[]> {
 }
 
 async function generateSummary(paper: Paper): Promise<any> {
-  const prompt = `Analyze this CS research paper and provide a structured JSON summary.
+  const prompt = `You are a research paper summarizer. Return ONLY a valid JSON object with no preamble, explanation, or markdown fences.
 
-Title: ${paper.title}
-Abstract: ${paper.abstract.slice(0, 1000)}
+Summarize this research paper abstract. Return ONLY valid JSON, no other text.
 
-Return ONLY valid JSON with this exact structure:
+Abstract:
+${paper.abstract.slice(0, 4000)}
+
+JSON format:
 {
-  "tldr": "80-120 word summary",
+  "tldr": "One clear sentence describing what this paper does",
   "key_contributions": ["contribution 1", "contribution 2"],
   "methods": ["method 1", "method 2"],
   "limitations": ["limitation 1"],
-  "beginner_explain": "Simple explanation",
-  "technical_summary": "Technical details"
+  "beginner_explain": "Simple explanation in 2-3 sentences",
+  "technical_summary": "Technical description in 3-4 sentences"
 }`;
 
-  try {
-    const res = await fetch(`${OLLAMA_BASE}/api/generate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: SUMMARY_MODEL,
-        prompt,
-        stream: false,
-        format: 'json',
-        options: {
-          temperature: 0.3,
-          num_predict: 1000,
-        },
-      }),
-    });
-    
-    const data = await res.json();
-    const response = (data.response || data.thinking || '').trim();
-    
-    if (!response) {
-      throw new Error('Empty response from Ollama');
-    }
-    
-    // Try to extract JSON if wrapped in markdown
-    const jsonMatch = response.match(/```json\s*([\s\S]*?)```/) || response.match(/```\s*([\s\S]*?)```/);
-    const jsonStr = jsonMatch ? jsonMatch[1].trim() : response;
-    
-    return JSON.parse(jsonStr);
-  } catch (err) {
-    // Fallback to simple summary
-    return {
-      tldr: paper.abstract.slice(0, 120),
-      key_contributions: ["See abstract"],
-      methods: ["See paper"],
-      limitations: ["Not analyzed"],
-      beginner_explain: paper.abstract.slice(0, 200),
-      technical_summary: paper.abstract,
-    };
-  }
+  const res = await fetch(`${OLLAMA_BASE}/api/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: SUMMARY_MODEL,
+      prompt,
+      stream: false,
+      format: 'json',
+      options: { temperature: 0.3, num_predict: 1024 },
+    }),
+    signal: AbortSignal.timeout(90_000),
+  });
+
+  if (!res.ok) throw new Error(`Ollama HTTP ${res.status}`);
+  const data = await res.json() as { response?: string; error?: string };
+  if (data.error) throw new Error(`Ollama: ${data.error}`);
+  if (!data.response?.trim()) throw new Error('Ollama empty response');
+
+  // Strip markdown fences if present
+  let cleaned = data.response.trim()
+    .replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+  const first = cleaned.indexOf('{');
+  const last  = cleaned.lastIndexOf('}');
+  if (first === -1 || last === -1) throw new Error('No JSON in Ollama response');
+
+  return JSON.parse(cleaned.slice(first, last + 1));
 }
 
 async function generateEmbedding(text: string): Promise<number[]> {
@@ -215,7 +207,7 @@ async function generateEmbedding(text: string): Promise<number[]> {
 async function initLocalDB(): Promise<Database.Database> {
   const db = new Database('.wrangler/state/v3/d1/miniflare-D1DatabaseObject/arxiv-explorer.sqlite');
   
-  // Ensure tables exist
+  // Schema must match D1 production exactly (same columns, no extras).
   db.exec(`
     CREATE TABLE IF NOT EXISTS papers (
       id TEXT PRIMARY KEY,
@@ -244,9 +236,17 @@ async function initLocalDB(): Promise<Database.Database> {
       FOREIGN KEY (paper_id) REFERENCES papers(id)
     );
     
+    -- Local embedding store — NOT synced to D1; uploaded to Vectorize separately.
     CREATE TABLE IF NOT EXISTS embeddings (
       paper_id TEXT PRIMARY KEY,
       embedding BLOB NOT NULL,
+      FOREIGN KEY (paper_id) REFERENCES papers(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS paper_categories (
+      paper_id TEXT NOT NULL,
+      category TEXT NOT NULL,
+      PRIMARY KEY (paper_id, category),
       FOREIGN KEY (paper_id) REFERENCES papers(id)
     );
   `);
@@ -257,151 +257,160 @@ async function initLocalDB(): Promise<Database.Database> {
 async function processPaper(db: Database.Database, paper: Paper): Promise<void> {
   const now = new Date().toISOString();
   
-  // Check if already exists
-  const existing = db.prepare('SELECT id FROM papers WHERE id = ?').get(paper.id);
-  if (existing) {
-    console.log(`⊘ ${paper.id}: Already exists, skipping`);
+  // Check if already fully processed
+  const existing = db.prepare('SELECT id, summary_ready FROM papers WHERE id = ?').get(paper.id) as { id: string; summary_ready: number } | undefined;
+  if (existing?.summary_ready === 1) {
+    console.log(`⊘ ${paper.id}: Already done, skipping`);
     return;
   }
   
   try {
-    // Generate summary and embedding SEQUENTIALLY (no parallel)
-    const summary = await generateSummary(paper);
+    const summary  = await generateSummary(paper);
     const embedding = await generateEmbedding(`${paper.title} ${paper.abstract}`);
     
-    // Insert paper
-    db.prepare(`
-      INSERT OR REPLACE INTO papers (id, title, authors, abstract, categories, published_at, revised_at, pdf_url, html_url, comment, journal_ref, doi, primary_category, indexed_at, summary_ready)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-    `).run(
-      paper.id,
-      paper.title,
-      JSON.stringify(paper.authors),
-      paper.abstract,
-      JSON.stringify(paper.categories),
-      paper.published,
-      paper.updated,
-      paper.pdfUrl,
-      paper.htmlUrl || null,
-      paper.comment || null,
-      paper.journalRef || null,
-      paper.doi || null,
-      paper.primaryCategory || null,
-      now,
-    );
+    // All writes in a single transaction
+    const tx = db.transaction(() => {
+      // Paper row — columns match D1 prod exactly
+      db.prepare(`
+        INSERT OR REPLACE INTO papers
+          (id, title, authors, abstract, categories, published_at, revised_at,
+           pdf_url, html_url, indexed_at, summary_ready)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+      `).run(
+        paper.id,
+        paper.title,
+        JSON.stringify(paper.authors),
+        paper.abstract,
+        JSON.stringify(paper.categories),
+        paper.published,
+        paper.updated !== paper.published ? paper.updated : null,
+        paper.pdfUrl,
+        paper.htmlUrl ?? null,
+        now,
+      );
+      
+      // Summary
+      db.prepare(`
+        INSERT OR REPLACE INTO summaries
+          (paper_id, tldr, key_contributions, methods, limitations,
+           beginner_explain, technical_summary, generated_at, model_version)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        paper.id,
+        summary.tldr ?? '',
+        JSON.stringify(summary.key_contributions ?? []),
+        JSON.stringify(summary.methods ?? []),
+        JSON.stringify(summary.limitations ?? []),
+        summary.beginner_explain ?? '',
+        summary.technical_summary ?? '',
+        now,
+        SUMMARY_MODEL,
+      );
+      
+      // Embedding (local only — uploaded to Vectorize separately)
+      const embBuf = Buffer.from(new Float32Array(embedding).buffer);
+      db.prepare(`INSERT OR REPLACE INTO embeddings (paper_id, embedding) VALUES (?, ?)`).run(paper.id, embBuf);
+      
+      // paper_categories junction
+      for (const cat of paper.categories) {
+        db.prepare(`INSERT OR IGNORE INTO paper_categories (paper_id, category) VALUES (?, ?)`).run(paper.id, cat);
+      }
+    });
     
-    // Insert summary
-    db.prepare(`
-      INSERT OR REPLACE INTO summaries (paper_id, tldr, key_contributions, methods, limitations, beginner_explain, technical_summary, generated_at, model_version)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      paper.id,
-      summary.tldr,
-      JSON.stringify(summary.key_contributions),
-      JSON.stringify(summary.methods),
-      JSON.stringify(summary.limitations),
-      summary.beginner_explain,
-      summary.technical_summary,
-      now,
-      SUMMARY_MODEL,
-    );
-    
-    // Store embedding as blob
-    const embeddingBuffer = Buffer.from(new Float32Array(embedding).buffer);
-    db.prepare(`INSERT OR REPLACE INTO embeddings (paper_id, embedding) VALUES (?, ?)`).run(paper.id, embeddingBuffer);
-    
-    console.log(`✓ ${paper.id}: ${paper.title.slice(0, 60)}...`);
+    tx();
+    console.log(`✓ ${paper.id}: ${paper.title.slice(0, 60)}`);
   } catch (err) {
     console.error(`✗ ${paper.id}: ${err}`);
-    // Mark as failed
-    db.prepare(`
-      INSERT OR REPLACE INTO papers (id, title, authors, abstract, categories, published_at, revised_at, pdf_url, html_url, comment, journal_ref, doi, primary_category, indexed_at, summary_ready)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 2)
-    `).run(
-      paper.id,
-      paper.title,
-      JSON.stringify(paper.authors),
-      paper.abstract,
-      JSON.stringify(paper.categories),
-      paper.published,
-      paper.updated,
-      paper.pdfUrl,
-      paper.htmlUrl || null,
-      paper.comment || null,
-      paper.journalRef || null,
-      paper.doi || null,
-      paper.primaryCategory || null,
-      now,
-    );
+    // Insert stub so the paper is in D1 as summary_ready=2 (failed, retriable)
+    try {
+      db.prepare(`
+        INSERT OR REPLACE INTO papers
+          (id, title, authors, abstract, categories, published_at, revised_at,
+           pdf_url, html_url, indexed_at, summary_ready)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 2)
+      `).run(
+        paper.id,
+        paper.title,
+        JSON.stringify(paper.authors),
+        paper.abstract,
+        JSON.stringify(paper.categories),
+        paper.published,
+        paper.updated !== paper.published ? paper.updated : null,
+        paper.pdfUrl,
+        paper.htmlUrl ?? null,
+        now,
+      );
+    } catch { /* ignore — paper won't be in DB, ingest-worker will pick it up */ }
   }
 }
 
 async function main() {
   const args = process.argv.slice(2);
-  const daysIdx = args.indexOf('--days');
-  
-  const daysBack = daysIdx >= 0 ? parseInt(args[daysIdx + 1]) : 7;
-  
-  console.log(`\n⚠️  CONSERVATIVE MODE - NO PARALLEL PROCESSING`);
-  console.log(`Fetching ALL CS categories (40 categories)`);
-  console.log(`Days back: ${daysBack}`);
-  console.log(`5-second delay between each arXiv request`);
-  console.log(`Papers processed ONE AT A TIME (sequential)`);
-  console.log(`Estimated time: 2-4 hours\n`);
-  
+  const daysBack   = parseInt(args[args.indexOf('--days') + 1]       || '7');
+  const catArg     = args[args.indexOf('--categories') + 1];
+  const categories = catArg ? catArg.split(',').map(s => s.trim()) : CS_CATEGORIES;
+
+  console.log(`\n🦙 Ollama bulk ingest`);
+  console.log(`   Categories : ${categories.join(', ')}`);
+  console.log(`   Days back  : ${daysBack}`);
+  console.log(`   Summary    : ${SUMMARY_MODEL} @ ${OLLAMA_BASE}`);
+  console.log(`   Embedding  : ${EMBEDDING_MODEL} @ ${OLLAMA_BASE}\n`);
+
+  // Verify Ollama is reachable before starting
+  try {
+    const ping = await fetch(`${OLLAMA_BASE}/api/tags`, { signal: AbortSignal.timeout(5_000) });
+    if (!ping.ok) throw new Error(`HTTP ${ping.status}`);
+    console.log(`✅ Ollama reachable\n`);
+  } catch (err) {
+    console.error(`❌ Ollama not reachable at ${OLLAMA_BASE}: ${err}`);
+    process.exit(1);
+  }
+
   const cutoffDate = new Date();
   cutoffDate.setDate(cutoffDate.getDate() - daysBack);
-  
+
   const allPapers: Paper[] = [];
   const seen = new Set<string>();
-  
-  // Fetch from ALL CS categories
-  for (const cat of CS_CATEGORIES) {
-    console.log(`\nFetching ${cat}...`);
+
+  for (const cat of categories) {
+    console.log(`Fetching ${cat}...`);
     let start = 0;
     const fetchSize = 50;
-    
+
     while (true) {
       const batch = await fetchArxivBatch(cat, start, fetchSize);
       if (batch.length === 0) break;
-      
+
       let hitCutoff = false;
       for (const paper of batch) {
-        if (new Date(paper.published) < cutoffDate) {
-          hitCutoff = true;
-          break;
-        }
-        if (!seen.has(paper.id)) {
-          seen.add(paper.id);
-          allPapers.push(paper);
-        }
+        if (new Date(paper.published) < cutoffDate) { hitCutoff = true; break; }
+        if (!seen.has(paper.id)) { seen.add(paper.id); allPapers.push(paper); }
       }
-      
+
       if (hitCutoff || batch.length < fetchSize) break;
       start += fetchSize;
     }
   }
-  
-  console.log(`\nFound ${allPapers.length} papers\n`);
-  
-  console.log('Initializing local database...');
+
+  console.log(`\nFound ${allPapers.length} papers to process\n`);
+
   const db = await initLocalDB();
-  
-  console.log(`Processing papers ONE AT A TIME (no parallel)...\n`);
-  
-  // Process papers SEQUENTIALLY - no parallel processing
+
+  let done = 0, failed = 0;
   for (let i = 0; i < allPapers.length; i++) {
-    await processPaper(db, allPapers[i]);
-    console.log(`Progress: ${i + 1}/${allPapers.length}\n`);
+    await processPaper(db, allPapers[i]!);
+    const r = (db.prepare('SELECT summary_ready FROM papers WHERE id = ?').get(allPapers[i]!.id) as any)?.summary_ready;
+    if (r === 1) done++; else failed++;
+    process.stdout.write(`\rProgress: ${i + 1}/${allPapers.length}  ✓${done}  ✗${failed}`);
   }
-  
+
   db.close();
-  
-  console.log('\n✅ Bulk ingestion complete!');
+
+  console.log(`\n\n✅ Done — ${done} summarised, ${failed} failed`);
   console.log('\nNext steps:');
-  console.log('1. Export: npm run db:export');
-  console.log('2. Push to production: npm run db:push');
-  console.log('3. Upload embeddings: npm run ingest:upload-embeddings');
+  console.log('  npm run db:export                # dump SQLite → backup.sql');
+  console.log('  npm run db:push                  # push backup.sql → D1 remote');
+  console.log('  npm run upload-embeddings        # push embeddings → Vectorize');
 }
 
 main().catch(console.error);

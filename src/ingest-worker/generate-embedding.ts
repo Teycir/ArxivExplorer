@@ -1,6 +1,11 @@
 /**
  * src/ingest-worker/generate-embedding.ts
- * Generates a vector embedding for a paper using Workers AI.
+ * Generates a vector embedding for a paper using Workers AI or Ollama.
+ *
+ * Provider priority:
+ *   1. Ollama (local) — if OLLAMA_BASE is set, zero neuron cost
+ *   2. Workers AI (remote) — costs ~1 neuron/paper
+ *
  * Called once per paper at ingestion time — never in the hot request path.
  */
 
@@ -9,10 +14,55 @@ import { embeddingModel } from '../shared/utils';
 
 /**
  * Generates an embedding vector for the given text.
- * Throws on failure — callers should catch and handle (mark paper as failed, etc.)
+ * Throws on failure — callers should catch and handle (mark paper as failed).
  */
 export async function generateEmbedding(text: string, env: Env): Promise<number[]> {
-  // Truncate to avoid exceeding model token limits
+  // ── 1. Ollama (local, zero neuron cost) ──────────────────────────────────
+  if (env.OLLAMA_BASE) {
+    try {
+      return await generateEmbeddingOllama(text, env.OLLAMA_BASE, env.OLLAMA_EMBEDDING_MODEL);
+    } catch (err) {
+      console.warn(`[generate-embedding] Ollama failed, falling back to Workers AI:`, String(err));
+    }
+  }
+
+  // ── 2. Workers AI (remote, costs ~1 neuron/paper) ─────────────────────────
+  return generateEmbeddingWorkersAI(text, env);
+}
+
+// ─── Ollama provider ───────────────────────────────────────────────────────
+
+async function generateEmbeddingOllama(
+  text: string,
+  ollamaBase: string,
+  modelOverride?: string
+): Promise<number[]> {
+  const model = modelOverride ?? 'nomic-embed-text';
+  const truncated = text.slice(0, 2000);
+
+  const res = await fetch(`${ollamaBase.replace(/\/$/, '')}/api/embeddings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model, prompt: truncated }),
+    signal: AbortSignal.timeout(30_000),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Ollama embeddings HTTP ${res.status}: ${await res.text().catch(() => '')}`);
+  }
+
+  const data = await res.json() as { embedding?: number[]; error?: string };
+  if (data.error) throw new Error(`Ollama embeddings error: ${data.error}`);
+  if (!Array.isArray(data.embedding) || data.embedding.length === 0) {
+    throw new Error('Ollama returned empty embedding');
+  }
+
+  return data.embedding;
+}
+
+// ─── Workers AI provider ───────────────────────────────────────────────────
+
+async function generateEmbeddingWorkersAI(text: string, env: Env): Promise<number[]> {
   const truncated = text.slice(0, 2000);
 
   // Rotate between AI accounts if additional bindings are configured.
