@@ -16,7 +16,8 @@ export async function GET() {
       return new Response('Failed to fetch papers', { status: 500 });
     }
 
-    const papers: any[] = await res.json();
+    const data: any = await res.json();
+    const papers: any[] = data.papers || [];
     const now = new Date().toUTCString();
 
     const items = papers

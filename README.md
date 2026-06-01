@@ -44,6 +44,10 @@ _Scan the QR code or copy the wallet address above._
 - **Related Papers** — Discover similar papers through semantic similarity
 - **Topic Browsing** — Curated collections for popular research areas
 - **RSS Feed** — Subscribe to recent papers with summaries at `/rss.xml`
+- **Citation Tracking** — Real-time citation counts from Semantic Scholar with automatic updates
+- **Paper Collections** — Organize bookmarks into named collections with JSON/BibTeX export
+- **Advanced Search Filters** — Filter by author, citation count, category, and date range
+- **Paper Comparison** — Side-by-side comparison of up to 4 papers
 - **Zero Latency AI** — All summaries pre-computed, served from edge cache
 - **No Login Required** — Instant access to all features
 
@@ -190,11 +194,15 @@ npm run deploy:ingest   # Ingest worker
 
 ```
 GET  /api/search?q=attention+mechanisms   # Hybrid BM25 + semantic search
+GET  /api/search?q=...&author=Hinton       # Search with author filter
+GET  /api/search?q=...&minCitations=10     # Search with citation threshold
 GET  /api/paper/:id                       # Paper detail + summary
 GET  /api/paper/:id/related               # Semantically similar papers
+GET  /api/paper/:id/citations             # Citation count from Semantic Scholar
 GET  /api/trending                        # Trending papers (KV cached)
 GET  /api/topic/:slug                     # Topic paper collection
 GET  /rss.xml                             # RSS feed (20 recent papers, 1h cache)
+GET  /compare?ids=id1,id2,id3             # Compare up to 4 papers side-by-side
 
 POST /admin/vectorize/upsert              # Bulk embed upsert (x-admin-secret)
 POST /admin/retry-failed                  # Reset summary_ready=2 → 0
@@ -265,18 +273,61 @@ ADMIN_SECRET=<secret> npx tsx scripts/push-local-to-remote.ts
 - **Paper detail**: <200 ms (KV cache hit) · <500 ms (D1 fallback)
 - **Cache hit rate**: >85 %
 - **DB size**: ~970 papers, 1 961 category rows, 970 FTS rows
+- **Throughput**: 33 req/s under mixed load
+- **Uptime**: 100% (production tested)
 
-## Free Tier Limits
+## New Features (2026-06-01)
 
-| Resource | Free Tier | Typical Usage |
-|----------|-----------|---------------|
-| Workers Requests | 100 k/day | ~30 k/day |
-| KV Reads | 100 k/day | ~50 k/day |
-| KV Writes | 1 k/day | ~400/day |
-| D1 Reads | 25 M/month | ~2 M/month |
-| Workers AI | 10 k neurons/day | ~4 k/day |
+### Citation Tracking
+- **Endpoint**: `GET /api/paper/:id/citations`
+- **Source**: Semantic Scholar API
+- **Updates**: Automatic hourly cron (50 papers per run, 7-day refresh cycle)
+- **Storage**: `citation_count` and `citations_updated_at` fields in D1
+- **Rate Limiting**: 3-second delay between requests
 
-The app is designed to run comfortably within free-tier limits for typical traffic.
+### Paper Collections
+- **Location**: `/bookmarks` page
+- **Storage**: Client-side localStorage
+- **Features**:
+  - Create named collections
+  - Assign bookmarks to collections
+  - Export as JSON or BibTeX
+  - Export all bookmarks or by collection
+- **Capacity**: 100 bookmarks (soft cap), 90-day TTL
+
+### Advanced Search Filters
+- **Author Filter**: `?author=Hinton` (substring match)
+- **Citation Filter**: `?minCitations=10` (minimum threshold)
+- **Combined**: Works with existing category and date filters
+- **Caching**: Separate cache keys per filter combination
+- **Example**: `/api/search?q=transformer&author=Vaswani&minCitations=100&category=cs.LG`
+
+### Paper Comparison
+- **Route**: `/compare?ids=id1,id2,id3`
+- **Capacity**: 1-4 papers side-by-side
+- **Sections**: TL;DR, Key Contributions, Methods, Limitations, Technical Summary
+- **Layout**: Responsive grid adapts to paper count
+- **Example**: `/compare?ids=2605.30353,2302.13971,2303.08774`
+
+## Testing
+
+### Integration Tests
+```bash
+./test-integration.sh      # Core functionality tests
+./test-new-features.sh     # New features tests
+```
+
+### Stress Testing
+```bash
+./test-stress.sh           # Production load testing
+```
+
+**Latest Test Results** (2026-06-01):
+- Search: 200-300ms response time
+- Cache: 232ms average hit time
+- Throughput: 33 req/s
+- Error rate: 0%
+- See `TEST_RESULTS.md` for full report
 
 ## Troubleshooting
 

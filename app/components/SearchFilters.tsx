@@ -32,12 +32,16 @@ export function SearchFilters() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [showFilters, setShowFilters] = useState(false);
+  const [authorInput, setAuthorInput] = useState('');
+  const [citationsInput, setCitationsInput] = useState('');
 
   const currentCategory = searchParams.get('category') || '';
   const currentDate = searchParams.get('date') || '';
+  const currentAuthor = searchParams.get('author') || '';
+  const currentMinCitations = searchParams.get('minCitations') || '';
   const query = searchParams.get('q') || '';
 
-  function applyFilter(type: 'category' | 'date', value: string) {
+  function applyFilter(type: 'category' | 'date' | 'author' | 'minCitations', value: string) {
     const params = new URLSearchParams(searchParams.toString());
     if (value) {
       params.set(type, value);
@@ -47,12 +51,20 @@ export function SearchFilters() {
     router.push(`/search?${params.toString()}`);
   }
 
+  function applyAuthor() {
+    applyFilter('author', authorInput);
+  }
+
+  function applyCitations() {
+    applyFilter('minCitations', citationsInput);
+  }
+
   function clearFilters() {
     router.push(`/search?q=${encodeURIComponent(query)}`);
   }
 
-  const hasFilters = currentCategory || currentDate;
-  const activeCount = (currentCategory ? 1 : 0) + (currentDate ? 1 : 0);
+  const hasFilters = currentCategory || currentDate || currentAuthor || currentMinCitations;
+  const activeCount = (currentCategory ? 1 : 0) + (currentDate ? 1 : 0) + (currentAuthor ? 1 : 0) + (currentMinCitations ? 1 : 0);
 
   return (
     <div className="mb-4">
@@ -117,6 +129,79 @@ export function SearchFilters() {
                   </button>
                 ))}
               </div>
+            </div>
+
+            {/* Author filter */}
+            <div>
+              <label className="block text-xs font-mono text-neon-red/50 mb-2">
+                Author
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={authorInput}
+                  onChange={e => setAuthorInput(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && applyAuthor()}
+                  placeholder="e.g., Hinton"
+                  className="flex-1 px-2 py-1 text-xs font-mono bg-neutral-900 border border-neon-red/20 rounded text-white placeholder-neutral-600 focus:outline-none focus:border-neon-red/50"
+                />
+                <button
+                  onClick={applyAuthor}
+                  className="px-3 py-1 text-xs font-mono border border-neon-red/30 rounded hover:bg-neon-red/10 text-neon-red/70 hover:text-neon-red transition-colors"
+                >
+                  Apply
+                </button>
+                {currentAuthor && (
+                  <button
+                    onClick={() => applyFilter('author', '')}
+                    className="px-2 py-1 text-xs font-mono text-neutral-500 hover:text-red-400 transition-colors"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              {currentAuthor && (
+                <p className="mt-1 text-[10px] font-mono text-neon-red/40">
+                  Filtering by: {currentAuthor}
+                </p>
+              )}
+            </div>
+
+            {/* Min citations filter */}
+            <div>
+              <label className="block text-xs font-mono text-neon-red/50 mb-2">
+                Minimum Citations
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  min="0"
+                  value={citationsInput}
+                  onChange={e => setCitationsInput(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && applyCitations()}
+                  placeholder="e.g., 10"
+                  className="w-24 px-2 py-1 text-xs font-mono bg-neutral-900 border border-neon-red/20 rounded text-white placeholder-neutral-600 focus:outline-none focus:border-neon-red/50"
+                />
+                <button
+                  onClick={applyCitations}
+                  className="px-3 py-1 text-xs font-mono border border-neon-red/30 rounded hover:bg-neon-red/10 text-neon-red/70 hover:text-neon-red transition-colors"
+                >
+                  Apply
+                </button>
+                {currentMinCitations && (
+                  <button
+                    onClick={() => applyFilter('minCitations', '')}
+                    className="px-2 py-1 text-xs font-mono text-neutral-500 hover:text-red-400 transition-colors"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              {currentMinCitations && (
+                <p className="mt-1 text-[10px] font-mono text-neon-red/40">
+                  Min citations: {currentMinCitations}
+                </p>
+              )}
             </div>
 
             {/* Clear filters */}

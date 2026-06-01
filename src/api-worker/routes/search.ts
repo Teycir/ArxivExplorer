@@ -37,6 +37,8 @@ export async function handleSearch(
   const rawQ      = url.searchParams.get('q')?.trim() ?? '';
   const rawCat    = url.searchParams.get('category')?.trim() ?? '';
   const rawDate   = url.searchParams.get('date')?.trim() ?? '';
+  const rawAuthor = url.searchParams.get('author')?.trim() ?? '';
+  const rawMinCit = url.searchParams.get('minCitations')?.trim() ?? '';
   const rawLike   = url.searchParams.get('like')?.trim() ?? '';  // arXiv ID for "more like this"
 
   // "More like this" mode: resolve the paper's embedding, skip text query
@@ -52,8 +54,10 @@ export async function handleSearch(
   }
 
   const filters: SearchFilters = {
-    ...(rawCat  && { category: rawCat }),
-    ...(rawDate && { date:     rawDate }),
+    ...(rawCat    && { category: rawCat }),
+    ...(rawDate   && { date:     rawDate }),
+    ...(rawAuthor && { author:   rawAuthor }),
+    ...(rawMinCit && { minCitations: parseInt(rawMinCit, 10) || 0 }),
   };
 
   // Optional limit param — clamped to [1, MAX_RESULTS]. (BUG-2 fix)
@@ -65,7 +69,7 @@ export async function handleSearch(
   const normalised = normaliseQuery(rawQ);
 
   // Step 2: KV search cache — include limit + filters in key so different combos don't collide.
-  const filterSuffix = [rawCat, rawDate].filter(Boolean).join(':');
+  const filterSuffix = [rawCat, rawDate, rawAuthor, rawMinCit].filter(Boolean).join(':');
   const cheapKey = `q:${encodeURIComponent(normalised).slice(0, 160)}:l${limit}${filterSuffix ? ':f:' + filterSuffix : ''}`;
   try {
     const cached = await kvGet<unknown>(env.CACHE, cheapKey);

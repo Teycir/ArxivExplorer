@@ -23,6 +23,7 @@ import {
   removeBookmark,
   updateNote,
   updateStatus,
+  updateCollection,
   purgeAllBookmarks,
   daysUntilExpiry,
   SOFT_CAP,
@@ -32,6 +33,7 @@ import {
   type ReadStatus,
 } from '@/lib/bookmarks';
 import { formatAuthors } from '@/helper/format';
+import { CollectionManager, CollectionExport } from './CollectionManager';
 
 // ── Toast ─────────────────────────────────────────────────────────────────────
 
@@ -204,11 +206,13 @@ function BookmarkRow({
   onDelete,
   onNote,
   onStatus,
+  onCollectionChange,
 }: {
   bookmark: BM;
   onDelete:  (id: string) => void;
   onNote:    (id: string, note: string) => void;
   onStatus:  (id: string, status: ReadStatus) => void;
+  onCollectionChange: () => void;
 }) {
   const [editing,  setEditing]  = useState(false);
   const [noteVal,  setNoteVal]  = useState(bookmark.note ?? '');
@@ -253,7 +257,7 @@ function BookmarkRow({
         <ExpiryPill bookmark={bookmark} />
       </div>
 
-      {/* Authors + categories + status */}
+      {/* Authors + categories + status + collection */}
       <div className="flex flex-wrap items-center gap-3 mb-3">
         <span className="flex items-center gap-1 text-[11px] text-neon-red/40 font-mono">
           <Users size={10} />
@@ -263,6 +267,11 @@ function BookmarkRow({
           <Tag size={10} />
           {bookmark.categories.slice(0, 2).join(', ')}
         </span>
+        <CollectionManager
+          bookmarkId={bookmark.id}
+          {...(bookmark.collection !== undefined && { currentCollection: bookmark.collection })}
+          onUpdate={onCollectionChange}
+        />
         <span className="flex items-center gap-1 text-[11px] text-neon-red/25 font-mono ml-auto">
           <Clock size={10} />
           saved {savedDate}
@@ -455,7 +464,7 @@ export function BookmarksList() {
     <>
       {nearingCap && <ThresholdBanner count={bookmarks.length} />}
 
-      {/* Toolbar: count + filter tabs + purge */}
+      {/* Toolbar: count + filter tabs + export + purge */}
       <div className="flex items-center gap-3 flex-wrap">
         <span className="text-xs text-neutral-600 font-mono flex items-center gap-1.5 shrink-0">
           <FileText size={11} />
@@ -473,7 +482,8 @@ export function BookmarksList() {
           onSelect={setActiveTab}
         />
 
-        <span className="ml-auto">
+        <span className="ml-auto flex items-center gap-2">
+          <CollectionExport />
           <PurgeAllButton onPurge={handlePurge} />
         </span>
       </div>
@@ -494,6 +504,7 @@ export function BookmarksList() {
               onDelete={handleDelete}
               onNote={handleNote}
               onStatus={handleStatus}
+              onCollectionChange={() => setBookmarks(loadBookmarks().bookmarks)}
             />
           ))}
         </div>

@@ -24,6 +24,7 @@ import { handleAuthor } from './routes/author';
 import { handleSitemap } from './routes/sitemap';
 import { handleVectorizeUpsert, handleRetryFailed } from './routes/admin';
 import { handleTopics } from './routes/topics';
+import { handleCitations } from './routes/citations';
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -70,6 +71,12 @@ export default {
       const relatedMatch = path.match(/^\/api\/paper\/([^/]+)\/related$/);
       if (relatedMatch) {
         return handleRelated(request, env, ctx, relatedMatch[1]!);
+      }
+
+      // /api/paper/:id/citations
+      const citationsMatch = path.match(/^\/api\/paper\/([^/]+)\/citations$/);
+      if (citationsMatch) {
+        return handleCitations(request, env, ctx, citationsMatch[1]!);
       }
 
       // /api/paper/:id

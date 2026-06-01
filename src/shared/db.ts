@@ -249,8 +249,10 @@ export async function getAllPaperIds(db: D1Database): Promise<string[]> {
 }
 
 export interface SearchFilters {
-  category?: string;   // arXiv category code e.g. "cs.LG"
-  date?:     string;   // "day" | "week" | "month" | "3months" | "year"
+  category?: string;      // arXiv category code e.g. "cs.LG"
+  date?:     string;      // "day" | "week" | "month" | "3months" | "year"
+  author?:   string;      // Author name substring match
+  minCitations?: number;  // Minimum citation count
 }
 
 /** Resolve a date-range label → ISO date string for published_at >= */
@@ -267,7 +269,7 @@ export function dateWindowStart(window: string): string | null {
   return new Date(Date.now() - ms).toISOString().slice(0, 10);
 }
 
-/** FTS keyword search with BM25 title boost + optional category / date filters */
+/** FTS keyword search with BM25 title boost + optional category / date / author / citation filters */
 export async function ftsSearch(
   db: D1Database,
   query: string,
@@ -276,6 +278,8 @@ export async function ftsSearch(
 ): Promise<Array<PaperRow & { keyword_score: number }>> {
   const since = filters.date ? dateWindowStart(filters.date) : null;
   const cat   = filters.category?.trim() || null;
+  const author = filters.author?.trim() || null;
+  const minCitations = filters.minCitations ?? null;
 
   const whereParts: string[] = ['papers_fts MATCH ?', 'p.summary_ready = 1'];
   const binds: (string | number)[] = [query];
@@ -289,6 +293,14 @@ export async function ftsSearch(
       'EXISTS (SELECT 1 FROM paper_categories pc WHERE pc.paper_id = p.id AND pc.category = ?)'
     );
     binds.push(cat);
+  }
+  if (author) {
+    whereParts.push('p.authors LIKE ?');
+    binds.push(`%${author}%`);
+  }
+  if (minCitations !== null && minCitations > 0) {
+    whereParts.push('p.citation_count >= ?');
+    binds.push(minCitations);
   }
   binds.push(limit);
 

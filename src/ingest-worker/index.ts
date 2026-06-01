@@ -9,6 +9,7 @@
 
 import type { Env } from '../shared/types';
 import { runIngestionPipeline } from './pipeline';
+import { updateCitations } from './update-citations';
 
 export default {
   /**
@@ -25,6 +26,10 @@ export default {
     try {
       const result = await runIngestionPipeline(env);
       console.info('[ingest-worker] Pipeline complete:', JSON.stringify(result));
+      
+      // Update citations after ingestion
+      const citationResult = await updateCitations(env);
+      console.info('[ingest-worker] Citations updated:', JSON.stringify(citationResult));
     } catch (err) {
       // Never swallow — re-throw so Cloudflare logs the failure
       console.error('[ingest-worker] Pipeline failed with unhandled error:', err);
