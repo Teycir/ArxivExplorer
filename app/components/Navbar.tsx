@@ -142,6 +142,9 @@ export function Navbar() {
               </span>
             )}
           </Link>
+          <Link href="/rss.xml" className="hover:text-neon-red/70 transition-colors" target="_blank">
+            RSS
+          </Link>
           <Link href="/how-to-use" className="hover:text-neon-red/70 transition-colors">
             How to Use
           </Link>
