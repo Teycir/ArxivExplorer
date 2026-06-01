@@ -212,6 +212,34 @@ export async function getAllTopics(db: D1Database): Promise<Topic[]> {
   });
 }
 
+/**
+ * Returns only topics that have at least one paper in paper_categories,
+ * ordered by paper count descending so the most populated topics come first.
+ */
+export async function getTopicsWithPapers(db: D1Database): Promise<Array<Topic & { paperCount: number }>> {
+  const { results } = await db.prepare(`
+    SELECT
+      t.slug, t.label, t.description, t.category_tags, t.updated_at,
+      COUNT(DISTINCT pc.paper_id) AS paper_count
+    FROM topics t
+    JOIN paper_categories pc ON pc.category IN (
+      SELECT json_each.value FROM json_each(t.category_tags)
+    )
+    GROUP BY t.slug
+    HAVING paper_count > 0
+    ORDER BY paper_count DESC
+  `).all<{ slug: string; label: string; description?: string; category_tags: string; updated_at: string; paper_count: number }>();
+
+  return results.map(r => ({
+    slug: r.slug,
+    label: r.label,
+    categoryTags: safeJsonParse<string[]>(r.category_tags, []),
+    updatedAt: r.updated_at,
+    paperCount: r.paper_count,
+    ...(r.description ? { description: r.description } : {}),
+  }));
+}
+
 /** Returns all paper IDs for sitemap generation */
 export async function getAllPaperIds(db: D1Database): Promise<string[]> {
   const { results } = await db.prepare(

@@ -23,6 +23,7 @@ import { handleTrending } from './routes/trending';
 import { handleAuthor } from './routes/author';
 import { handleSitemap } from './routes/sitemap';
 import { handleVectorizeUpsert, handleRetryFailed } from './routes/admin';
+import { handleTopics } from './routes/topics';
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -45,6 +46,11 @@ export default {
     }
 
     try {
+      // /api/topics
+      if (path === '/api/topics') {
+        return handleTopics(request, env, ctx);
+      }
+
       // /api/search?q=
       if (path === '/api/search') {
         return handleSearch(request, env, ctx);

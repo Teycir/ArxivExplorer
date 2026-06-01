@@ -102,3 +102,7 @@ export async function getAuthorPapers(
 ): Promise<{ author: string; papers: PaperWithSummary[]; total: number }> {
   return apiFetch(`/api/author/${encodeURIComponent(name)}`);
 }
+
+export async function getTopics(): Promise<{ topics: Array<{ slug: string; label: string; paperCount: number }>; total: number }> {
+  return apiFetch('/api/topics');
+}

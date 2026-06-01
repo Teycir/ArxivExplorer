@@ -59,7 +59,7 @@ Built on Cloudflare's edge platform for global performance:
 
 > **Deployment note**: The frontend is deployed as a Worker (not Cloudflare Pages) to avoid the
 > per-request nonce injection that Pages unconditionally adds to `script-src`, which breaks the
-> app's CSP. The `pages_build_output_dir` field is absent from `wrangler.jsonc` for this reason.
+> app's CSP.
 
 ### System Design
 
@@ -182,7 +182,7 @@ npm run deploy:ingest   # Ingest worker
 │   └── upload-embeddings.ts      # Standalone Vectorize uploader
 ├── migrations/
 │   └── schema.sql             # Canonical D1 schema (single source of truth)
-└── wrangler.*.toml            # Cloudflare config per service
+└── wrangler.*.toml            # Cloudflare config per service (api, ingest, jsonc for frontend)
 ```
 
 ## API Reference

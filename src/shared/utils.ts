@@ -164,7 +164,7 @@ export async function runConcurrent<T>(
 /** Build standard CORS headers from the allowed origin env var. */
 export function corsHeaders(env: { ALLOWED_ORIGIN?: string }): Record<string, string> {
   return {
-    'Access-Control-Allow-Origin': env.ALLOWED_ORIGIN ?? 'https://arxivexplorer.pages.dev',
+    'Access-Control-Allow-Origin': env.ALLOWED_ORIGIN ?? 'https://arxivexplorer.arxivexplorer.workers.dev',
     'Access-Control-Allow-Methods': 'GET, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
   };

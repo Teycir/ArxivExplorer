@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { getTrendingPapers } from '@/helper/api';
+import { getTrendingPapers, getTopics } from '@/helper/api';
 import { AnimatedTagline } from './components/AnimatedTagline';
 import { BackgroundBeams } from './components/ui/background-beams';
 import { SearchBoxHome } from './components/SearchBoxHome';
@@ -9,7 +9,6 @@ import { PaperCard } from './components/PaperCard';
 import { TopicChips } from './components/TopicChips';
 import { PersonalizedFeed } from './components/PersonalizedFeed';
 import { CategoryScopeBar } from './components/CategoryScopeBar';
-import { TOPICS } from '@/lib/topics';
 import type { PaperWithSummary } from '@/src/shared/types';
 
 export const metadata: Metadata = {
@@ -45,7 +44,12 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   const activeWindow: TrendingWindow =
     rawWindow === 'day' || rawWindow === 'month' ? rawWindow : 'week';
 
-  const trending = await fetchTrending(activeWindow);
+  const [trending, topicsData] = await Promise.all([
+    fetchTrending(activeWindow),
+    getTopics().catch(() => ({ topics: [], total: 0 })),
+  ]);
+
+  const topics = topicsData.topics;
 
   return (
     <main className="flex-1 flex flex-col">
@@ -113,7 +117,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
               All topics are scoped to Computer Science — ML, security, systems, theory, and more.
             </p>
           </div>
-          <TopicChips topics={TOPICS} />
+          <TopicChips topics={topics} />
         </section>
 
         {/* ── Personalized feed (client, needs bookmarks) ───────────────── */}

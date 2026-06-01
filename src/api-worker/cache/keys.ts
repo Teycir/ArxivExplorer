@@ -29,7 +29,11 @@ export const kvAuthor = (name: string) => `kv:author:${encodeURIComponent(name)}
 /** Sitemap XML (TTL 24h). */
 export const KV_SITEMAP = 'kv:sitemap';
 
+/** Topics list with paper counts (TTL 1h). */
+export const KV_TOPICS = 'kv:topics:with-papers';
+
 // ─── TTL constants (in seconds) ────────────────────────────────────────────
+export const TTL_TOPICS = 3_600;          // 1h
 export const TTL_SEARCH = 7_200;          // 2h
 export const TTL_TRENDING_DAY   = 600;    // 10min  (day window — changes fast)
 export const TTL_TRENDING       = 3_600;  // 60min  (week window — default)

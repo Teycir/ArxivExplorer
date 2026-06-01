@@ -1,8 +1,7 @@
 import type { MetadataRoute } from 'next';
 import { TOPICS } from '@/lib/topics';
 
-// Canonical production URL — matches the Cloudflare Pages project name "arxivexplorer".
-// Confirmed via: npx wrangler pages project list
+// Canonical production URL — Workers frontend.
 const BASE_URL = 'https://arxivexplorer.arxivexplorer.workers.dev';
 
 /**
