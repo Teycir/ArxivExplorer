@@ -2,9 +2,54 @@
  * src/shared/db.ts
  * D1 query helpers — typed, never swallows errors.
  * All functions throw on unexpected DB failures; callers decide how to handle.
+ *
+ * Completeness contract
+ * ─────────────────────
+ * isPaperComplete() is the single gate that decides whether a paper may be
+ * surfaced to the frontend.  A paper is complete when ALL of the following
+ * are true:
+ *   • title and abstract are non-empty strings
+ *   • summary_ready = 1
+ *   • summary row exists with tldr, beginnerExplain, technicalSummary non-empty
+ *     and keyContributions a non-empty array
+ *
+ * Every list-returning query (trending, author, topic, FTS search) filters
+ * through isPaperComplete so incomplete rows are dropped server-side before
+ * they ever reach the API response or a Next.js component.
+ *
+ * getPaperById intentionally does NOT filter — the paper detail page needs to
+ * render the paper even when the summary is still generating so the client-side
+ * poll in SummarySection works.  The decision of whether to *link* to a paper
+ * belongs to the caller (PaperCard, RelatedPapersList, etc.) via lib/utils.ts.
+ *
+ * isRelatedPaperComplete() filters the related-papers list: only papers whose
+ * tldr exists are returned so every sidebar link is safe to follow.
  */
 
 import type { PaperRow, PaperWithSummary, Summary, RelatedPaper, Topic } from './types';
+
+// ─── Completeness guards ────────────────────────────────────────────────────
+
+/** Server-side mirror of lib/utils.ts isPaperComplete (no cross-package import). */
+function isPaperComplete(p: PaperWithSummary): boolean {
+  if (!p.title?.trim()) return false;
+  if (!p.abstract?.trim()) return false;
+  if (p.summaryReady !== 1) return false;
+  if (!p.summary) return false;
+  if (!p.summary.tldr?.trim()) return false;
+  if (!p.summary.beginnerExplain?.trim()) return false;
+  if (!p.summary.technicalSummary?.trim()) return false;
+  if (!Array.isArray(p.summary.keyContributions) || p.summary.keyContributions.length === 0) return false;
+  return true;
+}
+
+/** A related-paper link is only safe when the target has a title and a tldr. */
+function isRelatedPaperComplete(r: RelatedPaper): boolean {
+  if (!r.id?.trim()) return false;
+  if (!r.title?.trim()) return false;
+  if (!r.tldr?.trim()) return false;
+  return true;
+}
 
 // ─── Row → Domain Object Conversion ────────────────────────────────────────
 
@@ -49,8 +94,6 @@ function safeJsonParse<T>(value: string | undefined, fallback: T): T {
   try {
     return JSON.parse(value) as T;
   } catch (err) {
-    // Log so corrupted rows in D1 are visible in worker logs rather than silently
-    // becoming empty arrays/objects that look like legitimate missing data.
     console.error(`[db] safeJsonParse: corrupt JSON value (${String(err)}) — snippet: ${value.slice(0, 120)}`);
     return fallback;
   }
@@ -58,6 +101,11 @@ function safeJsonParse<T>(value: string | undefined, fallback: T): T {
 
 // ─── Paper Queries ──────────────────────────────────────────────────────────
 
+/**
+ * Single-paper lookup — returns the paper regardless of completeness so the
+ * detail page can render the pending/failed state with the abstract fallback.
+ * Do NOT use this to generate links; use isPaperComplete() before linking.
+ */
 export async function getPaperById(db: D1Database, id: string): Promise<PaperWithSummary | null> {
   const row = await db.prepare(`
     SELECT
@@ -74,13 +122,11 @@ export async function getPaperById(db: D1Database, id: string): Promise<PaperWit
   return rowToPaper(row);
 }
 
+/**
+ * Related papers for the sidebar — only returns entries whose target paper
+ * has a title and a tldr so every link in the sidebar is safe to follow.
+ */
 export async function getRelatedPapers(db: D1Database, paperId: string): Promise<RelatedPaper[]> {
-  // Join on papers without filtering by summary_ready — a related paper is
-  // valid even if its summary is still pending (summary_ready=0) or failed
-  // (summary_ready=2).  Filtering by summary_ready=1 here silently drops
-  // entire related lists when neighbouring papers haven't been summarised yet,
-  // producing the "No related papers yet" empty state that users see.
-  // tldr comes from summaries via LEFT JOIN and will simply be null when absent.
   const { results } = await db.prepare(`
     SELECT
       r.related_paper_id AS id,
@@ -96,7 +142,7 @@ export async function getRelatedPapers(db: D1Database, paperId: string): Promise
     LIMIT 8
   `).bind(paperId).all<RelatedPaper>();
 
-  return results;
+  return results.filter(isRelatedPaperComplete);
 }
 
 export type TrendingWindow = 'day' | 'week' | 'month';
@@ -112,21 +158,22 @@ export async function getTrendingPapers(
     month: 30 * 86_400_000,
   };
   const since = new Date(Date.now() - MS[window]).toISOString().slice(0, 10);
-  // Select only the columns the home page needs — skip heavy summary fields like
-  // technical_summary, methods, limitations, beginner_explain to cut payload ~60%.
+  // Fetch with a buffer so post-filter still returns `limit` papers.
+  const fetchLimit = limit * 2;
   const { results } = await db.prepare(`
     SELECT
       p.id, p.title, p.authors, p.abstract, p.categories,
       p.published_at, p.revised_at, p.pdf_url, p.html_url, p.indexed_at, p.summary_ready,
-      s.tldr, s.generated_at, s.model_version
+      s.tldr, s.key_contributions, s.methods, s.limitations,
+      s.beginner_explain, s.technical_summary, s.generated_at, s.model_version
     FROM papers p
     LEFT JOIN summaries s ON s.paper_id = p.id
     WHERE p.summary_ready = 1
     ORDER BY p.indexed_at DESC
     LIMIT ?
-  `).bind(limit).all<PaperRow>();
+  `).bind(fetchLimit).all<PaperRow>();
 
-  return results.map(rowToPaper);
+  return results.map(rowToPaper).filter(isPaperComplete).slice(0, limit);
 }
 
 export async function getPapersByAuthor(
@@ -134,6 +181,7 @@ export async function getPapersByAuthor(
   name: string,
   limit = 20
 ): Promise<PaperWithSummary[]> {
+  const fetchLimit = limit * 2;
   const { results } = await db.prepare(`
     SELECT
       p.id, p.title, p.authors, p.abstract, p.categories,
@@ -145,9 +193,9 @@ export async function getPapersByAuthor(
     WHERE p.summary_ready = 1 AND p.authors LIKE ?
     ORDER BY p.published_at DESC
     LIMIT ?
-  `).bind(`%${name}%`, limit).all<PaperRow>();
+  `).bind(`%${name}%`, fetchLimit).all<PaperRow>();
 
-  return results.map(rowToPaper);
+  return results.map(rowToPaper).filter(isPaperComplete).slice(0, limit);
 }
 
 export async function getPapersByTopic(
@@ -164,10 +212,8 @@ export async function getPapersByTopic(
   const tags = safeJsonParse<string[]>(topic.category_tags, []);
   if (tags.length === 0) return [];
 
-  // Fast path: indexed junction table (migration 0004 must have been applied).
-  // The runtime check for table existence has been removed — the migration is a
-  // one-time op and the extra D1 round-trip on every request was wasteful.
   const placeholders = tags.map(() => '?').join(', ');
+  const fetchLimit = limit * 2;
   const { results } = await db.prepare(`
     SELECT DISTINCT
       p.id, p.title, p.authors, p.abstract, p.categories,
@@ -180,9 +226,9 @@ export async function getPapersByTopic(
     WHERE pc.category IN (${placeholders}) AND p.summary_ready = 1
     ORDER BY p.published_at DESC
     LIMIT ?
-  `).bind(...tags, limit).all<PaperRow>();
+  `).bind(...tags, fetchLimit).all<PaperRow>();
 
-  return results.map(rowToPaper);
+  return results.map(rowToPaper).filter(isPaperComplete).slice(0, limit);
 }
 
 export async function getTopicBySlug(db: D1Database, slug: string): Promise<Topic | null> {
@@ -218,10 +264,6 @@ export async function getAllTopics(db: D1Database): Promise<Topic[]> {
   });
 }
 
-/**
- * Returns only topics that have at least one paper in paper_categories,
- * ordered by paper count descending so the most populated topics come first.
- */
 export async function getTopicsWithPapers(db: D1Database): Promise<Array<Topic & { paperCount: number }>> {
   const { results } = await db.prepare(`
     SELECT
@@ -246,22 +288,44 @@ export async function getTopicsWithPapers(db: D1Database): Promise<Array<Topic &
   }));
 }
 
-/** Returns all paper IDs for sitemap generation */
+/**
+ * Paper IDs for sitemap — only emit IDs for fully-complete papers so search
+ * engines never index a page that would show a broken/missing summary.
+ */
 export async function getAllPaperIds(db: D1Database): Promise<string[]> {
-  const { results } = await db.prepare(
-    'SELECT id FROM papers WHERE summary_ready = 1 ORDER BY indexed_at DESC'
-  ).all<{ id: string }>();
-  return results.map(r => r.id);
+  // JOIN summaries so we can check completeness without a second query.
+  const { results } = await db.prepare(`
+    SELECT p.id, p.title, p.abstract, p.summary_ready,
+           s.tldr, s.beginner_explain, s.technical_summary, s.key_contributions
+    FROM papers p
+    INNER JOIN summaries s ON s.paper_id = p.id
+    WHERE p.summary_ready = 1
+      AND p.title   != ''
+      AND p.abstract != ''
+      AND s.tldr    != ''
+      AND s.beginner_explain   != ''
+      AND s.technical_summary  != ''
+    ORDER BY p.indexed_at DESC
+  `).all<{ id: string; title: string; abstract: string; summary_ready: number; tldr: string; beginner_explain: string; technical_summary: string; key_contributions: string }>();
+
+  // Secondary JS filter catches edge cases like empty JSON arrays
+  return results
+    .filter(r => {
+      try {
+        const kc = JSON.parse(r.key_contributions ?? '[]') as unknown[];
+        return Array.isArray(kc) && kc.length > 0;
+      } catch { return false; }
+    })
+    .map(r => r.id);
 }
 
 export interface SearchFilters {
-  category?: string;      // arXiv category code e.g. "cs.LG"
-  date?:     string;      // "day" | "week" | "month" | "3months" | "year"
-  author?:   string;      // Author name substring match
-  minCitations?: number;  // Minimum citation count
+  category?: string;
+  date?:     string;
+  author?:   string;
+  minCitations?: number;
 }
 
-/** Resolve a date-range label → ISO date string for published_at >= */
 export function dateWindowStart(window: string): string | null {
   const MS: Record<string, number> = {
     day:       86_400_000,
@@ -275,7 +339,6 @@ export function dateWindowStart(window: string): string | null {
   return new Date(Date.now() - ms).toISOString().slice(0, 10);
 }
 
-/** FTS keyword search with BM25 title boost + optional category / date / author / citation filters */
 export async function ftsSearch(
   db: D1Database,
   query: string,
@@ -290,25 +353,16 @@ export async function ftsSearch(
   const whereParts: string[] = ['papers_fts MATCH ?', 'p.summary_ready = 1'];
   const binds: (string | number)[] = [query];
 
-  if (since) {
-    whereParts.push('p.published_at >= ?');
-    binds.push(since);
-  }
+  if (since) { whereParts.push('p.published_at >= ?'); binds.push(since); }
   if (cat) {
-    whereParts.push(
-      'EXISTS (SELECT 1 FROM paper_categories pc WHERE pc.paper_id = p.id AND pc.category = ?)'
-    );
+    whereParts.push('EXISTS (SELECT 1 FROM paper_categories pc WHERE pc.paper_id = p.id AND pc.category = ?)');
     binds.push(cat);
   }
-  if (author) {
-    whereParts.push('p.authors LIKE ?');
-    binds.push(`%${author}%`);
-  }
-  if (minCitations !== null && minCitations > 0) {
-    whereParts.push('p.citation_count >= ?');
-    binds.push(minCitations);
-  }
-  binds.push(limit);
+  if (author) { whereParts.push('p.authors LIKE ?'); binds.push(`%${author}%`); }
+  if (minCitations !== null && minCitations > 0) { whereParts.push('p.citation_count >= ?'); binds.push(minCitations); }
+
+  // Fetch with buffer so post-filter still returns `limit` rows.
+  binds.push(limit * 2);
 
   const { results } = await db.prepare(`
     SELECT
@@ -325,5 +379,9 @@ export async function ftsSearch(
     LIMIT ?
   `).bind(...binds).all<PaperRow & { keyword_score: number }>();
 
-  return results;
+  // Filter incomplete rows so no search result card ever links to a broken page.
+  return results.filter(r => {
+    const p = rowToPaper(r);
+    return isPaperComplete(p);
+  }).slice(0, limit) as Array<PaperRow & { keyword_score: number }>;
 }

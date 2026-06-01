@@ -54,14 +54,24 @@ export function SummarySection({ paper: initialPaper }: { paper: PaperWithSummar
     setTimeout(() => setCopied(false), 2000);
   }
 
-  // Poll every 10 s while summary is still pending
+  // Poll every 10 s while summary is unavailable.
+  // Conditions that require polling:
+  //   - summaryReady=0: still pending
+  //   - summaryReady=1 but summary=null: stale SSR payload (ISR served an old render)
+  // Stop polling only when we have summaryReady=1 AND a real summary object,
+  // OR when summaryReady=2 (permanently failed — no point retrying from the client).
   useEffect(() => {
-    if (paper.summaryReady === 1 || paper.summaryReady === 2) return;
+    const needsPoll = paper.summaryReady === 0 || (paper.summaryReady === 1 && !paper.summary);
+    if (!needsPoll) return;
 
     pollRef.current = setInterval(async () => {
       try {
         const fresh = await getPaper(paper.id);
-        if (fresh.summaryReady !== 0) {
+        // Only stop when we have a complete summary, not just a ready flag
+        if (fresh.summaryReady === 1 && fresh.summary) {
+          setPaper(fresh);
+          if (pollRef.current) clearInterval(pollRef.current);
+        } else if (fresh.summaryReady === 2) {
           setPaper(fresh);
           if (pollRef.current) clearInterval(pollRef.current);
         }
@@ -71,15 +81,19 @@ export function SummarySection({ paper: initialPaper }: { paper: PaperWithSummar
     }, 10_000);
 
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [paper.id, paper.summaryReady]);
+  }, [paper.id, paper.summaryReady, paper.summary]);
 
   const s = paper.summary;
 
   if (!s) {
+    // summaryReady=2: permanent failure
+    // summaryReady=0: pending generation
+    // summaryReady=1 + no summary: stale SSR payload — treat as pending
+    const isFailed = paper.summaryReady === 2;
     return (
       <Card>
         <div className="flex flex-col items-center justify-center py-8 gap-3 text-center">
-          {paper.summaryReady === 2 ? (
+          {isFailed ? (
             <>
               <Sparkles size={28} className="text-neon-red/20" />
               <p className="text-xs text-neon-red/40 font-mono">Summary generation failed.</p>

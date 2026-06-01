@@ -16,6 +16,7 @@ import Link from 'next/link';
 import { Sparkles, Loader2 } from 'lucide-react';
 import { loadBookmarks } from '@/lib/bookmarks';
 import { getRelatedPapers } from '@/helper/api';
+import { isRelatedPaperComplete } from '@/lib/utils';
 import type { RelatedPaper } from '@/src/shared/types';
 
 interface SuggestedPaper extends RelatedPaper {
@@ -47,22 +48,16 @@ export function PersonalizedFeed() {
       const { bookmarks } = loadBookmarks();
       if (bookmarks.length === 0) { setLoading(false); return; }
 
-      // Render stale data immediately — eliminates the spinner on repeat visits
       const stale = readCache();
       if (stale && stale.length > 0) {
         setSuggestions(stale);
         setLoading(false);
-        // Refresh in background without blocking render
         fetchSuggestions(bookmarks).then(fresh => {
-          if (fresh.length > 0) {
-            setSuggestions(fresh);
-            writeCache(fresh);
-          }
+          if (fresh.length > 0) { setSuggestions(fresh); writeCache(fresh); }
         }).catch(() => {/* non-fatal */});
         return;
       }
 
-      // No cache — fetch and show loader
       const fresh = await fetchSuggestions(bookmarks);
       setSuggestions(fresh);
       if (fresh.length > 0) writeCache(fresh);
@@ -70,7 +65,6 @@ export function PersonalizedFeed() {
     }
 
     async function fetchSuggestions(bookmarks: ReturnType<typeof loadBookmarks>['bookmarks']) {
-      // Pick seeds — prefer unread/reading, then newest
       const candidates = [...bookmarks]
         .sort((a, b) => {
           const statusWeight = { unread: 0, reading: 1, done: 2 } as const;
@@ -85,14 +79,14 @@ export function PersonalizedFeed() {
         candidates.map(bm =>
           getRelatedPapers(bm.id).then(related =>
             related
-              .filter(r => r.similarityScore >= MIN_SCORE && !bookmarkedIds.has(r.id))
+              // completeness guard — only link to papers with a real summary
+              .filter(r => isRelatedPaperComplete(r) && r.similarityScore >= MIN_SCORE && !bookmarkedIds.has(r.id))
               .slice(0, MAX_PER_SEED)
               .map(r => ({ ...r, becauseOf: bm.title })),
           )
         )
       );
 
-      // Flatten, deduplicate by paper id, keep highest score per paper
       const flat = results
         .filter((r): r is PromiseFulfilledResult<SuggestedPaper[]> => r.status === 'fulfilled')
         .flatMap(r => r.value);
@@ -109,9 +103,6 @@ export function PersonalizedFeed() {
     load();
   }, []);
 
-  // When BookmarksList removes dead IDs from localStorage (fires arxiv:bookmarks-changed),
-  // bust the sessionStorage feed cache so the next render doesn't show links to
-  // papers that were seeded from a now-deleted bookmark.
   useEffect(() => {
     function handleBookmarksChanged() {
       try { sessionStorage.removeItem(SESSION_KEY); } catch {}

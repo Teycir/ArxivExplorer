@@ -1,14 +1,19 @@
 // app/components/RelatedPapersList.tsx
 // Sidebar list of pre-computed related papers.
+// Only renders links for papers that have both a title and a tldr — any entry
+// missing either field is silently dropped so no link ever leads to a broken page.
 
 import Link from 'next/link';
 import { Card } from './Card';
 import { similarityLabel, truncate } from '@/helper/format';
 import type { RelatedPaper } from '@/src/shared/types';
+import { isRelatedPaperComplete } from '@/lib/utils';
 import { GitBranch } from 'lucide-react';
 
 export function RelatedPapersList({ related }: { related: RelatedPaper[] }) {
-  if (related.length === 0) {
+  const complete = related.filter(isRelatedPaperComplete);
+
+  if (complete.length === 0) {
     return (
       <Card>
         <div className="flex items-center gap-2 mb-3 pb-2 border-b border-neon-red/15">
@@ -34,7 +39,7 @@ export function RelatedPapersList({ related }: { related: RelatedPaper[] }) {
       </div>
 
       <ul className="flex flex-col gap-4">
-        {related.map((r, i) => (
+        {complete.map((r, i) => (
           <li key={r.id}>
             <Link
               href={`/paper/${encodeURIComponent(r.id)}`}
@@ -59,15 +64,13 @@ export function RelatedPapersList({ related }: { related: RelatedPaper[] }) {
                 {truncate(r.title, 100)}
               </p>
 
-              {/* TL;DR — only rendered when present (may be null for pending-summary papers) */}
-              {r.tldr && (
-                <p className="mt-1 text-xs text-white/35 leading-snug">
-                  {truncate(r.tldr, 80)}
-                </p>
-              )}
+              {/* TL;DR — always present after isRelatedPaperComplete guard */}
+              <p className="mt-1 text-xs text-white/35 leading-snug">
+                {truncate(r.tldr, 80)}
+              </p>
             </Link>
 
-            {i < related.length - 1 && (
+            {i < complete.length - 1 && (
               <div className="mt-4 border-b border-neon-red/8" />
             )}
           </li>

@@ -19,8 +19,19 @@ interface Props {
   params: Promise<{ arxiv_id: string }>;
 }
 
-// ISR: revalidate every hour so pending summaries surface without a redeploy
-export const revalidate = 3600;
+// Force dynamic — never ISR-cache this page.
+//
+// Why: the API worker (KV) already handles caching at the data layer.
+// ISR was causing "summary pending" HTML to be served for up to an hour
+// after a paper was first visited while summary_ready=0.  The client-side
+// poll in SummarySection then received summaryReady=1 with summary=null
+// from the stale SSR payload and stopped polling immediately — permanent
+// blank summary, no way to recover without a hard refresh.
+//
+// With force-dynamic every SSR render fetches fresh data from the API
+// worker, which itself is KV-cached (permanent for summary_ready=1 papers).
+// Cost: one extra KV read per page load — negligible.
+export const dynamic = 'force-dynamic';
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { arxiv_id } = await params;
