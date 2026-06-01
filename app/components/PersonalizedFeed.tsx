@@ -109,6 +109,17 @@ export function PersonalizedFeed() {
     load();
   }, []);
 
+  // When BookmarksList removes dead IDs from localStorage (fires arxiv:bookmarks-changed),
+  // bust the sessionStorage feed cache so the next render doesn't show links to
+  // papers that were seeded from a now-deleted bookmark.
+  useEffect(() => {
+    function handleBookmarksChanged() {
+      try { sessionStorage.removeItem(SESSION_KEY); } catch {}
+    }
+    window.addEventListener('arxiv:bookmarks-changed', handleBookmarksChanged);
+    return () => window.removeEventListener('arxiv:bookmarks-changed', handleBookmarksChanged);
+  }, []);
+
   if (!loading && suggestions.length === 0) return null;
 
   return (

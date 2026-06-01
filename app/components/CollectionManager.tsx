@@ -16,7 +16,8 @@ import {
 interface CollectionManagerProps {
   bookmarkId: string;
   currentCollection?: string | undefined;
-  onUpdate: () => void;
+  allCollections?: string[];
+  onUpdate: (collection: string | undefined) => void;
 }
 
 export function CollectionManager({ bookmarkId, currentCollection, onUpdate }: CollectionManagerProps) {
@@ -28,7 +29,7 @@ export function CollectionManager({ bookmarkId, currentCollection, onUpdate }: C
 
   function handleSelect(name: string | undefined) {
     updateCollection(bookmarkId, name);
-    onUpdate();
+    onUpdate(name);
     setIsOpen(false);
   }
 
@@ -37,7 +38,7 @@ export function CollectionManager({ bookmarkId, currentCollection, onUpdate }: C
     updateCollection(bookmarkId, newName.trim());
     setNewName('');
     setCreating(false);
-    onUpdate();
+    onUpdate(newName.trim());
     setIsOpen(false);
   }
 
@@ -119,9 +120,9 @@ export function CollectionManager({ bookmarkId, currentCollection, onUpdate }: C
   );
 }
 
-export function CollectionExport() {
+export function CollectionExport({ bookmarks: propBookmarks }: { bookmarks?: Bookmark[] }) {
   function exportCollection(collectionName?: string) {
-    const { bookmarks } = loadBookmarks();
+    const bookmarks = propBookmarks ?? loadBookmarks().bookmarks;
     const filtered = collectionName
       ? bookmarks.filter(b => b.collection === collectionName)
       : bookmarks;
@@ -143,7 +144,7 @@ export function CollectionExport() {
   }
 
   function exportBibTeX(collectionName?: string) {
-    const { bookmarks } = loadBookmarks();
+    const bookmarks = propBookmarks ?? loadBookmarks().bookmarks;
     const filtered = collectionName
       ? bookmarks.filter(b => b.collection === collectionName)
       : bookmarks;

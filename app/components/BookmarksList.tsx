@@ -3,15 +3,9 @@
  *
  * Client component for the /bookmarks page.
  *
- * Features:
- *  - Loads from localStorage on mount, surfaces TTL-pruned count via toast
- *  - Threshold warning banner at WARN_THRESHOLD (75) bookmarks
- *  - Per-bookmark expiry warning (< EXPIRY_WARN_DAYS)
- *  - Optimistic single delete
- *  - Inline note editing (pencil → input → confirm/cancel)
- *  - Purge-all with confirm step
- *  - Progress bar showing fill vs SOFT_CAP
- *  - Status filter tabs (all / unread / reading / done) with per-tab counts
+ * POLICY: On load, every bookmark ID is validated against the API.
+ * Any bookmark whose paper no longer exists in the DB is silently removed
+ * from localStorage and never shown as a clickable link.
  */
 'use client';
 
@@ -32,6 +26,7 @@ import {
   type Bookmark as BM,
   type ReadStatus,
 } from '@/lib/bookmarks';
+import { getPaper } from '@/helper/api';
 import { formatAuthors } from '@/helper/format';
 import { CollectionManager, CollectionExport } from './CollectionManager';
 
@@ -158,359 +153,284 @@ function PurgeAllButton({ onPurge }: { onPurge: () => void }) {
   );
 }
 
-// ── Status toggle ─────────────────────────────────────────────────────────────
-
-const STATUS_CYCLE: ReadStatus[] = ['unread', 'reading', 'done'];
-const STATUS_LABEL: Record<ReadStatus, string> = {
-  unread:  '○ unread',
-  reading: '◑ reading',
-  done:    '✓ done',
-};
-const STATUS_CLASS: Record<ReadStatus, string> = {
-  unread:  'text-neon-red/30 border-neon-red/15',
-  reading: 'text-amber-400/70 border-amber-500/30',
-  done:    'text-green-400/70 border-green-500/30',
-};
-
-function StatusToggle({
-  status,
-  onChange,
-}: {
-  status: ReadStatus;
-  onChange: (next: ReadStatus) => void;
-}) {
-  function cycle() {
-    const idx  = STATUS_CYCLE.indexOf(status);
-    const next = STATUS_CYCLE[(idx + 1) % STATUS_CYCLE.length]!;
-    onChange(next);
-  }
-  return (
-    <button
-      onClick={cycle}
-      title={`Status: ${status} — click to cycle`}
-      className={[
-        'inline-flex items-center px-2 py-0.5 rounded border text-[10px] font-mono',
-        'transition-colors duration-150 hover:opacity-80',
-        STATUS_CLASS[status],
-      ].join(' ')}
-    >
-      {STATUS_LABEL[status]}
-    </button>
-  );
-}
-
-// ── Row ───────────────────────────────────────────────────────────────────────
-
-function BookmarkRow({
-  bookmark,
-  onDelete,
-  onNote,
-  onStatus,
-  onCollectionChange,
-}: {
-  bookmark: BM;
-  onDelete:  (id: string) => void;
-  onNote:    (id: string, note: string) => void;
-  onStatus:  (id: string, status: ReadStatus) => void;
-  onCollectionChange: () => void;
-}) {
-  const [editing,  setEditing]  = useState(false);
-  const [noteVal,  setNoteVal]  = useState(bookmark.note ?? '');
-  const [saving,   setSaving]   = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  function handleDelete() {
-    setDeleting(true);
-    removeBookmark(bookmark.id);
-    onDelete(bookmark.id);
-  }
-
-  function confirmNote() {
-    setSaving(true);
-    onNote(bookmark.id, noteVal.trim());
-    setSaving(false);
-    setEditing(false);
-  }
-
-  function cancelNote() {
-    setNoteVal(bookmark.note ?? '');
-    setEditing(false);
-  }
-
-  const savedDate = new Date(bookmark.savedAt).toLocaleDateString('en-US', {
-    month: 'short', day: 'numeric', year: 'numeric',
-  });
-
-  return (
-    <div className={`rounded-xl border border-neon-red/10 bg-dark-bg px-5 py-4
-      transition-opacity duration-300 ${deleting ? 'opacity-40 pointer-events-none' : ''}`}>
-
-      {/* Top row: title + expiry */}
-      <div className="flex items-start justify-between gap-3 flex-wrap mb-2">
-        <Link
-          href={`/paper/${encodeURIComponent(bookmark.id)}`}
-          className="font-mono text-sm text-white/90 hover:text-neon-red transition-colors leading-snug flex-1 min-w-0"
-        >
-          {bookmark.title}
-        </Link>
-        <ExpiryPill bookmark={bookmark} />
-      </div>
-
-      {/* Authors + categories + status + collection */}
-      <div className="flex flex-wrap items-center gap-3 mb-3">
-        <span className="flex items-center gap-1 text-[11px] text-neon-red/40 font-mono">
-          <Users size={10} />
-          {formatAuthors(bookmark.authors, 2)}
-        </span>
-        <span className="flex items-center gap-1 text-[11px] text-neon-red/30 font-mono">
-          <Tag size={10} />
-          {bookmark.categories.slice(0, 2).join(', ')}
-        </span>
-        <CollectionManager
-          bookmarkId={bookmark.id}
-          {...(bookmark.collection !== undefined && { currentCollection: bookmark.collection })}
-          onUpdate={onCollectionChange}
-        />
-        <span className="flex items-center gap-1 text-[11px] text-neon-red/25 font-mono ml-auto">
-          <Clock size={10} />
-          saved {savedDate}
-        </span>
-        <StatusToggle
-          status={bookmark.status}
-          onChange={(next) => onStatus(bookmark.id, next)}
-        />
-      </div>
-
-      {/* Note row */}
-      <div className="flex items-center gap-2 min-h-[22px]">
-        {editing ? (
-          <>
-            <input
-              ref={inputRef}
-              value={noteVal}
-              onChange={e => setNoteVal(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') confirmNote(); if (e.key === 'Escape') cancelNote(); }}
-              maxLength={200}
-              placeholder="Add a note…"
-              autoFocus
-              className="flex-1 bg-neutral-800 border border-neon-red/20 rounded px-2 py-0.5
-                         text-xs font-mono text-white placeholder-neutral-600
-                         focus:outline-none focus:border-neon-red/50"
-            />
-            <button onClick={confirmNote} disabled={saving}
-              className="text-[10px] font-mono text-green-400 hover:text-green-300 disabled:opacity-50">
-              {saving ? '…' : '✓'}
-            </button>
-            <button onClick={cancelNote}
-              className="text-[10px] font-mono text-neutral-500 hover:text-white">
-              ✕
-            </button>
-          </>
-        ) : (
-          <>
-            <span className="text-xs text-neutral-600 font-mono flex-1 truncate">
-              {bookmark.note ?? <span className="italic text-neutral-700">no note</span>}
-            </span>
-            <button onClick={() => { setEditing(true); setTimeout(() => inputRef.current?.focus(), 0); }}
-              className="text-[10px] text-neutral-600 hover:text-neon-red font-mono transition-colors"
-              title="Edit note">✎</button>
-            <button onClick={handleDelete}
-              className="text-[10px] text-neutral-600 hover:text-red-400 font-mono transition-colors"
-              title="Remove bookmark">✕</button>
-            <Link href={`/paper/${encodeURIComponent(bookmark.id)}`}
-              className="text-[10px] text-neutral-600 hover:text-neon-red font-mono transition-colors"
-              title="Open paper">→</Link>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ── Status filter tabs ────────────────────────────────────────────────────────
-
-type FilterTab = 'all' | ReadStatus;
-
-const FILTER_TABS: { key: FilterTab; label: string; icon: string }[] = [
-  { key: 'all',     label: 'all',     icon: '≡'  },
-  { key: 'unread',  label: 'unread',  icon: '○'  },
-  { key: 'reading', label: 'reading', icon: '◑'  },
-  { key: 'done',    label: 'done',    icon: '✓'  },
-];
-
-const FILTER_TAB_ACTIVE: Record<FilterTab, string> = {
-  all:     'border-neon-red/50 text-neon-red bg-neon-red/10',
-  unread:  'border-neon-red/50 text-neon-red bg-neon-red/10',
-  reading: 'border-amber-500/50 text-amber-400 bg-amber-500/10',
-  done:    'border-green-500/50 text-green-400 bg-green-500/10',
-};
-
-function StatusFilterTabs({
-  active,
-  counts,
-  onSelect,
-}: {
-  active: FilterTab;
-  counts: Record<FilterTab, number>;
-  onSelect: (tab: FilterTab) => void;
-}) {
-  return (
-    <div className="flex items-center gap-1.5 flex-wrap">
-      {FILTER_TABS.map(({ key, label, icon }) => {
-        const isActive = active === key;
-        const count    = counts[key];
-        return (
-          <button
-            key={key}
-            onClick={() => onSelect(key)}
-            className={[
-              'inline-flex items-center gap-1 rounded border px-2.5 py-1 text-[11px] font-mono',
-              'transition-colors duration-150',
-              isActive
-                ? FILTER_TAB_ACTIVE[key]
-                : 'border-neutral-800 text-neutral-500 hover:border-neutral-600 hover:text-neutral-300',
-            ].join(' ')}
-          >
-            <span>{icon}</span>
-            <span>{label}</span>
-            {count > 0 && (
-              <span className={`rounded px-1 text-[9px] ${
-                isActive ? 'bg-white/10' : 'bg-neutral-800'
-              }`}>
-                {count}
-              </span>
-            )}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-// ── Main list ─────────────────────────────────────────────────────────────────
+// ── Main component ────────────────────────────────────────────────────────────
 
 export function BookmarksList() {
-  const [bookmarks,   setBookmarks]   = useState<BM[]>([]);
-  const [toast,       setToast]       = useState<string | null>(null);
-  const [loaded,      setLoaded]      = useState(false);
-  const [activeTab,   setActiveTab]   = useState<FilterTab>('all');
+  const [bookmarks, setBookmarks] = useState<BM[]>([]);
+  const [validIds,  setValidIds]  = useState<Set<string> | null>(null); // null = validating
+  const [toast,     setToast]     = useState<string | null>(null);
+  const [filter,    setFilter]    = useState<ReadStatus | 'all'>('all');
+  const [collection, setCollection] = useState<string | 'all'>('all');
+  const [editingNote, setEditingNote] = useState<string | null>(null);
+  const [noteText,    setNoteText]    = useState('');
 
+  // ── 1. Load from localStorage ─────────────────────────────────────────────
   useEffect(() => {
     const { bookmarks: bms, prunedCount } = loadBookmarks();
     setBookmarks(bms);
-    setLoaded(true);
     if (prunedCount > 0) {
-      setToast(`${prunedCount} expired bookmark${prunedCount > 1 ? 's' : ''} were auto-removed.`);
+      setToast(`${prunedCount} expired bookmark${prunedCount > 1 ? 's' : ''} removed`);
     }
+
+    // ── 2. Validate each ID against the DB ──────────────────────────────────
+    // Fire-and-forget: for each bookmark try GET /api/paper/:id.
+    // Any that 404 (or throw) are silently removed from localStorage + state.
+    if (bms.length === 0) {
+      setValidIds(new Set());
+      return;
+    }
+
+    (async () => {
+      const results = await Promise.allSettled(
+        bms.map(b => getPaper(b.id).then(() => b.id))
+      );
+
+      const alive = new Set<string>();
+      const dead:  string[] = [];
+
+      results.forEach((r, idx) => {
+        if (r.status === 'fulfilled') alive.add(r.value);
+        else {
+          const id = bms[idx]?.id;
+          if (id) dead.push(id);
+        }
+      });
+
+      // Remove dead IDs from localStorage
+      dead.forEach(id => removeBookmark(id));
+
+      setValidIds(alive);
+
+      if (dead.length > 0) {
+        setBookmarks(prev => prev.filter(b => alive.has(b.id)));
+        setToast(
+          `${dead.length} bookmark${dead.length > 1 ? 's' : ''} removed — ` +
+          `paper${dead.length > 1 ? 's' : ''} no longer in DB`
+        );
+      }
+    })();
   }, []);
 
-  function handleDelete(id: string) {
-    setBookmarks(prev => prev.filter(b => b.id !== id));
-  }
+  // ── Listen for same-tab changes (e.g. un-bookmark from paper page) ─────────
+  useEffect(() => {
+    function sync() {
+      const { bookmarks: bms } = loadBookmarks();
+      setBookmarks(bms);
+    }
+    window.addEventListener('arxiv:bookmarks-changed', sync);
+    return () => window.removeEventListener('arxiv:bookmarks-changed', sync);
+  }, []);
 
-  function handleNote(id: string, note: string) {
-    const updated = updateNote(id, note);
-    setBookmarks(updated);
-  }
+  const collections = useMemo(
+    () => [...new Set(bookmarks.map(b => b.collection).filter(Boolean) as string[])].sort(),
+    [bookmarks]
+  );
 
+  const visible = useMemo(() => {
+    let bms = bookmarks;
+    if (filter     !== 'all') bms = bms.filter(b => b.status    === filter);
+    if (collection !== 'all') bms = bms.filter(b => b.collection === collection);
+    return bms;
+  }, [bookmarks, filter, collection]);
+
+  // ── Handlers ──────────────────────────────────────────────────────────────
+  function handleRemove(id: string) {
+    setBookmarks(removeBookmark(id));
+  }
   function handleStatus(id: string, status: ReadStatus) {
-    const updated = updateStatus(id, status);
-    setBookmarks(updated);
+    setBookmarks(updateStatus(id, status));
   }
-
+  function handleCollection(id: string, col: string | undefined) {
+    setBookmarks(updateCollection(id, col));
+  }
+  function handleNoteOpen(b: BM) {
+    setEditingNote(b.id);
+    setNoteText(b.note ?? '');
+  }
+  function handleNoteSave(id: string) {
+    setBookmarks(updateNote(id, noteText));
+    setEditingNote(null);
+  }
   function handlePurge() {
     purgeAllBookmarks();
     setBookmarks([]);
   }
 
-  // Counts per tab (memoised so they don't flicker on status changes)
-  const counts = useMemo<Record<FilterTab, number>>(() => ({
-    all:     bookmarks.length,
-    unread:  bookmarks.filter(b => b.status === 'unread').length,
-    reading: bookmarks.filter(b => b.status === 'reading').length,
-    done:    bookmarks.filter(b => b.status === 'done').length,
-  }), [bookmarks]);
-
-  // Filtered view
-  const visible = useMemo(
-    () => activeTab === 'all' ? bookmarks : bookmarks.filter(b => b.status === activeTab),
-    [bookmarks, activeTab],
-  );
-
-  const nearingCap = bookmarks.length >= WARN_THRESHOLD;
-
-  if (!loaded) {
+  // ── Empty state ───────────────────────────────────────────────────────────
+  if (validIds !== null && bookmarks.length === 0) {
     return (
-      <div className="rounded-xl border border-neon-red/10 bg-dark-bg px-5 py-12 text-center">
-        <p className="text-sm text-neon-red/30 font-mono animate-pulse">Loading…</p>
-      </div>
-    );
-  }
-
-  if (bookmarks.length === 0) {
-    return (
-      <div className="rounded-xl border border-neon-red/10 bg-dark-bg px-5 py-16 text-center space-y-3">
-        <Bookmark size={28} className="mx-auto text-neon-red/20" />
-        <p className="text-sm text-neutral-500 font-mono">No bookmarks yet.</p>
-        <p className="text-xs text-neutral-700 font-mono">
-          Hit <span className="text-neon-red/40">☆ save</span> on any paper page.
+      <div className="text-center py-16 font-mono text-neutral-600 text-sm space-y-2">
+        <Bookmark size={32} className="mx-auto opacity-20" />
+        <p>No bookmarks yet.</p>
+        <p className="text-xs text-neutral-700">
+          Hit the bookmark icon on any paper to save it here.
         </p>
       </div>
     );
   }
 
+  const isValidating = validIds === null;
+
   return (
     <>
-      {nearingCap && <ThresholdBanner count={bookmarks.length} />}
+      {toast && <Toast message={toast} onDismiss={() => setToast(null)} />}
 
-      {/* Toolbar: count + filter tabs + export + purge */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <span className="text-xs text-neutral-600 font-mono flex items-center gap-1.5 shrink-0">
-          <FileText size={11} />
-          {bookmarks.length} {bookmarks.length === 1 ? 'paper' : 'papers'}
-          {nearingCap && (
-            <span className={bookmarks.length >= SOFT_CAP ? 'text-red-400' : 'text-amber-500'}>
-              {' '}/ {SOFT_CAP} cap
-            </span>
-          )}
-        </span>
+      {/* ── Controls row ─────────────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        {/* status filter */}
+        {(['all', 'unread', 'reading', 'done'] as const).map(s => (
+          <button key={s} onClick={() => setFilter(s)}
+            className={`text-xs font-mono px-2 py-0.5 rounded border transition-colors
+              ${filter === s
+                ? 'border-neon-red/50 text-neon-red bg-neon-red/10'
+                : 'border-neutral-800 text-neutral-500 hover:text-white hover:border-neutral-600'}`}>
+            {s}
+          </button>
+        ))}
 
-        <StatusFilterTabs
-          active={activeTab}
-          counts={counts}
-          onSelect={setActiveTab}
-        />
+        {/* collection filter */}
+        {collections.length > 0 && (
+          <select
+            value={collection}
+            onChange={e => setCollection(e.target.value)}
+            className="text-xs font-mono bg-dark-bg border border-neutral-800 rounded px-2 py-0.5
+                       text-neutral-400 hover:border-neutral-600 transition-colors cursor-pointer">
+            <option value="all">all collections</option>
+            {collections.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        )}
 
-        <span className="ml-auto flex items-center gap-2">
-          <CollectionExport />
+        <div className="ml-auto flex items-center gap-2">
+          <CollectionExport bookmarks={bookmarks} />
           <PurgeAllButton onPurge={handlePurge} />
-        </span>
+        </div>
       </div>
 
-      {/* Paper list */}
-      {visible.length === 0 ? (
-        <div className="rounded-xl border border-neon-red/10 bg-dark-bg px-5 py-10 text-center">
-          <p className="text-sm text-neutral-600 font-mono">
-            No <span className="text-neon-red/40">{activeTab}</span> papers.
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {visible.map(b => (
-            <BookmarkRow
-              key={b.id}
-              bookmark={b}
-              onDelete={handleDelete}
-              onNote={handleNote}
-              onStatus={handleStatus}
-              onCollectionChange={() => setBookmarks(loadBookmarks().bookmarks)}
-            />
-          ))}
-        </div>
+      {/* ── Threshold banner ─────────────────────────────────────────────── */}
+      {bookmarks.length >= WARN_THRESHOLD && (
+        <ThresholdBanner count={bookmarks.length} />
       )}
 
-      {toast && <Toast message={toast} onDismiss={() => setToast(null)} />}
+      {/* ── Validating spinner ───────────────────────────────────────────── */}
+      {isValidating && (
+        <p className="text-xs font-mono text-neutral-600 animate-pulse mb-3">
+          Verifying bookmarks against DB…
+        </p>
+      )}
+
+      {/* ── List ─────────────────────────────────────────────────────────── */}
+      <div className="space-y-3">
+        {visible.map(b => (
+          <div key={b.id}
+            className="rounded-lg border border-neutral-800 bg-neutral-950/60 p-4 space-y-2
+                       hover:border-neutral-700 transition-colors">
+
+            {/* Title row */}
+            <div className="flex items-start gap-2">
+              <Link href={`/paper/${b.id}`}
+                className="font-mono text-sm text-white/90 hover:text-neon-red transition-colors leading-snug flex-1">
+                {b.title}
+              </Link>
+              <button onClick={() => handleRemove(b.id)}
+                className="text-neutral-700 hover:text-red-400 transition-colors shrink-0 mt-0.5">
+                <Bookmark size={14} fill="currentColor" />
+              </button>
+            </div>
+
+            {/* Authors */}
+            {b.authors.length > 0 && (
+              <p className="flex items-center gap-1.5 text-xs text-neutral-500 font-mono">
+                <Users size={10} />
+                {formatAuthors(b.authors)}
+              </p>
+            )}
+
+            {/* Categories */}
+            {b.categories.length > 0 && (
+              <p className="flex items-center gap-1.5 text-xs text-neutral-600 font-mono">
+                <Tag size={10} />
+                {b.categories.slice(0, 4).join(', ')}
+              </p>
+            )}
+
+            {/* Controls row */}
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              {/* read status */}
+              <select
+                value={b.status}
+                onChange={e => handleStatus(b.id, e.target.value as ReadStatus)}
+                className="text-[11px] font-mono bg-neutral-900 border border-neutral-800 rounded
+                           px-1.5 py-0.5 text-neutral-400 cursor-pointer hover:border-neutral-600 transition-colors">
+                <option value="unread">unread</option>
+                <option value="reading">reading</option>
+                <option value="done">done</option>
+              </select>
+
+              {/* collection manager */}
+              <CollectionManager
+                bookmarkId={b.id}
+                currentCollection={b.collection}
+                allCollections={collections}
+                onUpdate={col => handleCollection(b.id, col)}
+              />
+
+              {/* note */}
+              <button onClick={() => handleNoteOpen(b)}
+                className="text-[11px] font-mono text-neutral-600 hover:text-white
+                           border border-neutral-800 hover:border-neutral-600 rounded px-1.5 py-0.5 transition-colors">
+                <FileText size={10} className="inline mr-1" />
+                {b.note ? 'edit note' : 'add note'}
+              </button>
+
+              {/* expiry pill */}
+              <ExpiryPill bookmark={b} />
+
+              {/* arxiv ID */}
+              <span className="text-[10px] font-mono text-neutral-700 ml-auto">{b.id}</span>
+            </div>
+
+            {/* Inline note displayed */}
+            {b.note && editingNote !== b.id && (
+              <p className="text-xs font-mono text-neutral-500 border-l-2 border-neutral-800 pl-2 mt-1 italic">
+                {b.note}
+              </p>
+            )}
+
+            {/* Note editor */}
+            {editingNote === b.id && (
+              <div className="flex gap-2 items-end mt-1">
+                <textarea
+                  value={noteText}
+                  onChange={e => setNoteText(e.target.value)}
+                  rows={2}
+                  placeholder="Your note…"
+                  className="flex-1 text-xs font-mono bg-neutral-900 border border-neutral-700
+                             rounded px-2 py-1 text-white/80 placeholder-neutral-700
+                             focus:outline-none focus:border-neon-red/50 resize-none"
+                />
+                <div className="flex flex-col gap-1">
+                  <button onClick={() => handleNoteSave(b.id)}
+                    className="text-[11px] font-mono text-green-400 border border-green-900/60
+                               rounded px-2 py-0.5 hover:bg-green-950/30 transition-colors">
+                    save
+                  </button>
+                  <button onClick={() => setEditingNote(null)}
+                    className="text-[11px] font-mono text-neutral-500 border border-neutral-800
+                               rounded px-2 py-0.5 hover:text-white transition-colors">
+                    cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {visible.length === 0 && bookmarks.length > 0 && (
+        <p className="text-center py-8 text-xs font-mono text-neutral-600">
+          No bookmarks match the current filter.
+        </p>
+      )}
     </>
   );
 }

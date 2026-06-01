@@ -19,7 +19,6 @@ import { generateEmbedding, upsertToVectorize } from './generate-embedding';
 import { generateSummary } from './generate-summary';
 import { computeAndStoreRelated } from './compute-related';
 import { kvDelete } from '../api-worker/cache/kv';
-import { KV_TRENDING } from '../api-worker/cache/keys';
 
 const CATEGORY_DELAY_MS = 3_000;
 
@@ -123,9 +122,13 @@ export async function runIngestionPipeline(env: Env): Promise<IngestResult> {
   // Neuron estimate: ~44 per paper (1 summary + 1 embedding)
   result.neuronsEstimate = result.summarized * 44;
 
-  // Step 9: Invalidate trending cache (new papers arrived)
+  // Step 9: Invalidate ALL trending cache windows (new papers arrived)
   try {
-    await kvDelete(env.CACHE, KV_TRENDING);
+    await Promise.all([
+      kvDelete(env.CACHE, 'kv:trending:day'),
+      kvDelete(env.CACHE, 'kv:trending:week'),
+      kvDelete(env.CACHE, 'kv:trending:month'),
+    ]);
   } catch (err) {
     console.warn('[pipeline] Failed to invalidate trending cache:', err);
   }

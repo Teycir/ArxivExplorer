@@ -52,10 +52,16 @@ export async function handlePaper(
     return errorResponse(`Paper not found: ${arxivId}`, cors, 404);
   }
 
-  // 3. Lazy KV write (fire-and-forget) — only cache complete papers.
-  // TTL 7 days: summaries are regenerable; immutable fields never change.
+  // 3. Lazy KV write (fire-and-forget).
+  // summary_ready=1: permanent 7-day TTL (summary complete, paper immutable).
+  // summary_ready=2: 1h TTL so repeated client polls don't hammer D1 forever.
+  //                  TTL lets it auto-expire in case the paper is later fixed.
+  // summary_ready=0: do NOT cache — it's pending and must reflect fresh state
+  //                  on the next poll (SummarySection polls every 10 s).
   if (paper.summaryReady === 1) {
     kvPutAsync(ctx, env.CACHE, cacheKey, paper, 7 * 24 * 3600);
+  } else if (paper.summaryReady === 2) {
+    kvPutAsync(ctx, env.CACHE, cacheKey, paper, 3600);
   }
 
   return jsonResponse(paper, cors);

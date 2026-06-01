@@ -1,9 +1,8 @@
 'use client';
 // app/components/CategoryScopeBar.tsx
-// Shows the indexed arXiv CS categories as clickable chips with a clear scope label.
-// Used on the homepage hero and search page to set user expectations.
+// Shows the indexed arXiv CS categories as informational chips.
 
-import { Database, Lock } from 'lucide-react';
+import { Database } from 'lucide-react';
 
 export const INDEXED_CATEGORIES: { id: string; label: string; desc: string }[] = [
   // Core ML / AI
@@ -33,20 +32,12 @@ export const INDEXED_CATEGORIES: { id: string; label: string; desc: string }[] =
   { id: 'cs.NI',  label: 'cs.NI',  desc: 'Networking & Internet' },
 ];
 
-/** All valid category IDs — used for query scoping guard */
+/** All valid category IDs — used for category filter validation */
 export const VALID_CATEGORY_IDS = new Set(INDEXED_CATEGORIES.map(c => c.id));
 
 export function CategoryScopeBar() {
   return (
     <div className="flex flex-col items-center gap-3 mt-3 w-full">
-      {/* Lock banner */}
-      <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-neon-red/20 bg-neon-red/5">
-        <Lock size={10} className="text-neon-red/50 flex-shrink-0" />
-        <span className="text-[10px] font-mono text-neon-red/60 uppercase tracking-widest">
-          CS papers only · searches outside these topics are blocked
-        </span>
-      </div>
-
       {/* Category chips */}
       <div className="flex items-center gap-1.5 flex-wrap justify-center">
         <span className="flex items-center gap-1.5 text-[10px] font-mono text-neon-red/35 uppercase tracking-widest mr-1">
