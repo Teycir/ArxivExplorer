@@ -36,6 +36,13 @@
     "binding": "AI"
   },
 
+  "services": [
+    {
+      "binding": "API",
+      "service": "arxiv-api"
+    }
+  ],
+
   "vars": {
     "API_BASE": "https://arxiv-api.arxivexplorer.workers.dev",
     "ARXIV_FETCH_CATEGORIES": "cs.LG,cs.CL,cs.CV,stat.ML",

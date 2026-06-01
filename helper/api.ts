@@ -2,20 +2,49 @@
  * helper/api.ts
  * Client-side API fetch helpers for the Next.js app.
  * All functions throw on non-2xx responses — never silently return null.
+ *
+ * On the server (SSR/RSC) we use the `API` Cloudflare service binding so that
+ * the request goes directly to the api-worker without leaving the Cloudflare
+ * edge network.  On the client we use the public API URL.
  */
 
 import type { PaperWithSummary, SearchResult, RelatedPaper, Topic } from '../src/shared/types';
 
-const API_BASE =
-  typeof window !== 'undefined'
-    ? (process.env.NEXT_PUBLIC_API_BASE ?? 'https://arxiv-api.arxivexplorer.workers.dev')
-    : (process.env.API_BASE ?? 'https://arxiv-api.arxivexplorer.workers.dev');
+const PUBLIC_API = 'https://arxiv-api.arxivexplorer.workers.dev';
 
+/**
+ * Low-level fetch wrapper.
+ * Server-side: routes via the `API` service binding (env.API.fetch) so the
+ * request never goes through the public internet / OpenNext proxy.
+ * Client-side: routes via the public API_BASE URL.
+ */
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers: { 'Content-Type': 'application/json', ...init?.headers },
-  });
+  let res: Response;
+
+  if (typeof window === 'undefined') {
+    // ── Server-side: use Cloudflare service binding ───────────────────────
+    // Dynamic import keeps this out of the browser bundle entirely.
+    try {
+      const { getCloudflareContext } = await import('@opennextjs/cloudflare');
+      const { env } = await getCloudflareContext({ async: true });
+      const apiBinding = (env as Record<string, { fetch: typeof fetch }>)['API'];
+      if (apiBinding?.fetch) {
+        res = await apiBinding.fetch(`https://api-internal${path}`, init);
+      } else {
+        // Binding not available (local dev without wrangler) — fall back to HTTP
+        res = await fetch(`${PUBLIC_API}${path}`, init);
+      }
+    } catch {
+      // If getCloudflareContext throws (e.g. non-CF environment), fall back
+      res = await fetch(`${PUBLIC_API}${path}`, init);
+    }
+  } else {
+    // ── Client-side: plain HTTP ───────────────────────────────────────────
+    res = await fetch(`${PUBLIC_API}${path}`, {
+      ...init,
+      headers: { 'Content-Type': 'application/json', ...init?.headers },
+    });
+  }
 
   if (!res.ok) {
     let detail = '';
@@ -25,7 +54,7 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       detail = await res.text().catch(() => '');
     }
-    throw new Error(`API ${res.status} ${res.statusText}${detail ? `: ${detail}` : ''} — ${API_BASE}${path}`);
+    throw new Error(`API ${res.status} ${res.statusText}${detail ? `: ${detail}` : ''} — ${PUBLIC_API}${path}`);
   }
 
   return res.json() as Promise<T>;
