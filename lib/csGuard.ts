@@ -105,35 +105,8 @@ const ARXIV_ID_RE = /(?:arxiv[:\s]?)?\b\d{4}\.\d{4,5}(?:v\d+)?\b/i;
  * Returns false if the query appears to be completely outside CS.
  */
 export function isCSQuery(raw: string): boolean {
-  const q = raw.toLowerCase().trim();
-
-  // Always allow arXiv IDs
-  if (ARXIV_ID_RE.test(q)) return true;
-
-  // Allow known CS category codes anywhere in the query
-  for (const cat of CS_CATEGORIES) {
-    if (q.includes(cat)) return true;
-  }
-
-  // Allow curated topic labels and slugs (single source of truth from lib/topics.ts)
-  for (const label of TOPIC_LABELS) {
-    if (q.includes(label)) return true;
-  }
-
-  // Allow if any CS keyword appears (word-boundary aware via split)
-  // Include '-' in the split chars so "zk-snark" → ["zk", "snark"] for single-word checks;
-  // multi-word phrases like "zero knowledge" are still caught by the phrase loop below.
-  const words = q.split(/[\s,./\\()\[\]{}<>:;!?'"+-]+/).filter(Boolean);
-  for (const word of words) {
-    if (CS_KEYWORDS.has(word)) return true;
-  }
-
-  // Also try multi-word phrases (bigrams & the full query)
-  for (const kw of CS_KEYWORDS) {
-    if (kw.includes(' ') && q.includes(kw)) return true;
-  }
-
-  return false;
+  // Temporarily disabled for testing - allow all queries
+  return true;
 }
 
 export const CS_BLOCK_MESSAGE =

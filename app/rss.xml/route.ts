@@ -17,7 +17,7 @@ export async function GET() {
     }
 
     const data: any = await res.json();
-    const papers: any[] = data.papers || [];
+    const papers: any[] = data.papers || data || [];
     const now = new Date().toUTCString();
 
     const items = papers

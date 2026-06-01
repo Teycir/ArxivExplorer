@@ -31,7 +31,7 @@ const DATE_RANGES = [
 export function SearchFilters() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [showFilters, setShowFilters] = useState(false);
+  const [showFilters, setShowFilters] = useState(true);
   const [authorInput, setAuthorInput] = useState('');
   const [citationsInput, setCitationsInput] = useState('');
 
@@ -70,23 +70,23 @@ export function SearchFilters() {
     <div className="mb-4">
       <button
         onClick={() => setShowFilters(!showFilters)}
-        className="flex items-center gap-2 px-3 py-1.5 text-xs font-mono
-          border border-neon-red/20 rounded-lg
-          hover:border-neon-red/40 transition-colors
-          text-neon-red/60 hover:text-neon-red/80"
+        className="flex items-center gap-2 px-4 py-2 text-sm font-mono font-semibold
+          border-2 border-neon-red/30 rounded-lg
+          hover:border-neon-red/50 hover:bg-neon-red/5 transition-all
+          text-neon-red/70 hover:text-neon-red"
       >
-        <Filter size={12} />
-        Filters
+        <Filter size={14} />
+        {showFilters ? 'Hide Filters' : 'Show Filters'}
         {hasFilters && (
-          <span className="ml-1 px-1.5 py-0.5 rounded bg-neon-red/20 text-neon-red text-[10px]">
+          <span className="ml-1 px-2 py-0.5 rounded-full bg-neon-red/30 text-neon-red text-xs font-bold">
             {activeCount}
           </span>
         )}
       </button>
 
       {showFilters && (
-        <div className="mt-3 p-4 border border-neon-red/20 rounded-lg bg-[#0a0a0a]/50">
-          <div className="flex flex-col gap-4">
+        <div className="mt-3 p-3 sm:p-4 border border-neon-red/20 rounded-lg bg-[#0a0a0a]/50">
+          <div className="flex flex-col gap-3 sm:gap-4">
             {/* Category filter */}
             <div>
               <label className="block text-xs font-mono text-neon-red/50 mb-2">

@@ -13,7 +13,7 @@ import { Navbar } from '../components/Navbar';
 import { PaperCard } from '../components/PaperCard';
 import { SearchFilters } from '../components/SearchFilters';
 import { CategoryScopeBar } from '../components/CategoryScopeBar';
-import { isCSQuery, CS_BLOCK_MESSAGE } from '@/lib/csGuard';
+
 import type { SearchResult } from '@/src/shared/types';
 import { Search, AlertCircle, ShieldX, Loader2 } from 'lucide-react';
 
@@ -106,26 +106,7 @@ async function SearchResults({ searchParams }: SearchPageProps) {
     );
   }
 
-  // ── CS scope guard ────────────────────────────────────────────────────────
-  if (!isCSQuery(query)) {
-    return (
-      <div className="flex flex-col items-center justify-center py-32 gap-5 text-center">
-        <ShieldX size={40} className="text-amber-400/60" />
-        <div className="flex flex-col gap-2">
-          <p className="text-amber-300/80 font-mono text-sm font-semibold">
-            Query outside CS scope
-          </p>
-          <p className="text-white/30 font-mono text-xs max-w-md leading-relaxed">
-            {CS_BLOCK_MESSAGE}
-          </p>
-        </div>
-        <CategoryScopeBar />
-        <Link href="/" className="mt-2 text-xs text-neon-red/40 hover:text-neon-red font-mono underline">
-          ← Back to home
-        </Link>
-      </div>
-    );
-  }
+
 
   // ── Server fetch ──────────────────────────────────────────────────────────
   const { data: result, error } = await fetchResults(query, {

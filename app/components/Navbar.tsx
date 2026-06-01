@@ -1,14 +1,13 @@
 'use client';
 // app/components/Navbar.tsx
-// Sticky top nav — logo + search input with CS scope guard.
+// Sticky top nav — logo + search input.
 
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useState, useEffect, type KeyboardEvent, Suspense } from 'react';
-import { Search, ShieldX } from 'lucide-react';
+import { Search, Rss } from 'lucide-react';
 import { loadBookmarks } from '@/lib/bookmarks';
 import { pushSearch } from '@/lib/searchHistory';
-import { isCSQuery } from '@/lib/csGuard';
 import { SearchHistory } from './SearchHistory';
 
 function SearchInput() {
@@ -16,68 +15,39 @@ function SearchInput() {
   const searchParams = useSearchParams();
   const [query,   setQuery]   = useState(searchParams.get('q') ?? '');
   const [focused, setFocused] = useState(false);
-  const [blocked, setBlocked] = useState(false);
 
   useEffect(() => {
     setQuery(searchParams.get('q') ?? '');
-    setBlocked(false);
   }, [searchParams]);
 
   function handleKey(e: KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Enter') {
       const q = query.trim();
       if (!q) return;
-      if (!isCSQuery(q)) { setBlocked(true); return; }
-      setBlocked(false);
       pushSearch(q);
       router.push(`/search?q=${encodeURIComponent(q)}`);
     }
-    if (e.key === 'Escape') { setFocused(false); setBlocked(false); }
-  }
-
-  function handleChange(v: string) {
-    setQuery(v);
-    if (blocked && isCSQuery(v)) setBlocked(false);
+    if (e.key === 'Escape') setFocused(false);
   }
 
   return (
     <div className="relative flex-1 max-w-lg">
-      <Search
-        size={14}
-        className={`absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none transition-colors ${
-          blocked ? 'text-amber-500/60' : 'text-neon-red/35'
-        }`}
-      />
+      <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neon-red/35" />
       <input
         type="text"
         value={query}
-        onChange={(e) => handleChange(e.target.value)}
+        onChange={e => setQuery(e.target.value)}
         onKeyDown={handleKey}
         onFocus={() => setFocused(true)}
         onBlur={() => setTimeout(() => setFocused(false), 150)}
-        placeholder="Search by keywords: transformers, diffusion, RL…"
-        autoComplete="off"
-        spellCheck={false}
-        className={`search-input w-full pl-9 pr-3 py-2 text-xs transition-all ${
-          blocked ? 'border-amber-500/40 ring-1 ring-amber-500/20' : ''
-        }`}
-        aria-label="Search arXiv CS papers"
+        placeholder="Search papers…"
+        className="search-input w-full pl-9 pr-3 py-2 text-xs h-[34px]"
+        aria-label="Search papers"
       />
-      {/* Inline block tooltip */}
-      {blocked && (
-        <div className="absolute top-full left-0 right-0 mt-1 z-50
-          flex items-start gap-1.5 px-2.5 py-2 rounded-lg
-          border border-amber-500/30 bg-[#0a0a0a]/95 backdrop-blur-sm shadow-lg">
-          <ShieldX size={11} className="text-amber-400 flex-shrink-0 mt-0.5" />
-          <p className="text-[10px] font-mono text-amber-300/80 leading-snug">
-            CS topics only — try ML, cryptography, systems, or algorithms
-          </p>
-        </div>
-      )}
       <SearchHistory
         query={query}
-        visible={focused && !blocked}
-        onSelect={q => { setQuery(q); setBlocked(false); setFocused(false); }}
+        visible={focused}
+        onSelect={q => { setQuery(q); setFocused(false); }}
       />
     </div>
   );
@@ -87,34 +57,36 @@ export function Navbar() {
   const [bookmarkCount, setBookmarkCount] = useState(0);
 
   useEffect(() => {
-    function sync() {
-      setBookmarkCount(loadBookmarks().bookmarks.length);
-    }
-    sync();
-    // BUG-09: 'storage' only fires in other tabs; 'arxiv:bookmarks-changed'
-    // is dispatched by writeRaw() in lib/bookmarks.ts after every same-tab write.
-    window.addEventListener('storage', sync);
-    window.addEventListener('arxiv:bookmarks-changed', sync);
-    return () => {
-      window.removeEventListener('storage', sync);
-      window.removeEventListener('arxiv:bookmarks-changed', sync);
-    };
+    const bm = loadBookmarks();
+    setBookmarkCount(bm.bookmarks.length);
+    const interval = setInterval(() => {
+      const updated = loadBookmarks();
+      setBookmarkCount(updated.bookmarks.length);
+    }, 2000);
+    return () => clearInterval(interval);
   }, []);
 
   return (
     <nav className="sticky top-0 z-50 w-full border-b border-neon-red/10
       bg-dark-bg/80 backdrop-blur-md">
       <div className="max-w-5xl mx-auto px-4 h-14 flex items-center gap-4">
+        {/* RSS Icon - top left */}
+        <Link href="/rss.xml" target="_blank" 
+          className="flex-shrink-0 text-neon-red/40 hover:text-neon-red transition-colors"
+          title="RSS Feed">
+          <Rss size={18} />
+        </Link>
+
         {/* Logo */}
-        <Link href="/" className="flex-shrink-0 flex items-center gap-1.5 group">
-          <span className="text-neon-red font-mono font-bold text-base tracking-widest uppercase
+        <Link href="/" className="flex-shrink-0 flex items-center gap-1 sm:gap-1.5 group">
+          <span className="text-neon-red font-mono font-bold text-sm sm:text-base tracking-widest uppercase
             group-hover:text-glow transition-all">
             ArXiv
           </span>
-          <span className="text-white/60 font-mono font-light text-base tracking-widest uppercase">
+          <span className="text-white/60 font-mono font-light text-sm sm:text-base tracking-widest uppercase">
             CS
           </span>
-          <span className="text-white/60 font-mono font-light text-base tracking-widest uppercase">
+          <span className="text-white/60 font-mono font-light text-sm sm:text-base tracking-widest uppercase hidden sm:inline">
             Explorer
           </span>
         </Link>
@@ -130,9 +102,11 @@ export function Navbar() {
         </Suspense>
 
         {/* Nav links */}
-        <div className="hidden sm:flex items-center gap-4 text-xs font-mono text-neon-red/40">
+        <div className="flex items-center gap-3 text-xs font-mono text-neon-red/40">
           <Link href="/bookmarks" className="hover:text-neon-red/70 transition-colors flex items-center gap-1.5">
-            {bookmarkCount > 0 ? '★' : '☆'} Bookmarks
+            <span className="hidden sm:inline">{bookmarkCount > 0 ? '★' : '☆'}</span>
+            <span className="sm:hidden">{bookmarkCount > 0 ? '★' : '☆'}</span>
+            <span className="hidden sm:inline">Bookmarks</span>
             {bookmarkCount > 0 && (
               <span className="inline-flex items-center justify-center rounded-full
                                bg-amber-500/20 border border-amber-500/40
@@ -145,10 +119,10 @@ export function Navbar() {
           <Link href="/rss.xml" className="hover:text-neon-red/70 transition-colors" target="_blank">
             RSS
           </Link>
-          <Link href="/how-to-use" className="hover:text-neon-red/70 transition-colors">
+          <Link href="/how-to-use" className="hover:text-neon-red/70 transition-colors hidden md:block">
             How to Use
           </Link>
-          <Link href="/faq" className="hover:text-neon-red/70 transition-colors">
+          <Link href="/faq" className="hover:text-neon-red/70 transition-colors hidden md:block">
             FAQ
           </Link>
         </div>
