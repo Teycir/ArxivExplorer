@@ -40,13 +40,13 @@ _Scan the QR code or copy the wallet address above._
 ## Features
 
 - **Hybrid Search** — Combines keyword (BM25) and semantic (vector) search for accurate results
+- **Advanced Filtering** — Filter by author, citation count, category, and date range (day/week/month)
+- **RSS Feed** — Subscribe to recent papers with AI summaries at `/rss.xml` (1-hour cache, 20 papers)
 - **AI Summaries** — Pre-generated summaries with TL;DR, key contributions, methods, and limitations
 - **Related Papers** — Discover similar papers through semantic similarity
 - **Topic Browsing** — Curated collections for popular research areas
-- **RSS Feed** — Subscribe to recent papers with summaries at `/rss.xml`
 - **Citation Tracking** — Real-time citation counts from Semantic Scholar with automatic updates
 - **Paper Collections** — Organize bookmarks into named collections with JSON/BibTeX export
-- **Advanced Search Filters** — Filter by author, citation count, category, and date range
 - **Paper Comparison** — Side-by-side comparison of up to 4 papers
 - **Zero Latency AI** — All summaries pre-computed, served from edge cache
 - **No Login Required** — Instant access to all features
@@ -193,19 +193,22 @@ npm run deploy:ingest   # Ingest worker
 ## API Reference
 
 ```
-GET  /api/search?q=attention+mechanisms   # Hybrid BM25 + semantic search
-GET  /api/search?q=...&author=Hinton       # Search with author filter
-GET  /api/search?q=...&minCitations=10     # Search with citation threshold
-GET  /api/paper/:id                       # Paper detail + summary
-GET  /api/paper/:id/related               # Semantically similar papers
-GET  /api/paper/:id/citations             # Citation count from Semantic Scholar
-GET  /api/trending                        # Trending papers (KV cached)
-GET  /api/topic/:slug                     # Topic paper collection
-GET  /rss.xml                             # RSS feed (20 recent papers, 1h cache)
-GET  /compare?ids=id1,id2,id3             # Compare up to 4 papers side-by-side
+GET  /api/search?q=attention+mechanisms              # Hybrid BM25 + semantic search
+GET  /api/search?q=...&author=Hinton                  # Filter by author (substring match)
+GET  /api/search?q=...&minCitations=10                # Filter by minimum citations
+GET  /api/search?q=...&category=cs.LG                 # Filter by arXiv category
+GET  /api/search?q=...&date=week                      # Filter by date (day/week/month)
+GET  /api/search?q=...&author=X&minCitations=Y&...    # Combine multiple filters
+GET  /api/paper/:id                                   # Paper detail + summary
+GET  /api/paper/:id/related                           # Semantically similar papers
+GET  /api/paper/:id/citations                         # Citation count from Semantic Scholar
+GET  /api/trending                                    # Trending papers (KV cached)
+GET  /api/topic/:slug                                 # Topic paper collection
+GET  /rss.xml                                         # RSS feed (20 recent papers, 1h cache)
+GET  /compare?ids=id1,id2,id3                         # Compare up to 4 papers side-by-side
 
-POST /admin/vectorize/upsert              # Bulk embed upsert (x-admin-secret)
-POST /admin/retry-failed                  # Reset summary_ready=2 → 0
+POST /admin/vectorize/upsert                          # Bulk embed upsert (x-admin-secret)
+POST /admin/retry-failed                              # Reset summary_ready=2 → 0
 ```
 
 ## Configuration
@@ -296,11 +299,21 @@ ADMIN_SECRET=<secret> npx tsx scripts/push-local-to-remote.ts
 - **Capacity**: 100 bookmarks (soft cap), 90-day TTL
 
 ### Advanced Search Filters
-- **Author Filter**: `?author=Hinton` (substring match)
-- **Citation Filter**: `?minCitations=10` (minimum threshold)
-- **Combined**: Works with existing category and date filters
-- **Caching**: Separate cache keys per filter combination
-- **Example**: `/api/search?q=transformer&author=Vaswani&minCitations=100&category=cs.LG`
+- **Author Filter**: `?author=Hinton` — substring match across all authors
+- **Citation Filter**: `?minCitations=10` — minimum citation threshold
+- **Category Filter**: `?category=cs.LG` — arXiv category code (cs.LG, cs.CL, cs.CV, etc.)
+- **Date Filter**: `?date=week` — time window (day/week/month)
+- **Combined Filters**: All filters work together and with hybrid search
+- **Caching**: Separate KV cache keys per filter combination (2h TTL)
+- **Example**: `/api/search?q=transformer&author=Vaswani&minCitations=100&category=cs.LG&date=month`
+
+### RSS Feed
+- **Endpoint**: `/rss.xml`
+- **Content**: 20 most recent papers with AI-generated summaries
+- **Format**: RSS 2.0 with full TL;DR, key contributions, and methods
+- **Cache**: 1-hour TTL via Cloudflare KV
+- **Use Case**: Subscribe in your RSS reader to stay updated on new papers
+- **Example**: `https://arxiv-explorer.yourdomain.com/rss.xml`
 
 ### Paper Comparison
 - **Route**: `/compare?ids=id1,id2,id3`
