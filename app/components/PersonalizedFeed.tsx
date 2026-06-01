@@ -41,7 +41,6 @@ function writeCache(data: SuggestedPaper[]): void {
 export function PersonalizedFeed() {
   const [suggestions, setSuggestions] = useState<SuggestedPaper[]>([]);
   const [loading,     setLoading]     = useState(true);
-  const [seeds,       setSeeds]       = useState<string[]>([]);
 
   useEffect(() => {
     async function load() {
@@ -81,7 +80,6 @@ export function PersonalizedFeed() {
         .slice(0, MAX_SEEDS);
 
       const bookmarkedIds = new Set(bookmarks.map(b => b.id));
-      setSeeds(candidates.map(c => c.title));
 
       const results = await Promise.allSettled(
         candidates.map(bm =>

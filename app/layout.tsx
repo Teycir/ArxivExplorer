@@ -4,7 +4,7 @@ import { Footer } from './components/Footer';
 import { ScrollProgress } from './components/ScrollProgress';
 
 export const metadata: Metadata = {
-  metadataBase: new URL('https://arxiv-explorer.pages.dev'),
+  metadataBase: new URL('https://arxivexplorer.arxivexplorer.workers.dev'),
   title: {
     default: 'ArxivCSExplorer — Fast semantic CS arXiv search with AI summaries',
     template: '%s | ArxivCSExplorer',
@@ -16,7 +16,7 @@ export const metadata: Metadata = {
   openGraph: {
     type: 'website',
     locale: 'en_US',
-    url: 'https://arxiv-explorer.pages.dev',
+    url: 'https://arxivexplorer.arxivexplorer.workers.dev',
     siteName: 'ArxivCSExplorer',
     title: 'ArxivCSExplorer — Fast semantic CS arXiv search with AI summaries',
     description: 'Understand any CS arXiv paper in 60 seconds.',
@@ -38,7 +38,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ScrollProgress />
         {/* Subtle background grid */}
         <div className="fixed inset-0 bg-grid pointer-events-none" aria-hidden="true" />
-        {/* Radial red glow at top-center */}
+        {/* Radial neon glow at top-center (neon-red = #00ff41 in this theme) */}
         <div
           className="fixed top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] pointer-events-none"
           style={{

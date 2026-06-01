@@ -146,7 +146,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
             </div>
 
             <Link
-              href="/search?q=recent"
+              href={`/search?q=neural+networks&date=${activeWindow}`}
               className="text-xs text-neon-red/40 hover:text-neon-red/70 transition-colors font-mono"
             >
               See more →

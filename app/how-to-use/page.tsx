@@ -33,13 +33,13 @@ const STEPS = [
   },
   {
     icon: <Users size={16} />,
-    title: 'Explore an author\'s work',
+    title: "Explore an author's work",
     body: 'Click any author name on a paper card to see all their indexed papers. Author pages are cached and update every 6 hours.',
   },
   {
     icon: <TrendingUp size={16} />,
     title: 'Discover trending papers',
-    body: 'The homepage shows trending papers from the last 7 days, ranked by recency. This list refreshes every 60 minutes as new papers are ingested.',
+    body: 'The homepage shows trending papers from the last 7 days, ranked by recency. This list refreshes every 10 minutes as new papers are ingested.',
   },
 ];
 
@@ -74,7 +74,6 @@ export default function HowToUsePage() {
                     {String(i + 1).padStart(2, '0')}
                   </span>
                 </div>
-
                 <div className="min-w-0">
                   <h2 className="text-sm font-mono font-semibold text-white/85 mb-2">{title}</h2>
                   <p className="text-xs text-white/55 leading-relaxed">{body}</p>

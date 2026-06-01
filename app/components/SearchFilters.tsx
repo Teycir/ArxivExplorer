@@ -32,30 +32,17 @@ export function SearchFilters() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [showFilters, setShowFilters] = useState(false);
-  
+
   const currentCategory = searchParams.get('category') || '';
   const currentDate = searchParams.get('date') || '';
-  const withCode = searchParams.get('code') === 'true';
   const query = searchParams.get('q') || '';
 
-  function applyFilter(type: 'category' | 'date' | 'code', value: string) {
+  function applyFilter(type: 'category' | 'date', value: string) {
     const params = new URLSearchParams(searchParams.toString());
-    
     if (value) {
       params.set(type, value);
     } else {
       params.delete(type);
-    }
-    
-    router.push(`/search?${params.toString()}`);
-  }
-
-  function toggleCode() {
-    const params = new URLSearchParams(searchParams.toString());
-    if (withCode) {
-      params.delete('code');
-    } else {
-      params.set('code', 'true');
     }
     router.push(`/search?${params.toString()}`);
   }
@@ -64,7 +51,8 @@ export function SearchFilters() {
     router.push(`/search?q=${encodeURIComponent(query)}`);
   }
 
-  const hasFilters = currentCategory || currentDate || withCode;
+  const hasFilters = currentCategory || currentDate;
+  const activeCount = (currentCategory ? 1 : 0) + (currentDate ? 1 : 0);
 
   return (
     <div className="mb-4">
@@ -79,7 +67,7 @@ export function SearchFilters() {
         Filters
         {hasFilters && (
           <span className="ml-1 px-1.5 py-0.5 rounded bg-neon-red/20 text-neon-red text-[10px]">
-            {(currentCategory ? 1 : 0) + (currentDate ? 1 : 0) + (withCode ? 1 : 0)}
+            {activeCount}
           </span>
         )}
       </button>
@@ -129,23 +117,6 @@ export function SearchFilters() {
                   </button>
                 ))}
               </div>
-            </div>
-
-            {/* With Code filter */}
-            <div>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={withCode}
-                  onChange={toggleCode}
-                  className="w-3 h-3 rounded border-neon-red/30 bg-neon-red/5
-                    checked:bg-neon-red/60 checked:border-neon-red/60
-                    focus:ring-1 focus:ring-neon-red/40"
-                />
-                <span className="text-xs font-mono text-neon-red/60">
-                  With Code (GitHub/GitLab links)
-                </span>
-              </label>
             </div>
 
             {/* Clear filters */}

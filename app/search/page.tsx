@@ -1,6 +1,6 @@
 // app/search/page.tsx
 // SSR search results page.
-// Reads ?q= (and optional ?category=, ?date=, ?code=) from URL server-side,
+// Reads ?q= (and optional ?category=, ?date=) from URL server-side,
 // validates CS scope, fetches results from the API on the server, and streams
 // them to the client.  Shared search links are instantly useful and the page
 // is now SEO-indexable.
@@ -26,17 +26,16 @@ interface SearchPageProps {
     like?: string;   // "more like this" mode — arXiv ID
     category?: string;
     date?: string;
-    code?: string;
   }>;
 }
 
 export async function generateMetadata({ searchParams }: SearchPageProps): Promise<Metadata> {
   const { q, like } = await searchParams;
-  if (like) return { title: `Papers similar to ${like} — ArxivCSExplorer` };
+  if (like) return { title: `Papers similar to ${like}` };
   const query = q?.trim() ?? '';
-  if (!query) return { title: 'Search — ArxivCSExplorer' };
+  if (!query) return { title: 'Search' };
   return {
-    title: `"${query}" — ArxivCSExplorer`,
+    title: `"${query}"`,
     description: `CS paper search results for "${query}" on ArxivCSExplorer.`,
     openGraph: {
       title: `"${query}" — ArxivCSExplorer`,
@@ -164,7 +163,7 @@ async function SearchResults({ searchParams }: SearchPageProps) {
     );
   }
 
-  // Apply optional client-side filter params to display
+  // Active filters for display (category + date only — code filter removed)
   const activeFilters = [category, date].filter(Boolean);
 
   // ── Results ───────────────────────────────────────────────────────────────

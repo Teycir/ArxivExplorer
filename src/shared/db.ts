@@ -222,16 +222,17 @@ export async function getAllPaperIds(db: D1Database): Promise<string[]> {
 
 export interface SearchFilters {
   category?: string;   // arXiv category code e.g. "cs.LG"
-  date?:     string;   // "day" | "week" | "month" | "year"
+  date?:     string;   // "day" | "week" | "month" | "3months" | "year"
 }
 
 /** Resolve a date-range label → ISO date string for published_at >= */
 export function dateWindowStart(window: string): string | null {
   const MS: Record<string, number> = {
-    day:   86_400_000,
-    week:  7 * 86_400_000,
-    month: 30 * 86_400_000,
-    year:  365 * 86_400_000,
+    day:       86_400_000,
+    week:      7  * 86_400_000,
+    month:     30 * 86_400_000,
+    '3months': 90 * 86_400_000,
+    year:      365 * 86_400_000,
   };
   const ms = MS[window];
   if (!ms) return null;

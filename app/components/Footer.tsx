@@ -1,5 +1,7 @@
-// app/components/Footer.tsx — adapted from SeekYou for ArxivCSExplorer
+// app/components/Footer.tsx
 import { Heart, BookOpen } from 'lucide-react';
+
+const SITE_URL = 'https://arxivexplorer.arxivexplorer.workers.dev';
 
 export function Footer() {
   return (
@@ -46,7 +48,7 @@ export function Footer() {
         <div className="flex gap-3 items-center">
           <span className="text-neon-red/50 leading-none">Share:</span>
           <a
-            href="https://twitter.com/intent/tweet?text=ArxivCSExplorer%20%E2%80%94%20Fast%20semantic%20CS%20arXiv%20explorer%20with%20cached%20AI%20summaries.%20Understand%20any%20paper%20in%2060%20seconds.&url=https://arxiv-explorer.pages.dev&hashtags=CS,ML,Cryptography,Research,arXiv"
+            href={`https://twitter.com/intent/tweet?text=ArxivCSExplorer%20%E2%80%94%20Fast%20semantic%20CS%20arXiv%20explorer%20with%20cached%20AI%20summaries.%20Understand%20any%20paper%20in%2060%20seconds.&url=${encodeURIComponent(SITE_URL)}&hashtags=CS,ML,Cryptography,Research,arXiv`}
             target="_blank"
             rel="noopener noreferrer"
             className="hover:text-neon-red transition-colors flex items-center justify-center p-2"
@@ -57,7 +59,7 @@ export function Footer() {
             </svg>
           </a>
           <a
-            href="https://www.linkedin.com/sharing/share-offsite/?url=https://arxiv-explorer.pages.dev"
+            href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(SITE_URL)}`}
             target="_blank"
             rel="noopener noreferrer"
             className="hover:text-neon-red transition-colors flex items-center justify-center p-2"

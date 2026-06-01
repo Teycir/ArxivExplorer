@@ -1,16 +1,14 @@
 import type { MetadataRoute } from 'next';
 import { TOPICS } from '@/lib/topics';
 
+// Canonical production URL — matches the Cloudflare Pages project name "arxivexplorer".
+// Confirmed via: npx wrangler pages project list
 const BASE_URL = 'https://arxivexplorer.arxivexplorer.workers.dev';
 
 /**
  * app/sitemap.ts
  * Static routes only — dynamic paper/topic/author routes are served
  * by the api-worker /api/sitemap endpoint (fetched and cached there).
- *
- * For a full sitemap (papers + topics), wire up the api-worker sitemap
- * or fetch it here. For now we emit static routes only to keep
- * the build fast (paper sitemap = api-worker's responsibility).
  */
 export default function sitemap(): MetadataRoute.Sitemap {
   return [
