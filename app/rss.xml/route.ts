@@ -3,21 +3,14 @@
  * RSS feed for recent papers with summaries.
  */
 
-const API_BASE = process.env.API_BASE || process.env.NEXT_PUBLIC_API_BASE || '';
+import { getTrendingPapers } from '@/helper/api';
+
 const BASE_URL = 'https://arxivexplorer.arxivexplorer.workers.dev';
 
 export async function GET() {
   try {
-    const res = await fetch(`${API_BASE}/api/trending?limit=20&window=week`, {
-      headers: { 'User-Agent': 'ArxivExplorer-RSS/1.0' },
-    });
-
-    if (!res.ok) {
-      return new Response('Failed to fetch papers', { status: 500 });
-    }
-
-    const data: any = await res.json();
-    const papers: any[] = data.papers || data || [];
+    const data = await getTrendingPapers('week');
+    const papers: any[] = data.papers || [];
     const now = new Date().toUTCString();
 
     const items = papers
