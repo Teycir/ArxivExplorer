@@ -486,6 +486,13 @@ async function main() {
   console.log('  npm run db:export                # dump SQLite → backup.sql');
   console.log('  npm run db:push                  # push backup.sql → D1 remote');
   console.log('  npm run upload-embeddings        # push embeddings → Vectorize');
+
+  // Sound alert + desktop notification
+  process.stdout.write('\x07'); // Terminal bell
+  try {
+    const { execSync } = await import('child_process');
+    execSync(`notify-send "arXiv Ingest Complete" "${done} papers summarised, ${failed} failed\nTime: ${minutes}m ${seconds}s" -u normal -t 10000 2>/dev/null || true`, { stdio: 'ignore' });
+  } catch { /* ignore notification errors */ }
 }
 
 main().catch(console.error);
