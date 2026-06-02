@@ -209,14 +209,18 @@ export async function getPapersByAuthor(
   limit = 20
 ): Promise<PaperWithSummary[]> {
   const fetchLimit = limit * 2;
+  const normalized = name.toLowerCase().trim();
+  
+  // Use authors_normalized for faster indexed search
   const { results } = await db.prepare(`
     SELECT ${PAPER_SELECT}
     FROM papers p
     LEFT JOIN summaries s ON s.paper_id = p.id
-    WHERE p.summary_ready = 1 AND p.authors LIKE ?
+    WHERE p.summary_ready = 1 
+      AND (p.authors_normalized LIKE ? OR p.authors LIKE ?)
     ORDER BY p.published_at DESC
     LIMIT ?
-  `).bind(`%${name}%`, fetchLimit).all<PaperRow>();
+  `).bind(`%${normalized}%`, `%${name}%`, fetchLimit).all<PaperRow>();
 
   return results.map(rowToPaper).filter(isPaperComplete).slice(0, limit);
 }

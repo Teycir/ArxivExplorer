@@ -26,6 +26,7 @@ CREATE TABLE papers (
   id               TEXT    PRIMARY KEY,
   title            TEXT    NOT NULL,
   authors          TEXT    NOT NULL,  -- JSON array ["Alice Smith","Bob Jones"]
+  authors_normalized TEXT,             -- Lowercased space-separated for fast prefix search
   abstract         TEXT    NOT NULL,
   categories       TEXT    NOT NULL,  -- JSON array ["cs.LG","cs.CL"]
   published_at     TEXT    NOT NULL,  -- YYYY-MM-DD
@@ -45,6 +46,7 @@ CREATE TABLE papers (
 CREATE INDEX idx_papers_published ON papers(published_at DESC);
 CREATE INDEX idx_papers_indexed   ON papers(indexed_at   DESC);
 CREATE INDEX idx_papers_summary   ON papers(summary_ready, indexed_at DESC);
+CREATE INDEX idx_papers_authors_norm ON papers(authors_normalized);
 
 -- ─────────────────────────────────────────────────────────────────────────────
 
