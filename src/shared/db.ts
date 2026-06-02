@@ -235,19 +235,52 @@ export async function getPapersByTopic(
   const tags = safeJsonParse<string[]>(topic.category_tags, []);
   if (tags.length === 0) return [];
 
-  const placeholders = tags.map(() => '?').join(', ');
-  const fetchLimit = limit * 2;
-  const { results } = await db.prepare(`
-    SELECT DISTINCT ${PAPER_SELECT}
+  // For single category, use simple query
+  if (tags.length === 1) {
+    const fetchLimit = limit * 2;
+    const { results } = await db.prepare(`
+      SELECT ${PAPER_SELECT}
+      FROM paper_categories pc
+      JOIN papers p ON p.id = pc.paper_id
+      LEFT JOIN summaries s ON s.paper_id = p.id
+      WHERE pc.category = ? AND p.summary_ready = 1
+      ORDER BY p.published_at DESC
+      LIMIT ?
+    `).bind(tags[0], fetchLimit).all<PaperRow>();
+    
+    return results.map(rowToPaper).filter(isPaperComplete).slice(0, limit);
+  }
+
+  // For multiple categories, use UNION ALL (faster than DISTINCT on large sets)
+  const fetchLimit = Math.ceil(limit * 2 / tags.length);
+  const unions = tags.map(() => `
+    SELECT ${PAPER_SELECT}
     FROM paper_categories pc
     JOIN papers p ON p.id = pc.paper_id
     LEFT JOIN summaries s ON s.paper_id = p.id
-    WHERE pc.category IN (${placeholders}) AND p.summary_ready = 1
+    WHERE pc.category = ? AND p.summary_ready = 1
     ORDER BY p.published_at DESC
     LIMIT ?
-  `).bind(...tags, fetchLimit).all<PaperRow>();
+  `).join(' UNION ALL ');
 
-  return results.map(rowToPaper).filter(isPaperComplete).slice(0, limit);
+  const binds: (string | number)[] = [];
+  tags.forEach(tag => { binds.push(tag, fetchLimit); });
+
+  const { results } = await db.prepare(`
+    SELECT * FROM (${unions})
+    ORDER BY published_at DESC
+    LIMIT ?
+  `).bind(...binds, limit * 2).all<PaperRow>();
+
+  // Deduplicate by ID (papers may appear in multiple categories)
+  const seen = new Set<string>();
+  const unique = results.filter(r => {
+    if (seen.has(r.id)) return false;
+    seen.add(r.id);
+    return true;
+  });
+
+  return unique.map(rowToPaper).filter(isPaperComplete).slice(0, limit);
 }
 
 export async function getTopicBySlug(db: D1Database, slug: string): Promise<Topic | null> {
