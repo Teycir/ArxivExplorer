@@ -78,6 +78,13 @@ async function fetchArxivBatch(category: string, start: number, maxResults: numb
     console.error(`❌ HTTP ${res.status} for ${category} (start=${start})`);
     const body = await res.text();
     console.error(`Response body: ${body.slice(0, 200)}`);
+    
+    // Handle server errors with retry
+    if (res.status >= 500) {
+      console.warn(`⏸️  Server error, waiting 30s before retry...`);
+      await new Promise(r => setTimeout(r, 30000));
+    }
+    
     throw new Error(`arXiv returned HTTP ${res.status}`);
   }
   
@@ -441,18 +448,24 @@ async function main() {
     }
   }
 
-  console.log(`\nFound ${allPapers.length} new papers to process\n`);
+  console.log(`\n📊 Fetched ${allPapers.length} papers total across all categories`);
+  console.log(`🔄 Processing papers with ${CONCURRENCY} workers...\n`);
 
   let done = 0, failed = 0, processed = 0;
   const total = allPapers.length;
+  const startTime = Date.now();
 
   async function worker() {
     while (true) {
       const idx = processed++;
       if (idx >= total) break;
-      const result = await processPaper(db, allPapers[idx]!);
+      const paper = allPapers[idx]!;
+      const result = await processPaper(db, paper);
       if (result === 'ok') done++; else failed++;
-      process.stdout.write(`\rProgress: ${Math.min(processed, total)}/${total}  ✓${done}  ✗${failed}`);
+      
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
+      const rate = (done / (Date.now() - startTime) * 1000 * 60).toFixed(1);
+      process.stdout.write(`\r📝 Progress: ${Math.min(processed, total)}/${total}  ✅ ${done}  ❌ ${failed}  ⏱️  ${elapsed}s  📈 ${rate}/min  `);
     }
   }
 
