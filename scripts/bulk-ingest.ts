@@ -368,7 +368,8 @@ async function main() {
   console.log(`   Categories : ${categories.join(', ')}`);
   console.log(`   Days back  : ${daysBack}`);
   console.log(`   Summary    : ${SUMMARY_MODEL} @ ${OLLAMA_BASE}`);
-  console.log(`   Embedding  : ${EMBEDDING_MODEL} @ ${OLLAMA_BASE}\n`);
+  console.log(`   Embedding  : ${EMBEDDING_MODEL} @ ${OLLAMA_BASE}`);
+  console.log(`   Started at : ${new Date().toISOString()}\n`);
 
   // Verify Ollama is reachable before starting
   try {
@@ -471,9 +472,16 @@ async function main() {
 
   await Promise.all(Array.from({ length: CONCURRENCY }, worker));
 
+  const endTime = new Date();
+  const totalSeconds = ((Date.now() - startTime) / 1000).toFixed(0);
+  const minutes = Math.floor(Number(totalSeconds) / 60);
+  const seconds = Number(totalSeconds) % 60;
+
   db.close();
 
   console.log(`\n\n✅ Done — ${done} summarised, ${failed} failed`);
+  console.log(`⏱️  Total time: ${minutes}m ${seconds}s`);
+  console.log(`🏁 Finished at: ${endTime.toISOString()}`);
   console.log('\nNext steps:');
   console.log('  npm run db:export                # dump SQLite → backup.sql');
   console.log('  npm run db:push                  # push backup.sql → D1 remote');
