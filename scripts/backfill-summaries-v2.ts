@@ -18,7 +18,7 @@
  *
  * Required env vars (from .env or .env.local):
  *   OLLAMA_BASE           — e.g. http://localhost:11434
- *   OLLAMA_SUMMARY_MODEL  — optional model override (default: qwen2.5:3b)
+ *   OLLAMA_SUMMARY_MODEL  — optional model override (default: gemma4:e4b)
  */
 
 import { spawnSync } from 'child_process';
@@ -38,7 +38,7 @@ for (const envFile of ['.env.local', '.env']) {
 }
 
 const OLLAMA_BASE  = process.env.OLLAMA_BASE ?? '';
-const OLLAMA_MODEL = process.env.OLLAMA_SUMMARY_MODEL ?? 'qwen2.5:3b';
+const OLLAMA_MODEL = process.env.OLLAMA_SUMMARY_MODEL ?? 'gemma4:e4b';
 const BATCH_SIZE   = 50;
 const DELAY_MS     = 500;
 const isLocal      = process.argv.includes('--local');

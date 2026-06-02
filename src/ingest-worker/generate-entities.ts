@@ -32,7 +32,7 @@ export async function generateEntities(
 ): Promise<Array<{ name: string; type: 'model' | 'dataset' | 'benchmark' }>> {
   if (!env.OLLAMA_BASE) return []; // entity extraction requires Ollama; skip if absent
 
-  const model = env.OLLAMA_ENTITY_MODEL ?? env.OLLAMA_SUMMARY_MODEL ?? 'qwen2.5:3b';
+  const model = env.OLLAMA_ENTITY_MODEL ?? env.OLLAMA_SUMMARY_MODEL ?? 'gemma4:e4b';
   const prompt = ENTITY_PROMPT.replace('{abstract}', abstract.slice(0, 3000));
 
   try {

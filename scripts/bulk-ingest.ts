@@ -18,8 +18,9 @@ import { parseStringPromise } from 'xml2js';
 import Database from 'better-sqlite3';
 
 const OLLAMA_BASE          = process.env.OLLAMA_BASE          || 'http://localhost:11434';
-const SUMMARY_MODEL        = process.env.OLLAMA_SUMMARY_MODEL || 'gemma4:e4b';
+const SUMMARY_MODEL        = process.env.OLLAMA_SUMMARY_MODEL  || 'gemma4:e4b';
 const EMBEDDING_MODEL      = process.env.OLLAMA_EMBEDDING_MODEL || 'nomic-embed-text';
+const CONCURRENCY          = parseInt(process.env.CONCURRENCY  || '2', 10);
 
 const CS_CATEGORIES = [
   'cs.AI', 'cs.AR', 'cs.CC', 'cs.CE', 'cs.CG', 'cs.CL', 'cs.CR', 'cs.CV',
@@ -48,63 +49,76 @@ interface Paper {
 async function fetchArxivBatch(category: string, start: number, maxResults: number): Promise<Paper[]> {
   const url = `http://export.arxiv.org/api/query?search_query=cat:${category}&sortBy=submittedDate&sortOrder=descending&start=${start}&max_results=${maxResults}`;
   
-  // CONSERVATIVE: Wait 5 seconds before each request to respect arXiv rate limits
-  console.log(`Waiting 5s before fetching ${category} (start=${start})...`);
-  await new Promise(r => setTimeout(r, 5000));
+  // CONSERVATIVE: Wait 3 seconds before each request to respect arXiv rate limits
+  console.log(`⏳ Fetching ${category} (start=${start})...`);
+  await new Promise(r => setTimeout(r, 3000));
   
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60000); // 60s timeout
+  
+  let res: Response;
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000); // 30s timeout
-    
-    const res = await fetch(url, { signal: controller.signal });
+    res = await fetch(url, { signal: controller.signal });
     clearTimeout(timeout);
-    
-    // Handle rate limiting
-    if (res.status === 429) {
-      console.warn(`Rate limited on ${category}. Waiting 60s...`);
-      await new Promise(r => setTimeout(r, 60000));
-      return []; // Skip this batch
-    }
-    
-    if (!res.ok) {
-      console.warn(`HTTP ${res.status} for ${category}`);
-      return [];
-    }
-    
-    const xml = await res.text();
-    
-    if (!xml || xml.trim().length === 0) {
-      console.warn(`Empty response from arXiv for ${category}`);
-      return [];
-    }
-    
-    if (!xml.startsWith('<?xml')) {
-      console.warn(`Invalid XML response from arXiv for ${category}: ${xml.slice(0, 100)}`);
-      return [];
-    }
-    
-    const parsed = await parseStringPromise(xml);
-    
-    const entries = parsed.feed.entry || [];
-    return entries.map((e: any) => ({
-      id: e.id[0].split('/abs/')[1],
-      title: e.title[0].replace(/\s+/g, ' ').trim(),
-      abstract: e.summary[0].replace(/\s+/g, ' ').trim(),
-      authors: e.author.map((a: any) => a.name[0]),
-      categories: e.category.map((c: any) => c.$.term),
-      published: e.published[0].split('T')[0],
-      updated: e.updated[0].split('T')[0],
-      pdfUrl: `https://arxiv.org/pdf/${e.id[0].split('/abs/')[1]}.pdf`,
-      htmlUrl: e.link?.find((l: any) => l.$.type === 'text/html')?.$?.href,
-      comment: e['arxiv:comment']?.[0]?._ || e.comment?.[0],
-      journalRef: e['arxiv:journal_ref']?.[0]?._ || e.journal_ref?.[0],
-      doi: e['arxiv:doi']?.[0]?._ || e.doi?.[0],
-      primaryCategory: e['arxiv:primary_category']?.[0]?.$?.term || e.category?.[0]?.$?.term,
-    }));
   } catch (err) {
-    console.error(`Error fetching ${category}:`, err instanceof Error ? err.message : String(err));
-    return [];
+    clearTimeout(timeout);
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`❌ FETCH FAILED for ${category} (start=${start}): ${msg}`);
+    throw new Error(`arXiv fetch failed: ${msg}`);
   }
+  
+  // Handle rate limiting
+  if (res.status === 429) {
+    console.warn(`⚠️  Rate limited on ${category}. Waiting 60s...`);
+    await new Promise(r => setTimeout(r, 60000));
+    throw new Error(`Rate limited on ${category}`);
+  }
+  
+  if (!res.ok) {
+    console.error(`❌ HTTP ${res.status} for ${category} (start=${start})`);
+    const body = await res.text();
+    console.error(`Response body: ${body.slice(0, 200)}`);
+    throw new Error(`arXiv returned HTTP ${res.status}`);
+  }
+  
+  const xml = await res.text();
+  
+  if (!xml || xml.trim().length === 0) {
+    console.error(`❌ Empty response from arXiv for ${category} (start=${start})`);
+    throw new Error(`Empty response from arXiv`);
+  }
+  
+  if (!xml.startsWith('<?xml')) {
+    console.error(`❌ Invalid XML response from arXiv for ${category}: ${xml.slice(0, 200)}`);
+    throw new Error(`Invalid XML from arXiv`);
+  }
+  
+  let parsed: any;
+  try {
+    parsed = await parseStringPromise(xml);
+  } catch (err) {
+    console.error(`❌ XML parse failed for ${category}:`, err);
+    throw new Error(`XML parse failed: ${err}`);
+  }
+  
+  const entries = parsed.feed.entry || [];
+  console.log(`✅ Got ${entries.length} papers from ${category} (start=${start})`);
+  
+  return entries.map((e: any) => ({
+    id: e.id[0].split('/abs/')[1],
+    title: e.title[0].replace(/\s+/g, ' ').trim(),
+    abstract: e.summary[0].replace(/\s+/g, ' ').trim(),
+    authors: e.author.map((a: any) => a.name[0]),
+    categories: e.category.map((c: any) => c.$.term),
+    published: e.published[0].split('T')[0],
+    updated: e.updated[0].split('T')[0],
+    pdfUrl: `https://arxiv.org/pdf/${e.id[0].split('/abs/')[1]}.pdf`,
+    htmlUrl: e.link?.find((l: any) => l.$.type === 'text/html')?.$?.href,
+    comment: e['arxiv:comment']?.[0]?._ || e.comment?.[0],
+    journalRef: e['arxiv:journal_ref']?.[0]?._ || e.journal_ref?.[0],
+    doi: e['arxiv:doi']?.[0]?._ || e.doi?.[0],
+    primaryCategory: e['arxiv:primary_category']?.[0]?.$?.term || e.category?.[0]?.$?.term,
+  }));
 }
 
 async function fetchAllCS(daysBack: number): Promise<Paper[]> {
@@ -144,22 +158,31 @@ async function fetchAllCS(daysBack: number): Promise<Paper[]> {
   return allPapers;
 }
 
-async function generateSummary(paper: Paper): Promise<any> {
-  const prompt = `You are a research paper summarizer. Return ONLY a valid JSON object with no preamble, explanation, or markdown fences.
+interface SummaryFields {
+  tldr: string;
+  key_contributions: string[];
+  methods: string[];
+  limitations: string[];
+  beginner_explain: string;
+  technical_summary: string;
+}
 
-Summarize this research paper abstract. Return ONLY valid JSON, no other text.
+async function generateSummary(paper: Paper): Promise<SummaryFields> {
+  const prompt = `You are a research paper summarizer. Return ONLY a valid JSON object — no preamble, no markdown fences, no commentary.
+
+Paper title: ${paper.title}
 
 Abstract:
-${paper.abstract.slice(0, 4000)}
+${paper.abstract.slice(0, 3500)}
 
-JSON format:
+Respond with exactly this JSON structure:
 {
-  "tldr": "One clear sentence describing what this paper does",
-  "key_contributions": ["contribution 1", "contribution 2"],
-  "methods": ["method 1", "method 2"],
-  "limitations": ["limitation 1"],
-  "beginner_explain": "Simple explanation in 2-3 sentences",
-  "technical_summary": "Technical description in 3-4 sentences"
+  "tldr": "One clear sentence describing what this paper does and its main result",
+  "key_contributions": ["contribution 1", "contribution 2", "contribution 3"],
+  "methods": ["method or technique 1", "method 2"],
+  "limitations": ["limitation or future work 1"],
+  "beginner_explain": "2-3 sentence plain-language explanation for a non-expert",
+  "technical_summary": "3-4 sentence technical description for an ML researcher"
 }`;
 
   const res = await fetch(`${OLLAMA_BASE}/api/generate`, {
@@ -170,9 +193,9 @@ JSON format:
       prompt,
       stream: false,
       format: 'json',
-      options: { temperature: 0.3, num_predict: 1024 },
+      options: { temperature: 0.2, num_predict: 1024, top_p: 0.9 },
     }),
-    signal: AbortSignal.timeout(90_000),
+    signal: AbortSignal.timeout(120_000),
   });
 
   if (!res.ok) throw new Error(`Ollama HTTP ${res.status}`);
@@ -186,7 +209,15 @@ JSON format:
   const last  = cleaned.lastIndexOf('}');
   if (first === -1 || last === -1) throw new Error('No JSON in Ollama response');
 
-  return JSON.parse(cleaned.slice(first, last + 1));
+  const parsed = JSON.parse(cleaned.slice(first, last + 1)) as Partial<SummaryFields>;
+  return {
+    tldr:              String(parsed.tldr             || '').trim() || 'Summary unavailable.',
+    key_contributions: Array.isArray(parsed.key_contributions) ? parsed.key_contributions.map(String) : [],
+    methods:           Array.isArray(parsed.methods)           ? parsed.methods.map(String)           : [],
+    limitations:       Array.isArray(parsed.limitations)       ? parsed.limitations.map(String)       : [],
+    beginner_explain:  String(parsed.beginner_explain  || '').trim(),
+    technical_summary: String(parsed.technical_summary || '').trim(),
+  };
 }
 
 async function generateEmbedding(text: string): Promise<number[]> {
@@ -257,74 +288,50 @@ async function initLocalDB(): Promise<Database.Database> {
   return db;
 }
 
-async function processPaper(db: Database.Database, paper: Paper): Promise<void> {
+async function processPaper(db: Database.Database, paper: Paper): Promise<'ok' | 'fail'> {
   const now = new Date().toISOString();
-  
-  // Check if already fully processed
-  const existing = db.prepare('SELECT id, summary_ready FROM papers WHERE id = ?').get(paper.id) as { id: string; summary_ready: number } | undefined;
-  if (existing?.summary_ready === 1) {
-    console.log(`⊘ ${paper.id}: Already done, skipping`);
-    return;
-  }
-  
+
+  const existing = db.prepare('SELECT summary_ready FROM papers WHERE id = ?').get(paper.id) as { summary_ready: number } | undefined;
+  if (existing?.summary_ready === 1) return 'ok';
+
   try {
-    const summary  = await generateSummary(paper);
-    const embedding = await generateEmbedding(`${paper.title} ${paper.abstract}`);
-    
-    // All writes in a single transaction
-    const tx = db.transaction(() => {
-      // Paper row — columns match D1 prod exactly
+    const [summary, embedding] = await Promise.all([
+      generateSummary(paper),
+      generateEmbedding(`${paper.title}\n${paper.abstract}`),
+    ]);
+
+    db.transaction(() => {
       db.prepare(`
         INSERT OR REPLACE INTO papers
           (id, title, authors, abstract, categories, published_at, revised_at,
            pdf_url, html_url, indexed_at, summary_ready)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
       `).run(
-        paper.id,
-        paper.title,
-        JSON.stringify(paper.authors),
-        paper.abstract,
-        JSON.stringify(paper.categories),
-        paper.published,
+        paper.id, paper.title, JSON.stringify(paper.authors), paper.abstract,
+        JSON.stringify(paper.categories), paper.published,
         paper.updated !== paper.published ? paper.updated : null,
-        paper.pdfUrl,
-        paper.htmlUrl ?? null,
-        now,
+        paper.pdfUrl, paper.htmlUrl ?? null, now,
       );
-      
-      // Summary
       db.prepare(`
         INSERT OR REPLACE INTO summaries
           (paper_id, tldr, key_contributions, methods, limitations,
            beginner_explain, technical_summary, generated_at, model_version)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
-        paper.id,
-        summary.tldr ?? '',
-        JSON.stringify(summary.key_contributions ?? []),
-        JSON.stringify(summary.methods ?? []),
-        JSON.stringify(summary.limitations ?? []),
-        summary.beginner_explain ?? '',
-        summary.technical_summary ?? '',
-        now,
-        SUMMARY_MODEL,
+        paper.id, summary.tldr,
+        JSON.stringify(summary.key_contributions), JSON.stringify(summary.methods),
+        JSON.stringify(summary.limitations), summary.beginner_explain,
+        summary.technical_summary, now, SUMMARY_MODEL,
       );
-      
-      // Embedding (local only — uploaded to Vectorize separately)
-      const embBuf = Buffer.from(new Float32Array(embedding).buffer);
-      db.prepare(`INSERT OR REPLACE INTO embeddings (paper_id, embedding) VALUES (?, ?)`).run(paper.id, embBuf);
-      
-      // paper_categories junction
+      db.prepare(`INSERT OR REPLACE INTO embeddings (paper_id, embedding) VALUES (?, ?)`)
+        .run(paper.id, Buffer.from(new Float32Array(embedding).buffer));
       for (const cat of paper.categories) {
         db.prepare(`INSERT OR IGNORE INTO paper_categories (paper_id, category) VALUES (?, ?)`).run(paper.id, cat);
       }
-    });
-    
-    tx();
-    console.log(`✓ ${paper.id}: ${paper.title.slice(0, 60)}`);
+    })();
+    return 'ok';
   } catch (err) {
     console.error(`✗ ${paper.id}: ${err}`);
-    // Insert stub so the paper is in D1 as summary_ready=2 (failed, retriable)
     try {
       db.prepare(`
         INSERT OR REPLACE INTO papers
@@ -332,18 +339,13 @@ async function processPaper(db: Database.Database, paper: Paper): Promise<void> 
            pdf_url, html_url, indexed_at, summary_ready)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 2)
       `).run(
-        paper.id,
-        paper.title,
-        JSON.stringify(paper.authors),
-        paper.abstract,
-        JSON.stringify(paper.categories),
-        paper.published,
+        paper.id, paper.title, JSON.stringify(paper.authors), paper.abstract,
+        JSON.stringify(paper.categories), paper.published,
         paper.updated !== paper.published ? paper.updated : null,
-        paper.pdfUrl,
-        paper.htmlUrl ?? null,
-        now,
+        paper.pdfUrl, paper.htmlUrl ?? null, now,
       );
-    } catch { /* ignore — paper won't be in DB, ingest-worker will pick it up */ }
+    } catch { /* ignore */ }
+    return 'fail';
   }
 }
 
@@ -386,42 +388,75 @@ async function main() {
   const seen = new Set<string>();
 
   for (const cat of categories) {
-    console.log(`Fetching ${cat}...`);
+    console.log(`\n📚 Starting ${cat}...`);
     let start = 0;
     const fetchSize = 50;
+    let catTotal = 0;
 
     while (true) {
-      const batch = await fetchArxivBatch(cat, start, fetchSize);
-      if (batch.length === 0) break;
+      let batch: Paper[];
+      try {
+        batch = await fetchArxivBatch(cat, start, fetchSize);
+      } catch (err) {
+        console.error(`💥 Failed to fetch ${cat} at start=${start}, skipping rest of category`);
+        break;
+      }
+      
+      if (batch.length === 0) {
+        console.log(`📭 No more results for ${cat}`);
+        break;
+      }
 
       let hitCutoff = false;
       let allKnown = true;
       for (const paper of batch) {
-        if (new Date(paper.published) < cutoffDate) { hitCutoff = true; break; }
+        if (new Date(paper.published) < cutoffDate) {
+          console.log(`📅 Hit date cutoff at ${paper.published} for ${cat}`);
+          hitCutoff = true;
+          break;
+        }
         if (!seen.has(paper.id) && !existingIds.has(paper.id)) {
           seen.add(paper.id);
           allPapers.push(paper);
+          catTotal++;
           allKnown = false;
         } else if (!seen.has(paper.id)) {
-          seen.add(paper.id); // track seen even if skipping
+          seen.add(paper.id);
         }
       }
 
-      // Stop paginating if we hit the date cutoff or every paper in the batch is already in DB
-      if (hitCutoff || batch.length < fetchSize || allKnown) break;
+      if (hitCutoff) {
+        console.log(`✅ ${cat} complete: ${catTotal} new papers`);
+        break;
+      }
+      if (batch.length < fetchSize) {
+        console.log(`✅ ${cat} complete: ${catTotal} new papers (no more results)`);
+        break;
+      }
+      if (allKnown) {
+        console.log(`✅ ${cat} complete: ${catTotal} new papers (rest already in DB)`);
+        break;
+      }
       start += fetchSize;
     }
   }
 
   console.log(`\nFound ${allPapers.length} new papers to process\n`);
 
-  let done = 0, failed = 0;
-  for (let i = 0; i < allPapers.length; i++) {
-    await processPaper(db, allPapers[i]!);
-    const r = (db.prepare('SELECT summary_ready FROM papers WHERE id = ?').get(allPapers[i]!.id) as any)?.summary_ready;
-    if (r === 1) done++; else failed++;
-    process.stdout.write(`\rProgress: ${i + 1}/${allPapers.length}  ✓${done}  ✗${failed}`);
+  let done = 0, failed = 0, processed = 0;
+  const total = allPapers.length;
+
+  async function worker() {
+    while (true) {
+      const idx = processed++;
+      if (idx >= total) break;
+      const result = await processPaper(db, allPapers[idx]!);
+      if (result === 'ok') done++; else failed++;
+      process.stdout.write(`\rProgress: ${Math.min(processed, total)}/${total}  ✓${done}  ✗${failed}`);
+    }
   }
+
+  await Promise.all(Array.from({ length: CONCURRENCY }, worker));
 
   db.close();
 

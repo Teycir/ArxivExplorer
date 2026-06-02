@@ -39,11 +39,18 @@ export async function handleCitations(
     });
 
     if (!ssRes.ok) {
-      // Paper not found in Semantic Scholar
       if (ssRes.status === 404) {
         return jsonResponse({ citationCount: 0, source: 'not_indexed' }, cors);
       }
-      throw new Error(`Semantic Scholar API error: ${ssRes.status}`);
+      // Rate-limited or server error — return cached value from D1
+      const cached = await env.DB.prepare(
+        'SELECT citation_count, citations_updated_at FROM papers WHERE id = ?'
+      ).bind(normalizedId).first<{ citation_count: number; citations_updated_at: string | null }>();
+      return jsonResponse({
+        citationCount: cached?.citation_count ?? 0,
+        source: 'cached',
+        updatedAt: cached?.citations_updated_at ?? null,
+      }, cors);
     }
 
     const data: SemanticScholarResponse = await ssRes.json();

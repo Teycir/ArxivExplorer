@@ -96,7 +96,7 @@ async function generateSummaryOllama(
   ollamaBase: string,
   modelOverride?: string
 ): Promise<SummaryFields> {
-  const model = modelOverride ?? 'qwen2.5:3b';
+  const model = modelOverride ?? 'gemma4:e4b';
   const prompt = USER_PROMPT.replace('{abstract}', abstract.slice(0, 4000));
 
   const res = await fetch(`${ollamaBase.replace(/\/$/, '')}/api/generate`, {

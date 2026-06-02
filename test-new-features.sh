@@ -60,11 +60,11 @@ echo "--------------------------------"
 
 # Test citation endpoint
 test_json_field "Citations API - valid paper" \
-    "$API_BASE/api/paper/2605.30353/citations" \
+    "$API_BASE/api/paper/2605.28208/citations" \
     ".citationCount"
 
 test_json_field "Citations API - source field" \
-    "$API_BASE/api/paper/2605.30353/citations" \
+    "$API_BASE/api/paper/2605.28208/citations" \
     ".source"
 
 # Test 404 for invalid paper
@@ -144,20 +144,20 @@ test_endpoint "Comparison page - no IDs" \
     200
 
 test_endpoint "Comparison page - single paper" \
-    "$FRONTEND/compare?ids=2605.30353" \
+    "$FRONTEND/compare?ids=2605.31603" \
     200
 
 test_endpoint "Comparison page - two papers" \
-    "$FRONTEND/compare?ids=2605.30353,2302.13971" \
+    "$FRONTEND/compare?ids=2605.31603,2605.31593" \
     200
 
 test_endpoint "Comparison page - three papers" \
-    "$FRONTEND/compare?ids=2605.30353,2302.13971,2303.08774" \
+    "$FRONTEND/compare?ids=2605.31603,2605.31593,2605.31590" \
     200
 
 # Test max limit (4 papers)
 test_endpoint "Comparison page - four papers (max)" \
-    "$FRONTEND/compare?ids=2605.30353,2302.13971,2303.08774,2301.07041" \
+    "$FRONTEND/compare?ids=2605.31603,2605.31593,2605.31590,2605.31586" \
     200
 
 # Test invalid paper IDs
@@ -174,7 +174,7 @@ fi
 
 # Test comparison page content
 echo -n "Testing: Comparison page has comparison content ... "
-response=$(curl -s "$FRONTEND/compare?ids=2605.30353,2302.13971")
+response=$(curl -s "$FRONTEND/compare?ids=2605.31603,2605.31593")
 if echo "$response" | grep -qi "comparison\|compare\|paper"; then
     echo -e "${GREEN}✓ PASS${NC} (content present)"
     PASSED=$((PASSED + 1))
