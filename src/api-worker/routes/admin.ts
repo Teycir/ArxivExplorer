@@ -100,6 +100,115 @@ export async function handleRetryFailed(request: Request, env: Env): Promise<Res
 }
 
 /**
+ * GET /admin/papers/all
+ * Returns all papers with summary_ready=1 for offline processing
+ */
+export async function handleGetAllPapers(request: Request, env: Env): Promise<Response> {
+  if (!checkAuth(request, env)) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  try {
+    const { results } = await env.DB.prepare(`
+      SELECT id, title, abstract
+      FROM papers
+      WHERE summary_ready = 1
+      ORDER BY indexed_at DESC
+    `).all<{ id: string; title: string; abstract: string }>();
+
+    return new Response(JSON.stringify({ papers: results }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  } catch (err) {
+    console.error('[admin] get-all-papers error:', err);
+    return new Response(JSON.stringify({ error: String(err) }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+}
+
+/**
+ * POST /admin/related/clear
+ * Clears the entire related_papers table
+ */
+export async function handleClearRelated(request: Request, env: Env): Promise<Response> {
+  if (!checkAuth(request, env)) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  try {
+    const result = await env.DB.prepare('DELETE FROM related_papers').run();
+    console.info(`[admin] cleared ${result.meta.changes} related_papers rows`);
+
+    return new Response(JSON.stringify({ success: true, deleted: result.meta.changes }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  } catch (err) {
+    console.error('[admin] clear-related error:', err);
+    return new Response(JSON.stringify({ error: String(err) }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+}
+
+/**
+ * POST /admin/related/bulk-insert
+ * Bulk insert related_papers rows
+ * Body: { rows: [{ paperId, relatedId, score, rank }] }
+ */
+export async function handleBulkInsertRelated(request: Request, env: Env): Promise<Response> {
+  if (!checkAuth(request, env)) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  try {
+    const { rows } = await request.json() as {
+      rows: Array<{ paperId: string; relatedId: string; score: number; rank: number }>;
+    };
+
+    if (!rows || !Array.isArray(rows)) {
+      return new Response('Invalid rows array', { status: 400 });
+    }
+
+    const now = new Date().toISOString();
+    const statements = rows.map(r =>
+      env.DB.prepare(`
+        INSERT OR REPLACE INTO related_papers
+          (paper_id, related_paper_id, similarity_score, rank, computed_at)
+        VALUES (?, ?, ?, ?, ?)
+      `).bind(r.paperId, r.relatedId, r.score, r.rank, now)
+    );
+
+    // D1 batch supports up to 100 statements
+    const BATCH_SIZE = 100;
+    for (let i = 0; i < statements.length; i += BATCH_SIZE) {
+      await env.DB.batch(statements.slice(i, i + BATCH_SIZE));
+    }
+
+    return new Response(JSON.stringify({ success: true, inserted: rows.length }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  } catch (err) {
+    console.error('[admin] bulk-insert-related error:', err);
+    return new Response(JSON.stringify({ error: String(err) }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+}
+
+/**
  * POST /admin/backfill-related
  * Lightweight trigger — the actual heavy backfill runs via:
  *   npx tsx scripts/backfill-related.ts

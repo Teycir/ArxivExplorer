@@ -122,9 +122,10 @@ export async function computeAndStoreRelated(
     console.debug(`[compute-related] Vectorize skipped for ${paperId}: ${String(err)}`);
   }
 
-  // ── 5. Write to D1 ───────────────────────────────────────────────────────
+  // ── 5. Write to D1 (bidirectional) ──────────────────────────────────────
   const now = new Date().toISOString();
 
+  // 5a. Store forward links (paperId → related papers)
   await env.DB.batch(
     finalResults.map(r =>
       env.DB.prepare(`
@@ -135,8 +136,53 @@ export async function computeAndStoreRelated(
     )
   );
 
+  // 5b. Update reverse links (each related paper → paperId)
+  // For each paper in finalResults, recompute its top-8 to potentially include paperId
+  await updateReverseLinksBatch(paperId, finalResults.map(r => r.id), corpus, env);
+
   console.info(
     `[compute-related] Stored ${finalResults.length} related papers for ${paperId}` +
-    ` (corpus: ${corpus.length})`
+    ` + updated ${finalResults.length} reverse links (corpus: ${corpus.length})`
   );
+}
+
+/**
+ * Update related_papers for each targetPaperId to potentially include newPaperId.
+ * This ensures older papers get updated when new similar papers are added.
+ */
+async function updateReverseLinksBatch(
+  newPaperId: string,
+  targetPaperIds: string[],
+  corpus: CorpusEntry[],
+  env: Env
+): Promise<void> {
+  const now = new Date().toISOString();
+  const allUpdates: D1PreparedStatement[] = [];
+
+  for (const targetId of targetPaperIds) {
+    const targetTf = corpus.find(c => c.id === targetId)?.tf;
+    if (!targetTf) continue;
+
+    // Recompute top-8 for this target
+    const similar = findSimilar(targetId, targetTf, corpus, TOP_K);
+    
+    // Store the recomputed list
+    similar.forEach((item, idx) => {
+      allUpdates.push(
+        env.DB.prepare(`
+          INSERT OR REPLACE INTO related_papers
+            (paper_id, related_paper_id, similarity_score, rank, computed_at)
+          VALUES (?, ?, ?, ?, ?)
+        `).bind(targetId, item.id, item.score, idx + 1, now)
+      );
+    });
+  }
+
+  if (allUpdates.length > 0) {
+    // Batch all updates together (D1 supports up to 100 statements per batch)
+    const BATCH_SIZE = 100;
+    for (let i = 0; i < allUpdates.length; i += BATCH_SIZE) {
+      await env.DB.batch(allUpdates.slice(i, i + BATCH_SIZE));
+    }
+  }
 }

@@ -22,7 +22,7 @@ import { handleTopic } from './routes/topic';
 import { handleTrending } from './routes/trending';
 import { handleAuthor } from './routes/author';
 import { handleSitemap } from './routes/sitemap';
-import { handleVectorizeUpsert, handleRetryFailed, handleBackfillRelated, handleCrossRefBatch } from './routes/admin';
+import { handleVectorizeUpsert, handleRetryFailed, handleBackfillRelated, handleCrossRefBatch, handleGetAllPapers, handleClearRelated, handleBulkInsertRelated } from './routes/admin';
 import { handleTopics } from './routes/topics';
 import { handleCitations } from './routes/citations';
 import { handleConcept } from './routes/concept';
@@ -142,6 +142,21 @@ export default {
       // /admin/crossref-batch (POST) — run a bounded CrossRef enrichment batch
       if (path === '/admin/crossref-batch' && request.method === 'POST') {
         return handleCrossRefBatch(request, env);
+      }
+
+      // /admin/papers/all (GET) — get all papers for offline processing
+      if (path === '/admin/papers/all' && request.method === 'GET') {
+        return handleGetAllPapers(request, env);
+      }
+
+      // /admin/related/clear (POST) — clear related_papers table
+      if (path === '/admin/related/clear' && request.method === 'POST') {
+        return handleClearRelated(request, env);
+      }
+
+      // /admin/related/bulk-insert (POST) — bulk insert related_papers
+      if (path === '/admin/related/bulk-insert' && request.method === 'POST') {
+        return handleBulkInsertRelated(request, env);
       }
 
       return new Response(JSON.stringify({ error: 'Not found', path }), {
