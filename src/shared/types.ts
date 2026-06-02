@@ -15,6 +15,18 @@ export interface Paper {
   htmlUrl: string | null;  // stored in DB; null when not provided by arXiv
   indexedAt: string;
   summaryReady: 0 | 1 | 2; // 0=pending, 1=ready, 2=failed
+  // ── Enrichment fields (Phase 1) ──────────────────────────────────────────
+  openalexId?: string;
+  ssPaperId?: string;
+  ssTldr?: string;
+  isOpenAccess: boolean;
+  oaUrl: string | null;
+  concepts: Array<{ name: string; wikidataId: string; score: number }>;
+  affiliations: Array<{ author: string; institution: string; country: string; rorId?: string }>;
+  codeCount: number;
+  hasBenchmark: boolean;
+  influentialCitationCount?: number;
+  referenceCount?: number;
 }
 
 export interface Summary {
@@ -27,6 +39,14 @@ export interface Summary {
   technicalSummary: string;
   generatedAt: string;
   modelVersion: string;
+  // ── Enrichment fields (Phase 2) ──────────────────────────────────────────
+  keywords: string[];
+  entities: Array<{ name: string; type: 'model' | 'dataset' | 'benchmark' }>;
+  paperType: 'empirical' | 'theoretical' | 'survey' | 'dataset' | 'position' | 'tutorial' | 'unknown';
+  novelty: string;
+  applications: string[];
+  prerequisites: string[];
+  followUpQuestions: string[];
 }
 
 export interface PaperWithSummary extends Paper {
@@ -65,6 +85,27 @@ export interface IngestResult {
   neuronsEstimate: number;
 }
 
+/** New table: code repositories linked to a paper (from Papers With Code) */
+export interface PaperCode {
+  paperId: string;
+  repoUrl: string;
+  stars: number;
+  framework: string | null;
+  isOfficial: boolean;
+  fetchedAt: string;
+}
+
+/** New table: benchmark results for a paper (from Papers With Code) */
+export interface PaperBenchmark {
+  paperId: string;
+  task: string;
+  dataset: string;
+  metric: string;
+  value: number;
+  sotaRank: number | null;
+  fetchedAt: string;
+}
+
 /** Raw row returned from D1 before camelCase conversion */
 export interface PaperRow {
   id: string;
@@ -78,6 +119,18 @@ export interface PaperRow {
   html_url?: string;
   indexed_at: string;
   summary_ready: number;
+  // Enrichment columns (papers table)
+  openalex_id?: string;
+  ss_paper_id?: string;
+  ss_tldr?: string;
+  is_open_access?: number;
+  oa_url?: string;
+  concepts?: string;      // JSON
+  affiliations?: string;  // JSON
+  code_count?: number;
+  has_benchmark?: number;
+  influential_citation_count?: number;
+  reference_count?: number;
   // Joined summary columns (may be null)
   tldr?: string;
   key_contributions?: string; // JSON string
@@ -87,6 +140,14 @@ export interface PaperRow {
   technical_summary?: string;
   generated_at?: string;
   model_version?: string;
+  // Enriched summary columns
+  keywords?: string;            // JSON string[]
+  entities?: string;            // JSON [{name,type}]
+  paper_type?: string;
+  novelty?: string;
+  applications?: string;        // JSON string[]
+  prerequisites?: string;       // JSON string[]
+  follow_up_questions?: string; // JSON string[]
 }
 
 /** Cloudflare Workers AI embedding response */
@@ -113,7 +174,7 @@ export interface ArxivEntry {
   htmlUrl?: string;
 }
 
-/** Structured summary JSON returned by Workers AI */
+/** Structured summary JSON returned by Workers AI / Ollama (extended schema) */
 export interface SummaryFields {
   tldr: string;
   key_contributions: string[];
@@ -121,6 +182,20 @@ export interface SummaryFields {
   limitations: string[];
   beginner_explain: string;
   technical_summary: string;
+  // Extended fields (Phase 2)
+  keywords: string[];
+  paper_type: string;
+  novelty: string;
+  applications: string[];
+  prerequisites: string[];
+  follow_up_questions: string[];
+}
+
+/** Entity extraction result (Phase 2 — separate Ollama call) */
+export interface EntityFields {
+  models_named: string[];
+  datasets_named: string[];
+  benchmarks_named: string[];
 }
 
 /** Env bindings — shared shape (both workers expose a subset of these) */
@@ -139,23 +214,17 @@ export interface Env {
   CACHE_TTL_TRENDING_SECONDS?: string;
   CACHE_TTL_EMBED_SECONDS?: string;
   ALLOWED_ORIGIN?: string;
-  // Admin
   ADMIN_SECRET?: string;
-  // Ollama (local AI — zero neuron cost, used before Workers AI when set)
-  // Set to e.g. "http://192.168.1.10:11434" (must be reachable from the Worker)
+  // Ollama (local AI — zero neuron cost)
   OLLAMA_BASE?: string;
-  OLLAMA_SUMMARY_MODEL?: string;    // default: qwen2.5:3b
-  OLLAMA_EMBEDDING_MODEL?: string;  // default: nomic-embed-text
+  OLLAMA_SUMMARY_MODEL?: string;
+  OLLAMA_EMBEDDING_MODEL?: string;
+  OLLAMA_ENTITY_MODEL?: string;
+  // Polite-pool email for OpenAlex and CrossRef
+  POLITE_EMAIL?: string;
   // Phase control
-  // 'bulk'   → rotating daily topic fill (uses BULK_SCHEDULE + BULK_LIMIT)
-  // 'steady' → low-volume daily trickle of new papers across all categories
   INGEST_PHASE?: 'bulk' | 'steady';
-  // JSON: [["cs.AI","cs.LG"],["cs.CL","cs.CV"],["cs.LG","stat.ML"],...]
-  // Each inner array = one day's categories. Worker picks today's slot by
-  // (UTC day-of-year % slots.length). Leave unset to use built-in default.
   INGEST_BULK_SCHEDULE?: string;
-  // Max papers per category during bulk phase (default 50)
   INGEST_BULK_LIMIT?: string;
-  // Max papers per category during steady phase (default 5)
   INGEST_STEADY_LIMIT?: string;
 }

@@ -116,3 +116,108 @@ export async function handleBackfillRelated(request: Request, env: Env): Promise
     message: 'Run `npx tsx scripts/backfill-related.ts` locally — Worker CPU limits prevent bulk backfill in-process.',
   }), { headers: { 'Content-Type': 'application/json' } });
 }
+
+/**
+ * POST /admin/crossref-batch
+ * Run a bounded CrossRef enrichment batch (up to `limit` papers per call).
+ * Designed to be called by a Wrangler cron or manually via curl.
+ * Default: 50 papers per invocation — safe within the 30s Worker CPU limit.
+ *
+ * curl -X POST https://arxiv-api.arxivexplorer.workers.dev/admin/crossref-batch \
+ *   -H "x-admin-secret: <secret>" \
+ *   -H "Content-Type: application/json" \
+ *   -d '{"limit":50}'
+ */
+export async function handleCrossRefBatch(request: Request, env: Env): Promise<Response> {
+  if (!checkAuth(request, env)) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401, headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  let limit = 50;
+  try {
+    const body = await request.json() as { limit?: number };
+    if (typeof body.limit === 'number' && body.limit > 0) limit = Math.min(body.limit, 200);
+  } catch { /* empty body — use default */ }
+
+  try {
+    // Fetch papers with a DOI that haven't been CrossRef-enriched yet
+    const { results } = await env.DB.prepare(`
+      SELECT id, doi FROM papers
+      WHERE doi IS NOT NULL AND doi != ''
+        AND crossref_enriched_at IS NULL
+      ORDER BY indexed_at DESC
+      LIMIT ?
+    `).bind(limit).all<{ id: string; doi: string }>();
+
+    if (!results.length) {
+      return new Response(JSON.stringify({ ok: true, processed: 0, message: 'Nothing to enrich' }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const email = (env as Record<string, string>).POLITE_EMAIL ?? '';
+    let ok = 0, skipped = 0, failed = 0;
+    const now = new Date().toISOString();
+
+    for (const { id, doi } of results) {
+      try {
+        const res = await fetch(`https://api.crossref.org/works/${encodeURIComponent(doi)}`, {
+          headers: {
+            'User-Agent': 'ArxivExplorer/1.0',
+            ...(email ? { Mailto: email } : {}),
+          },
+          signal: AbortSignal.timeout(10_000),
+        });
+
+        if (res.status === 404) {
+          await env.DB.prepare(
+            `UPDATE papers SET crossref_enriched_at = ? WHERE id = ?`
+          ).bind(now, id).run();
+          skipped++;
+          continue;
+        }
+
+        if (!res.ok) { failed++; continue; }
+
+        const data = await res.json() as {
+          message?: {
+            'container-title'?: string[];
+            publisher?: string;
+            license?: Array<{ URL?: string }>;
+            funder?: Array<{ name?: string }>;
+          };
+        };
+        const msg = data.message;
+        if (!msg) { failed++; continue; }
+
+        const journalName = msg['container-title']?.[0] ?? null;
+        const publisher   = msg.publisher ?? null;
+        const license     = msg.license?.[0]?.URL ?? null;
+        const funders     = (msg.funder ?? []).map(f => f.name).filter(Boolean) as string[];
+
+        await env.DB.prepare(`
+          UPDATE papers SET
+            journal_name = ?, publisher = ?, license = ?,
+            funders = ?, crossref_enriched_at = ?
+          WHERE id = ?
+        `).bind(
+          journalName, publisher, license,
+          funders.length ? JSON.stringify(funders) : null,
+          now, id,
+        ).run();
+        ok++;
+      } catch { failed++; }
+    }
+
+    return new Response(JSON.stringify({ ok: true, processed: results.length, enriched: ok, skipped, failed }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  } catch (err) {
+    console.error('[admin/crossref-batch] error:', err);
+    return new Response(JSON.stringify({ error: String(err) }), {
+      status: 500, headers: { 'Content-Type': 'application/json' },
+    });
+  }
+}

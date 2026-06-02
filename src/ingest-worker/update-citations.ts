@@ -12,8 +12,11 @@ import type { Env } from '../shared/types';
 import { runConcurrent } from '../shared/utils';
 
 interface SemanticScholarResponse {
-  paperId: string;
-  citationCount: number;
+  paperId?: string;
+  citationCount?: number;
+  influentialCitationCount?: number;
+  referenceCount?: number;
+  tldr?: { text?: string } | null;
 }
 
 const UPDATE_INTERVAL_DAYS = 7; // Update citations weekly
@@ -51,7 +54,7 @@ export async function updateCitations(env: Env): Promise<{ updated: number; fail
       const start = Date.now();
       try {
         const arxivId = id.replace(/^arxiv:/, '');
-        const ssUrl = `https://api.semanticscholar.org/graph/v1/paper/arXiv:${arxivId}?fields=citationCount`;
+        const ssUrl = `https://api.semanticscholar.org/graph/v1/paper/arXiv:${arxivId}?fields=citationCount,paperId,tldr,influentialCitationCount,referenceCount`;
 
         const res = await fetch(ssUrl, {
           headers: { 'User-Agent': 'ArxivExplorer/1.0' },
@@ -61,9 +64,21 @@ export async function updateCitations(env: Env): Promise<{ updated: number; fail
           const data: SemanticScholarResponse = await res.json();
           await env.DB.prepare(`
             UPDATE papers
-            SET citation_count = ?, citations_updated_at = datetime('now')
+            SET citation_count = ?,
+                citations_updated_at = datetime('now'),
+                ss_paper_id = COALESCE(?, ss_paper_id),
+                ss_tldr = COALESCE(?, ss_tldr),
+                influential_citation_count = COALESCE(?, influential_citation_count),
+                reference_count = COALESCE(?, reference_count)
             WHERE id = ?
-          `).bind(data.citationCount, id).run();
+          `).bind(
+            data.citationCount ?? 0,
+            data.paperId ?? null,
+            data.tldr?.text ?? null,
+            data.influentialCitationCount ?? null,
+            data.referenceCount ?? null,
+            id,
+          ).run();
           updated++;
         } else if (res.status === 404) {
           // Not indexed in Semantic Scholar — mark so we don't retry for 7 days

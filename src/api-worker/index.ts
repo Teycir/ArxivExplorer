@@ -22,9 +22,12 @@ import { handleTopic } from './routes/topic';
 import { handleTrending } from './routes/trending';
 import { handleAuthor } from './routes/author';
 import { handleSitemap } from './routes/sitemap';
-import { handleVectorizeUpsert, handleRetryFailed, handleBackfillRelated } from './routes/admin';
+import { handleVectorizeUpsert, handleRetryFailed, handleBackfillRelated, handleCrossRefBatch } from './routes/admin';
 import { handleTopics } from './routes/topics';
 import { handleCitations } from './routes/citations';
+import { handleConcept } from './routes/concept';
+import { handleInstitution } from './routes/institution';
+import { handlePaperCode, handlePaperBenchmarks } from './routes/enrichment';
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -79,6 +82,18 @@ export default {
         return handleCitations(request, env, ctx, citationsMatch[1]!);
       }
 
+      // /api/paper/:id/code
+      const codeMatch = path.match(/^\/api\/paper\/([^/]+)\/code$/);
+      if (codeMatch) {
+        return handlePaperCode(request, env, ctx, codeMatch[1]!);
+      }
+
+      // /api/paper/:id/benchmarks
+      const benchmarksMatch = path.match(/^\/api\/paper\/([^/]+)\/benchmarks$/);
+      if (benchmarksMatch) {
+        return handlePaperBenchmarks(request, env, ctx, benchmarksMatch[1]!);
+      }
+
       // /api/paper/:id
       const paperMatch = path.match(/^\/api\/paper\/([^/]+)$/);
       if (paperMatch) {
@@ -97,6 +112,18 @@ export default {
         return handleAuthor(request, env, ctx, authorMatch[1]!);
       }
 
+      // /api/concept/:name
+      const conceptMatch = path.match(/^\/api\/concept\/(.+)$/);
+      if (conceptMatch) {
+        return handleConcept(request, env, ctx, conceptMatch[1]!);
+      }
+
+      // /api/institution/:name
+      const institutionMatch = path.match(/^\/api\/institution\/(.+)$/);
+      if (institutionMatch) {
+        return handleInstitution(request, env, ctx, institutionMatch[1]!);
+      }
+
       // /admin/vectorize/upsert (POST)
       if (path === '/admin/vectorize/upsert' && request.method === 'POST') {
         return handleVectorizeUpsert(request, env);
@@ -110,6 +137,11 @@ export default {
       // /admin/backfill-related (POST) — compute related for papers missing them
       if (path === '/admin/backfill-related' && request.method === 'POST') {
         return handleBackfillRelated(request, env);
+      }
+
+      // /admin/crossref-batch (POST) — run a bounded CrossRef enrichment batch
+      if (path === '/admin/crossref-batch' && request.method === 'POST') {
+        return handleCrossRefBatch(request, env);
       }
 
       return new Response(JSON.stringify({ error: 'Not found', path }), {

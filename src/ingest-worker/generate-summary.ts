@@ -36,8 +36,16 @@ JSON format:
   "methods": ["method 1", "method 2"],
   "limitations": ["limitation 1"],
   "beginner_explain": "Simple explanation in 2-3 sentences",
-  "technical_summary": "Technical description in 3-4 sentences"
-}`;
+  "technical_summary": "Technical description in 3-4 sentences",
+  "keywords": ["keyword1", "keyword2", "keyword3"],
+  "paper_type": "empirical",
+  "novelty": "One sentence describing what is novel compared to prior work",
+  "applications": ["application 1", "application 2"],
+  "prerequisites": ["concept 1", "concept 2"],
+  "follow_up_questions": ["Question 1?", "Question 2?"]
+}
+
+paper_type must be one of: empirical, theoretical, survey, dataset, position, tutorial, unknown.`;
 
 export async function generateSummary(
   abstract: string,
@@ -201,7 +209,21 @@ function validateSummaryFields(raw: unknown): SummaryFields {
   if (key_contributions.length === 0) key_contributions.push('Research contribution');
   if (methods.length === 0) methods.push('Research methodology');
 
-  return { tldr, key_contributions, methods, limitations, beginner_explain, technical_summary };
+  // Extended fields — all non-fatal with safe fallbacks
+  const keywords = softStringArray(obj, 'keywords');
+  const paper_type = softString(obj, 'paper_type', 'unknown');
+  const novelty = softString(obj, 'novelty', '');
+  const applications = softStringArray(obj, 'applications');
+  const prerequisites = softStringArray(obj, 'prerequisites');
+  const follow_up_questions = softStringArray(obj, 'follow_up_questions');
+
+  const VALID_TYPES = new Set(['empirical','theoretical','survey','dataset','position','tutorial','unknown']);
+  const normalizedType = VALID_TYPES.has(paper_type) ? paper_type : 'unknown';
+
+  return {
+    tldr, key_contributions, methods, limitations, beginner_explain, technical_summary,
+    keywords, paper_type: normalizedType, novelty, applications, prerequisites, follow_up_questions,
+  };
 }
 
 function assertString(obj: Record<string, unknown>, key: string): string {
@@ -228,4 +250,17 @@ function assertStringArray(obj: Record<string, unknown>, key: string, minLength 
     throw new Error(`Summary field "${key}" has ${arr.length} items, expected at least ${minLength}`);
   }
   return arr;
+}
+
+/** Non-throwing string helper — returns fallback on missing/invalid */
+function softString(obj: Record<string, unknown>, key: string, fallback: string): string {
+  const v = obj[key];
+  return typeof v === 'string' && v.trim() ? v.trim() : fallback;
+}
+
+/** Non-throwing array helper — returns [] on missing/invalid */
+function softStringArray(obj: Record<string, unknown>, key: string): string[] {
+  const v = obj[key];
+  if (!Array.isArray(v)) return [];
+  return v.filter(item => typeof item === 'string' && item.trim()).map(item => (item as string).trim());
 }

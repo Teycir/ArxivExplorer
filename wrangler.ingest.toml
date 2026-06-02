@@ -4,7 +4,7 @@ compatibility_date = "2025-01-01"
 workers_dev = true
 
 [triggers]
-crons = ["0 * * * *"]  # every hour
+crons = ["0 * * * *", "30 2 * * *"]  # every hour (ingest) + 02:30 daily (CrossRef)
 
 [[d1_databases]]
 binding = "DB"

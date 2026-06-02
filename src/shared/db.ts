@@ -26,7 +26,7 @@
  * tldr exists are returned so every sidebar link is safe to follow.
  */
 
-import type { PaperRow, PaperWithSummary, Summary, RelatedPaper, Topic } from './types';
+import type { PaperRow, PaperWithSummary, Summary, RelatedPaper, Topic, PaperCode, PaperBenchmark } from './types';
 
 // ─── Completeness guards ────────────────────────────────────────────────────
 
@@ -65,10 +65,22 @@ export function rowToPaper(row: PaperRow): PaperWithSummary {
     htmlUrl: row.html_url ?? null,
     indexedAt: row.indexed_at,
     summaryReady: row.summary_ready as 0 | 1 | 2,
+    // ── Enrichment fields ───────────────────────────────────────────────────
+    isOpenAccess: (row.is_open_access ?? 0) === 1,
+    oaUrl: row.oa_url ?? null,
+    concepts: safeJsonParse(row.concepts, []),
+    affiliations: safeJsonParse(row.affiliations, []),
+    codeCount: row.code_count ?? 0,
+    hasBenchmark: (row.has_benchmark ?? 0) === 1,
     summary: null,
   };
 
   if (row.revised_at) paper.revisedAt = row.revised_at;
+  if (row.openalex_id) paper.openalexId = row.openalex_id;
+  if (row.ss_paper_id) paper.ssPaperId = row.ss_paper_id;
+  if (row.ss_tldr) paper.ssTldr = row.ss_tldr;
+  if (row.influential_citation_count != null) paper.influentialCitationCount = row.influential_citation_count;
+  if (row.reference_count != null) paper.referenceCount = row.reference_count;
 
   if (row.tldr && row.key_contributions && row.methods && row.limitations &&
       row.beginner_explain && row.technical_summary && row.generated_at && row.model_version) {
@@ -82,6 +94,14 @@ export function rowToPaper(row: PaperRow): PaperWithSummary {
       technicalSummary: row.technical_summary,
       generatedAt: row.generated_at,
       modelVersion: row.model_version,
+      // Enriched summary fields — safe defaults for pre-migration rows
+      keywords: safeJsonParse<string[]>(row.keywords, []),
+      entities: safeJsonParse(row.entities, []),
+      paperType: (row.paper_type as Summary['paperType']) ?? 'unknown',
+      novelty: row.novelty ?? '',
+      applications: safeJsonParse<string[]>(row.applications, []),
+      prerequisites: safeJsonParse<string[]>(row.prerequisites, []),
+      followUpQuestions: safeJsonParse<string[]>(row.follow_up_questions, []),
     };
     paper.summary = summary;
   }
@@ -99,6 +119,21 @@ function safeJsonParse<T>(value: string | undefined, fallback: T): T {
   }
 }
 
+// ─── Shared SELECT fragment ─────────────────────────────────────────────────
+// All paper queries must select this full column list so rowToPaper() receives
+// every enrichment field. Add new columns here once — nowhere else in db.ts.
+
+const PAPER_SELECT = `
+      p.id, p.title, p.authors, p.abstract, p.categories,
+      p.published_at, p.revised_at, p.pdf_url, p.html_url, p.indexed_at, p.summary_ready,
+      p.is_open_access, p.oa_url, p.concepts, p.affiliations,
+      p.code_count, p.has_benchmark, p.openalex_id, p.ss_paper_id,
+      p.influential_citation_count, p.reference_count,
+      s.tldr, s.key_contributions, s.methods, s.limitations,
+      s.beginner_explain, s.technical_summary, s.generated_at, s.model_version,
+      s.keywords, s.entities, s.paper_type, s.novelty,
+      s.applications, s.prerequisites, s.follow_up_questions`;
+
 // ─── Paper Queries ──────────────────────────────────────────────────────────
 
 /**
@@ -108,11 +143,7 @@ function safeJsonParse<T>(value: string | undefined, fallback: T): T {
  */
 export async function getPaperById(db: D1Database, id: string): Promise<PaperWithSummary | null> {
   const row = await db.prepare(`
-    SELECT
-      p.id, p.title, p.authors, p.abstract, p.categories,
-      p.published_at, p.revised_at, p.pdf_url, p.html_url, p.indexed_at, p.summary_ready,
-      s.tldr, s.key_contributions, s.methods, s.limitations,
-      s.beginner_explain, s.technical_summary, s.generated_at, s.model_version
+    SELECT ${PAPER_SELECT}
     FROM papers p
     LEFT JOIN summaries s ON s.paper_id = p.id
     WHERE p.id = ?
@@ -161,11 +192,7 @@ export async function getTrendingPapers(
   // Fetch with a buffer so post-filter still returns `limit` papers.
   const fetchLimit = limit * 2;
   const { results } = await db.prepare(`
-    SELECT
-      p.id, p.title, p.authors, p.abstract, p.categories,
-      p.published_at, p.revised_at, p.pdf_url, p.html_url, p.indexed_at, p.summary_ready,
-      s.tldr, s.key_contributions, s.methods, s.limitations,
-      s.beginner_explain, s.technical_summary, s.generated_at, s.model_version
+    SELECT ${PAPER_SELECT}
     FROM papers p
     LEFT JOIN summaries s ON s.paper_id = p.id
     WHERE p.summary_ready = 1
@@ -183,11 +210,7 @@ export async function getPapersByAuthor(
 ): Promise<PaperWithSummary[]> {
   const fetchLimit = limit * 2;
   const { results } = await db.prepare(`
-    SELECT
-      p.id, p.title, p.authors, p.abstract, p.categories,
-      p.published_at, p.revised_at, p.pdf_url, p.html_url, p.indexed_at, p.summary_ready,
-      s.tldr, s.key_contributions, s.methods, s.limitations,
-      s.beginner_explain, s.technical_summary, s.generated_at, s.model_version
+    SELECT ${PAPER_SELECT}
     FROM papers p
     LEFT JOIN summaries s ON s.paper_id = p.id
     WHERE p.summary_ready = 1 AND p.authors LIKE ?
@@ -215,11 +238,7 @@ export async function getPapersByTopic(
   const placeholders = tags.map(() => '?').join(', ');
   const fetchLimit = limit * 2;
   const { results } = await db.prepare(`
-    SELECT DISTINCT
-      p.id, p.title, p.authors, p.abstract, p.categories,
-      p.published_at, p.revised_at, p.pdf_url, p.html_url, p.indexed_at, p.summary_ready,
-      s.tldr, s.key_contributions, s.methods, s.limitations,
-      s.beginner_explain, s.technical_summary, s.generated_at, s.model_version
+    SELECT DISTINCT ${PAPER_SELECT}
     FROM paper_categories pc
     JOIN papers p ON p.id = pc.paper_id
     LEFT JOIN summaries s ON s.paper_id = p.id
@@ -324,6 +343,9 @@ export interface SearchFilters {
   date?:     string;
   author?:   string;
   minCitations?: number;
+  paperType?:  string;   // empirical | theoretical | survey | dataset | position | tutorial
+  hasCode?:    boolean;  // filter to papers with code_count > 0
+  openAccess?: boolean;  // filter to papers with is_open_access = 1
 }
 
 export function dateWindowStart(window: string): string | null {
@@ -360,6 +382,12 @@ export async function ftsSearch(
   }
   if (author) { whereParts.push('p.authors LIKE ?'); binds.push(`%${author}%`); }
   if (minCitations !== null && minCitations > 0) { whereParts.push('p.citation_count >= ?'); binds.push(minCitations); }
+  if (filters.paperType) {
+    whereParts.push('s.paper_type = ?');
+    binds.push(filters.paperType);
+  }
+  if (filters.hasCode) { whereParts.push('p.code_count > 0'); }
+  if (filters.openAccess) { whereParts.push('p.is_open_access = 1'); }
 
   // Fetch with buffer so post-filter still returns `limit` rows.
   binds.push(limit * 2);
@@ -368,8 +396,13 @@ export async function ftsSearch(
     SELECT
       p.id, p.title, p.authors, p.abstract, p.categories,
       p.published_at, p.revised_at, p.pdf_url, p.html_url, p.indexed_at, p.summary_ready,
+      p.is_open_access, p.oa_url, p.concepts, p.affiliations,
+      p.code_count, p.has_benchmark, p.openalex_id, p.ss_paper_id,
+      p.influential_citation_count, p.reference_count,
       s.tldr, s.key_contributions, s.methods, s.limitations,
       s.beginner_explain, s.technical_summary, s.generated_at, s.model_version,
+      s.keywords, s.entities, s.paper_type, s.novelty,
+      s.applications, s.prerequisites, s.follow_up_questions,
       bm25(papers_fts, 10.0, 1.0, 5.0) AS keyword_score
     FROM papers_fts f
     JOIN papers p ON p.id = f.paper_id
@@ -384,4 +417,94 @@ export async function ftsSearch(
     const p = rowToPaper(r);
     return isPaperComplete(p);
   }).slice(0, limit) as Array<PaperRow & { keyword_score: number }>;
+}
+
+// ─── Enrichment Queries ─────────────────────────────────────────────────────
+
+/** Fetch code repos for a paper */
+export async function getPaperCode(db: D1Database, paperId: string): Promise<import('./types').PaperCode[]> {
+  const { results } = await db.prepare(`
+    SELECT paper_id, repo_url, stars, framework, is_official, fetched_at
+    FROM paper_code WHERE paper_id = ?
+    ORDER BY is_official DESC, stars DESC
+  `).bind(paperId).all<{
+    paper_id: string; repo_url: string; stars: number;
+    framework: string | null; is_official: number; fetched_at: string;
+  }>();
+  return results.map(r => ({
+    paperId: r.paper_id, repoUrl: r.repo_url, stars: r.stars,
+    framework: r.framework, isOfficial: r.is_official === 1, fetchedAt: r.fetched_at,
+  }));
+}
+
+/** Fetch benchmark results for a paper */
+export async function getPaperBenchmarks(db: D1Database, paperId: string): Promise<import('./types').PaperBenchmark[]> {
+  const { results } = await db.prepare(`
+    SELECT paper_id, task, dataset, metric, value, sota_rank, fetched_at
+    FROM paper_benchmarks WHERE paper_id = ?
+    ORDER BY task, dataset
+  `).bind(paperId).all<{
+    paper_id: string; task: string; dataset: string; metric: string;
+    value: number; sota_rank: number | null; fetched_at: string;
+  }>();
+  return results.map(r => ({
+    paperId: r.paper_id, task: r.task, dataset: r.dataset, metric: r.metric,
+    value: r.value, sotaRank: r.sota_rank, fetchedAt: r.fetched_at,
+  }));
+}
+
+/** Papers by Wikidata concept slug (JOIN on JSON concepts array) */
+export async function getPapersByConceptName(
+  db: D1Database, conceptName: string, limit = 20
+): Promise<PaperWithSummary[]> {
+  const fetchLimit = limit * 2;
+  const { results } = await db.prepare(`
+    SELECT p.id, p.title, p.authors, p.abstract, p.categories,
+      p.published_at, p.revised_at, p.pdf_url, p.html_url, p.indexed_at, p.summary_ready,
+      p.is_open_access, p.oa_url, p.concepts, p.affiliations,
+      p.code_count, p.has_benchmark, p.openalex_id, p.ss_paper_id,
+      p.influential_citation_count, p.reference_count,
+      s.tldr, s.key_contributions, s.methods, s.limitations,
+      s.beginner_explain, s.technical_summary, s.generated_at, s.model_version,
+      s.keywords, s.entities, s.paper_type, s.novelty,
+      s.applications, s.prerequisites, s.follow_up_questions
+    FROM papers p
+    LEFT JOIN summaries s ON s.paper_id = p.id
+    WHERE p.summary_ready = 1
+      AND EXISTS (
+        SELECT 1 FROM json_each(p.concepts)
+        WHERE json_each.value ->> 'name' = ?
+      )
+    ORDER BY p.published_at DESC
+    LIMIT ?
+  `).bind(conceptName, fetchLimit).all<PaperRow>();
+  return results.map(rowToPaper).filter(isPaperComplete).slice(0, limit);
+}
+
+/** Papers by institution name (JOIN on JSON affiliations array) */
+export async function getPapersByInstitution(
+  db: D1Database, institutionName: string, limit = 20
+): Promise<PaperWithSummary[]> {
+  const fetchLimit = limit * 2;
+  const { results } = await db.prepare(`
+    SELECT p.id, p.title, p.authors, p.abstract, p.categories,
+      p.published_at, p.revised_at, p.pdf_url, p.html_url, p.indexed_at, p.summary_ready,
+      p.is_open_access, p.oa_url, p.concepts, p.affiliations,
+      p.code_count, p.has_benchmark, p.openalex_id, p.ss_paper_id,
+      p.influential_citation_count, p.reference_count,
+      s.tldr, s.key_contributions, s.methods, s.limitations,
+      s.beginner_explain, s.technical_summary, s.generated_at, s.model_version,
+      s.keywords, s.entities, s.paper_type, s.novelty,
+      s.applications, s.prerequisites, s.follow_up_questions
+    FROM papers p
+    LEFT JOIN summaries s ON s.paper_id = p.id
+    WHERE p.summary_ready = 1
+      AND EXISTS (
+        SELECT 1 FROM json_each(p.affiliations)
+        WHERE json_each.value ->> 'institution' = ?
+      )
+    ORDER BY p.published_at DESC
+    LIMIT ?
+  `).bind(institutionName, fetchLimit).all<PaperRow>();
+  return results.map(rowToPaper).filter(isPaperComplete).slice(0, limit);
 }

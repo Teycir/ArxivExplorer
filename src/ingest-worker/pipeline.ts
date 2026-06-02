@@ -17,6 +17,9 @@ import { runConcurrent, delay, resolveIngestPlan, ingestConcurrency, isInScope }
 import { fetchArxivBatch } from './fetch-arxiv';
 import { generateEmbedding, upsertToVectorize } from './generate-embedding';
 import { generateSummary } from './generate-summary';
+import { generateEntities } from './generate-entities';
+import { fetchOpenAlex } from './fetch-openalex';
+import { fetchPwc } from './fetch-pwc';
 import { computeAndStoreRelated } from './compute-related';
 import { kvDelete } from '../api-worker/cache/kv';
 
@@ -158,23 +161,32 @@ async function processSinglePaper(entry: ArxivEntry, env: Env): Promise<void> {
     throw new Error(`Embedding failed for ${id}: ${String(err)}`);
   }
 
-  // 4c: summary
+  // 4c: summary + entity extraction (parallel, same wall-clock time)
   let summaryFields;
+  let entities: Array<{ name: string; type: 'model' | 'dataset' | 'benchmark' }> = [];
   try {
-    summaryFields = await generateSummary(abstract, env);
+    const [summaryResult, entitiesResult] = await Promise.allSettled([
+      generateSummary(abstract, env),
+      generateEntities(abstract, env),
+    ]);
+    if (summaryResult.status === 'rejected') throw summaryResult.reason;
+    summaryFields = summaryResult.value;
+    if (entitiesResult.status === 'fulfilled') entities = entitiesResult.value;
+    else console.warn(`[pipeline] Entity extraction failed for ${id} (non-fatal):`, entitiesResult.reason);
   } catch (err) {
     await markFailed(env.DB, id);
     throw new Error(`Summary failed for ${id}: ${String(err)}`);
   }
 
-  // Batch write summary + mark ready — single round trip
+  // Batch write summary (with enriched fields) + mark ready — single round trip
   try {
     await env.DB.batch([
       env.DB.prepare(`
         INSERT OR REPLACE INTO summaries
           (paper_id, tldr, key_contributions, methods, limitations,
-           beginner_explain, technical_summary, generated_at, model_version)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+           beginner_explain, technical_summary, generated_at, model_version,
+           keywords, entities, paper_type, novelty, applications, prerequisites, follow_up_questions)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).bind(
         id,
         summaryFields.tldr,
@@ -184,7 +196,14 @@ async function processSinglePaper(entry: ArxivEntry, env: Env): Promise<void> {
         summaryFields.beginner_explain,
         summaryFields.technical_summary,
         new Date().toISOString(),
-        env.SUMMARY_MODEL ?? '@cf/meta/llama-3.1-8b-instruct'
+        env.SUMMARY_MODEL ?? '@cf/meta/llama-3.1-8b-instruct',
+        JSON.stringify(summaryFields.keywords),
+        JSON.stringify(entities),
+        summaryFields.paper_type,
+        summaryFields.novelty,
+        JSON.stringify(summaryFields.applications),
+        JSON.stringify(summaryFields.prerequisites),
+        JSON.stringify(summaryFields.follow_up_questions),
       ),
       env.DB.prepare(
         'UPDATE papers SET summary_ready = 1 WHERE id = ?'
@@ -194,11 +213,26 @@ async function processSinglePaper(entry: ArxivEntry, env: Env): Promise<void> {
     throw new Error(`D1 summary write failed for ${id}: ${String(err)}`);
   }
 
-  // 4d: related papers (best-effort — don't fail the paper if this fails)
+  // 4d: related papers (best-effort)
   try {
     await computeAndStoreRelated(id, embedding, env);
   } catch (err) {
     console.warn(`[pipeline] compute-related failed for ${id} (non-fatal):`, err);
+  }
+
+  // 4e: OpenAlex enrichment (best-effort, ~100 ms network I/O)
+  try {
+    await fetchOpenAlex(id, env);
+    await delay(100); // stay under 10 req/s
+  } catch (err) {
+    console.warn(`[pipeline] OpenAlex failed for ${id} (non-fatal):`, err);
+  }
+
+  // 4f: Papers With Code enrichment (best-effort, 2 serial calls)
+  try {
+    await fetchPwc(id, env);
+  } catch (err) {
+    console.warn(`[pipeline] PWC failed for ${id} (non-fatal):`, err);
   }
 }
 
