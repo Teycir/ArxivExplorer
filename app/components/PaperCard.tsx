@@ -9,7 +9,7 @@ import { CategoryBadge } from './CategoryBadge';
 import { formatDate, truncate } from '@/helper/format';
 import type { PaperWithSummary } from '@/src/shared/types';
 import { isPaperComplete } from '@/lib/utils';
-import { FileText, Calendar, Users } from 'lucide-react';
+import { FileText, Calendar, Users, Code, Lock, BookOpen } from 'lucide-react';
 import { BookmarkDot } from './BookmarkDot';
 import { MoreLikeThisButton } from './MoreLikeThisButton';
 import { AuthorLinks } from './AuthorLinks';
@@ -19,11 +19,22 @@ interface PaperCardProps {
   showAbstract?: boolean;
 }
 
+const PAPER_TYPE_LABELS: Record<string, string> = {
+  empirical:   'Empirical',
+  theoretical: 'Theoretical',
+  survey:      'Survey',
+  dataset:     'Dataset',
+  position:    'Position',
+  tutorial:    'Tutorial',
+};
+
 export function PaperCard({ paper, showAbstract = false }: PaperCardProps) {
   // Hard guard — render nothing if the paper isn't fully ready.
   if (!isPaperComplete(paper)) return null;
 
   const tldr = paper.summary!.tldr;
+  const paperType = paper.summary!.paperType;
+  const typeLabel = paperType && paperType !== 'unknown' ? PAPER_TYPE_LABELS[paperType] : null;
 
   return (
     <Link href={`/paper/${encodeURIComponent(paper.id)}`} className="block group">
@@ -33,6 +44,37 @@ export function PaperCard({ paper, showAbstract = false }: PaperCardProps) {
           {paper.categories.slice(0, 3).map((cat) => (
             <CategoryBadge key={cat} category={cat} />
           ))}
+          {/* Research type pill */}
+          {typeLabel && (
+            <span className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono rounded-full
+              border border-violet-500/30 bg-violet-500/10 text-violet-400/80">
+              <BookOpen size={9} />
+              {typeLabel}
+            </span>
+          )}
+          {/* Code badge */}
+          {paper.codeCount > 0 && (
+            <span className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono rounded-full
+              border border-emerald-500/30 bg-emerald-500/10 text-emerald-400/80">
+              <Code size={9} />
+              {paper.codeCount} repo{paper.codeCount !== 1 ? 's' : ''}
+            </span>
+          )}
+          {/* Open access badge */}
+          {paper.isOpenAccess && (
+            <a
+              href={paper.oaUrl ?? undefined}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono rounded-full
+                border border-sky-500/30 bg-sky-500/10 text-sky-400/80
+                hover:border-sky-500/60 hover:text-sky-300 transition-colors"
+            >
+              <Lock size={9} />
+              Open Access
+            </a>
+          )}
           <span className="ml-auto flex items-center gap-1 text-xs text-neon-red/30 font-mono">
             <Calendar size={11} />
             {formatDate(paper.publishedAt)}

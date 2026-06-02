@@ -1,15 +1,18 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { getPaper, getRelatedPapers } from '@/helper/api';
+import { getPaper, getRelatedPapers, getPaperCode, getPaperBenchmarks } from '@/helper/api';
 import { Navbar } from '../../components/Navbar';
 import { CategoryBadge } from '../../components/CategoryBadge';
 import { Card } from '../../components/Card';
 import { SummarySection } from '../../components/SummarySection';
 import { RelatedPapersList } from '../../components/RelatedPapersList';
+import { CodeSection } from '../../components/CodeSection';
+import { BenchmarkSection } from '../../components/BenchmarkSection';
+import { ConceptBrowser } from '../../components/ConceptBrowser';
 import { formatDate } from '@/helper/format';
-import type { PaperWithSummary, RelatedPaper } from '@/src/shared/types';
-import { ExternalLink, FileText, Users, Calendar } from 'lucide-react';
+import type { PaperWithSummary, RelatedPaper, PaperCode, PaperBenchmark } from '@/src/shared/types';
+import { ExternalLink, FileText, Users, Calendar, Lock, Building2 } from 'lucide-react';
 import { BookmarkButton } from '../../components/BookmarkButton';
 import { ExportButton } from '../../components/ExportButton';
 import { ShareButton } from '../../components/ShareButton';
@@ -20,17 +23,7 @@ interface Props {
 }
 
 // Force dynamic — never ISR-cache this page.
-//
-// Why: the API worker (KV) already handles caching at the data layer.
-// ISR was causing "summary pending" HTML to be served for up to an hour
-// after a paper was first visited while summary_ready=0.  The client-side
-// poll in SummarySection then received summaryReady=1 with summary=null
-// from the stale SSR payload and stopped polling immediately — permanent
-// blank summary, no way to recover without a hard refresh.
-//
-// With force-dynamic every SSR render fetches fresh data from the API
-// worker, which itself is KV-cached (permanent for summary_ready=1 papers).
-// Cost: one extra KV read per page load — negligible.
+// The API worker (KV) already handles caching at the data layer.
 export const dynamic = 'force-dynamic';
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
@@ -54,18 +47,23 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 async function fetchPaperData(arxivId: string): Promise<{
   paper: PaperWithSummary;
   related: RelatedPaper[];
+  repos: PaperCode[];
+  benchmarks: PaperBenchmark[];
 }> {
-  const [paper, related] = await Promise.allSettled([
+  const [paper, related, repos, benchmarks] = await Promise.allSettled([
     getPaper(arxivId),
     getRelatedPapers(arxivId),
+    getPaperCode(arxivId),
+    getPaperBenchmarks(arxivId),
   ]);
 
-  // Paper not in DB → hard 404. No fallback to arXiv or anywhere else.
   if (paper.status === 'rejected') throw new Error('Paper not found');
 
   return {
     paper: paper.value,
-    related: related.status === 'fulfilled' ? related.value : [],
+    related:    related.status    === 'fulfilled' ? related.value    : [],
+    repos:      repos.status      === 'fulfilled' ? repos.value      : [],
+    benchmarks: benchmarks.status === 'fulfilled' ? benchmarks.value : [],
   };
 }
 
@@ -75,11 +73,19 @@ export default async function PaperPage({ params }: Props) {
 
   let paper: PaperWithSummary;
   let related: RelatedPaper[];
+  let repos: PaperCode[];
+  let benchmarks: PaperBenchmark[];
 
   try {
-    ({ paper, related } = await fetchPaperData(arxivId));
+    ({ paper, related, repos, benchmarks } = await fetchPaperData(arxivId));
   } catch {
     notFound();
+  }
+
+  // Build institution map: author name → institution
+  const affiliationMap = new Map<string, string>();
+  for (const a of paper.affiliations ?? []) {
+    if (a.author && a.institution) affiliationMap.set(a.author, a.institution);
   }
 
   return (
@@ -104,6 +110,19 @@ export default async function PaperPage({ params }: Props) {
                 {paper.categories.map((cat) => (
                   <CategoryBadge key={cat} category={cat} />
                 ))}
+                {/* Open access badge */}
+                {paper.isOpenAccess && (
+                  <a
+                    href={paper.oaUrl ?? undefined}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono rounded-full
+                      border border-sky-500/40 bg-sky-500/10 text-sky-400
+                      hover:border-sky-500/70 hover:text-sky-300 transition-colors"
+                  >
+                    <Lock size={9} /> Open Access
+                  </a>
+                )}
               </div>
 
               {/* Title */}
@@ -111,12 +130,36 @@ export default async function PaperPage({ params }: Props) {
                 {paper.title}
               </h1>
 
-              {/* Authors */}
-              <div className="flex items-start gap-2 text-xs text-neon-red/50 font-mono mb-3">
-                <Users size={13} className="flex-shrink-0 mt-0.5" />
-                <span className="leading-relaxed">
-                  <AuthorLinks authors={paper.authors} max={10} />
-                </span>
+              {/* Authors with affiliations */}
+              <div className="flex items-start gap-2 text-xs font-mono mb-3">
+                <Users size={13} className="flex-shrink-0 text-neon-red/50 mt-0.5" />
+                <div className="leading-relaxed">
+                  {paper.authors.map((author, i) => {
+                    const institution = affiliationMap.get(author);
+                    return (
+                      <span key={author} className="inline">
+                        <Link
+                          href={`/author/${encodeURIComponent(author)}`}
+                          className="text-neon-red/60 hover:text-neon-red transition-colors"
+                        >
+                          {author}
+                        </Link>
+                        {institution && (
+                          <span className="inline-flex items-center gap-0.5 ml-1 text-[10px] text-white/30">
+                            <Building2 size={9} />
+                            <Link
+                              href={`/institution/${encodeURIComponent(institution)}`}
+                              className="hover:text-white/60 transition-colors"
+                            >
+                              {institution}
+                            </Link>
+                          </span>
+                        )}
+                        {i < paper.authors.length - 1 && <span className="text-neon-red/20">, </span>}
+                      </span>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* Date + ID */}
@@ -132,60 +175,49 @@ export default async function PaperPage({ params }: Props) {
                   <FileText size={12} />
                   arXiv:{arxivId}
                 </span>
+                {paper.influentialCitationCount != null && paper.influentialCitationCount > 0 && (
+                  <span className="text-amber-400/50">
+                    {paper.influentialCitationCount} influential citation{paper.influentialCitationCount !== 1 ? 's' : ''}
+                  </span>
+                )}
               </div>
 
-              {/* Action buttons — only DB-backed URLs rendered, never synthesised */}
+              {/* Action buttons */}
               <div className="flex flex-wrap gap-2">
-                <BookmarkButton
-                  id={arxivId}
-                  title={paper.title}
-                  authors={paper.authors}
-                  categories={paper.categories}
-                />
-                <ShareButton
-                  id={arxivId}
-                  title={paper.title}
-                  tldr={paper.summary?.tldr}
-                />
-                <ExportButton
-                  id={arxivId}
-                  title={paper.title}
-                  authors={paper.authors}
-                  categories={paper.categories}
-                  publishedAt={paper.publishedAt}
-                  summary={paper.summary}
-                />
-                {/* PDF — only when the URL was stored in the DB at ingest time */}
+                <BookmarkButton id={arxivId} title={paper.title} authors={paper.authors} categories={paper.categories} />
+                <ShareButton id={arxivId} title={paper.title} tldr={paper.summary?.tldr} />
+                <ExportButton id={arxivId} title={paper.title} authors={paper.authors}
+                  categories={paper.categories} publishedAt={paper.publishedAt} summary={paper.summary} />
                 {paper.pdfUrl && (
-                  <a
-                    href={paper.pdfUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <a href={paper.pdfUrl} target="_blank" rel="noopener noreferrer"
                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono font-bold uppercase
                       border border-neon-red/30 text-neon-red/70 rounded-lg
-                      hover:border-neon-red/60 hover:text-neon-red hover:bg-neon-red/5 transition-all"
-                  >
+                      hover:border-neon-red/60 hover:text-neon-red hover:bg-neon-red/5 transition-all">
                     <ExternalLink size={12} /> PDF
                   </a>
                 )}
-                {/* HTML — only when the URL was stored in the DB at ingest time */}
                 {paper.htmlUrl && (
-                  <a
-                    href={paper.htmlUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                  <a href={paper.htmlUrl} target="_blank" rel="noopener noreferrer"
                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono font-bold uppercase
                       border border-neon-red/30 text-neon-red/70 rounded-lg
-                      hover:border-neon-red/60 hover:text-neon-red hover:bg-neon-red/5 transition-all"
-                  >
+                      hover:border-neon-red/60 hover:text-neon-red hover:bg-neon-red/5 transition-all">
                     <ExternalLink size={12} /> HTML
                   </a>
                 )}
               </div>
             </Card>
 
-            {/* AI Summary */}
+            {/* AI Summary + enriched panels */}
             <SummarySection paper={paper} />
+
+            {/* Code repositories */}
+            {repos.length > 0 && <CodeSection repos={repos} />}
+
+            {/* Benchmark results */}
+            {benchmarks.length > 0 && <BenchmarkSection benchmarks={benchmarks} />}
+
+            {/* Concept browser */}
+            {paper.concepts.length > 0 && <ConceptBrowser concepts={paper.concepts} />}
 
             {/* Abstract */}
             <Card title="Abstract">

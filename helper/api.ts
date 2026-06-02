@@ -8,7 +8,7 @@
  * edge network.  On the client we use the public API URL.
  */
 
-import type { PaperWithSummary, SearchResult, RelatedPaper, Topic } from '../src/shared/types';
+import type { PaperWithSummary, SearchResult, RelatedPaper, Topic, PaperCode, PaperBenchmark } from '../src/shared/types';
 
 const PUBLIC_API = 'https://arxiv-api.arxivexplorer.workers.dev';
 
@@ -79,6 +79,16 @@ export async function getRelatedPapers(arxivId: string): Promise<RelatedPaper[]>
   return apiFetch<RelatedPaper[]>(`/api/paper/${encodeURIComponent(arxivId)}/related`);
 }
 
+export async function getPaperCode(arxivId: string): Promise<PaperCode[]> {
+  const r = await apiFetch<{ repos: PaperCode[] }>(`/api/paper/${encodeURIComponent(arxivId)}/code`);
+  return r.repos;
+}
+
+export async function getPaperBenchmarks(arxivId: string): Promise<PaperBenchmark[]> {
+  const r = await apiFetch<{ benchmarks: PaperBenchmark[] }>(`/api/paper/${encodeURIComponent(arxivId)}/benchmarks`);
+  return r.benchmarks;
+}
+
 export async function getTrendingPapers(
   window: 'day' | 'week' | 'month' = 'week'
 ): Promise<{ papers: PaperWithSummary[]; total: number; window: string }> {
@@ -105,4 +115,16 @@ export async function getAuthorPapers(
 
 export async function getTopics(): Promise<{ topics: Array<{ slug: string; label: string; paperCount: number }>; total: number }> {
   return apiFetch('/api/topics');
+}
+
+export async function getConceptPapers(
+  name: string
+): Promise<{ concept: string; papers: PaperWithSummary[]; total: number }> {
+  return apiFetch(`/api/concept/${encodeURIComponent(name)}`);
+}
+
+export async function getInstitutionPapers(
+  name: string
+): Promise<{ institution: string; papers: PaperWithSummary[]; total: number }> {
+  return apiFetch(`/api/institution/${encodeURIComponent(name)}`);
 }
