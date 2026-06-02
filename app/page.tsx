@@ -136,6 +136,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
                 <Link
                   key={w}
                   href={w === 'week' ? '/' : `/?window=${w}`}
+                  scroll={false}
                   className={[
                     'px-2.5 py-1 text-[10px] font-mono font-semibold uppercase tracking-wider',
                     'rounded border transition-all duration-150',
