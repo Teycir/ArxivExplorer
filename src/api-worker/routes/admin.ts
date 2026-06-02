@@ -157,7 +157,7 @@ export async function handleCrossRefBatch(request: Request, env: Env): Promise<R
       });
     }
 
-    const email = (env as Record<string, string>).POLITE_EMAIL ?? '';
+    const email = (env as unknown as Record<string, string>).POLITE_EMAIL ?? '';
     let ok = 0, skipped = 0, failed = 0;
     const now = new Date().toISOString();
 
