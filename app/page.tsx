@@ -57,11 +57,34 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 
   return (
     <main className="flex-1 flex flex-col">
+
       {/* ── Hero ──────────────────────────────────────────────────────────── */}
       <section className="relative flex flex-col items-center justify-center min-h-[55vh] px-4 pt-20 pb-12 overflow-hidden">
         <BackgroundBeams className="opacity-40" />
 
         <div className="relative z-10 flex flex-col items-center gap-5 text-center max-w-2xl mx-auto">
+
+          {/* Stats badge — static, above title, never moves */}
+          <Link href="/explore" className="stats-badge animate-glow-pulse group">
+            {/* Live dot */}
+            <span className="stats-dot">
+              <span className="stats-dot-ping" />
+              <span className="stats-dot-core" />
+            </span>
+            {/* Label */}
+            <span className="text-[11px] font-mono font-bold uppercase tracking-widest text-neon-red/70
+              group-hover:text-neon-red transition-colors duration-200">
+              Index Stats
+            </span>
+            {/* Count */}
+            {totalPapers > 0 && (
+              <span className="text-[10px] font-mono text-neon-red/35 animate-count-slide
+                border-l border-neon-red/20 pl-2 group-hover:text-neon-red/60 transition-colors duration-200">
+                {totalPapers.toLocaleString()} papers
+              </span>
+            )}
+          </Link>
+
           {/* Logo */}
           <div className="flex items-center gap-2 mb-2">
             <span className="text-neon-red font-mono font-bold text-2xl tracking-widest uppercase text-glow">
@@ -111,25 +134,6 @@ export default async function HomePage({ searchParams }: HomePageProps) {
       </section>
 
       <div className="max-w-5xl mx-auto w-full px-4 pb-24 flex flex-col gap-16">
-        {/* ── Index Stats ────────────────────────────────────────────────────── */}
-        <section className="flex flex-col items-center gap-3 -mt-4">
-          <Link
-            href="/explore"
-            className="group inline-flex items-center gap-3 px-8 py-4 text-sm font-mono font-bold uppercase tracking-wider
-              border-2 border-neon-red/50 rounded-lg
-              bg-gradient-to-r from-neon-red/10 to-neon-red/5
-              hover:from-neon-red/20 hover:to-neon-red/10
-              hover:border-neon-red hover:shadow-[0_0_24px_rgba(0,255,65,0.35)]
-              transition-all duration-300 text-neon-red"
-          >
-            <span>Index Stats</span>
-          </Link>
-          {totalPapers > 0 && (
-            <p className="text-[10px] font-mono text-neon-red/30">
-              {totalPapers.toLocaleString()} papers indexed
-            </p>
-          )}
-        </section>
 
         {/* ── Topics ────────────────────────────────────────────────────────── */}
         <section>

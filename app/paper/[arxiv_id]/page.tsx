@@ -12,7 +12,7 @@ import { BenchmarkSection } from '../../components/BenchmarkSection';
 import { ConceptBrowser } from '../../components/ConceptBrowser';
 import { formatDate } from '@/helper/format';
 import type { PaperWithSummary, RelatedPaper, PaperCode, PaperBenchmark } from '@/src/shared/types';
-import { ExternalLink, FileText, Users, Calendar, Lock, Building2 } from 'lucide-react';
+import { ExternalLink, FileText, Users, Calendar, Lock, Building2, BookOpen } from 'lucide-react';
 import { BookmarkButton } from '../../components/BookmarkButton';
 import { ExportButton } from '../../components/ExportButton';
 import { CopyBibtex } from '../../components/CopyBibtex';
@@ -90,6 +90,18 @@ export default async function PaperPage({ params }: Props) {
     if (a.author && a.institution) affiliationMap.set(a.author, a.institution);
   }
 
+  // Paper type badge (matches PaperCard)
+  const PAPER_TYPE_LABELS: Record<string, string> = {
+    empirical:   'Empirical',
+    theoretical: 'Theoretical',
+    survey:      'Survey',
+    dataset:     'Dataset',
+    position:    'Position',
+    tutorial:    'Tutorial',
+  };
+  const paperType  = paper.summary?.paperType;
+  const typeLabel  = paperType && paperType !== 'unknown' ? PAPER_TYPE_LABELS[paperType] : null;
+
   return (
     <>
       <Navbar />
@@ -107,11 +119,19 @@ export default async function PaperPage({ params }: Props) {
 
             {/* Metadata card */}
             <Card>
-              {/* Categories */}
+              {/* Categories + paper-type badge */}
               <div className="flex flex-wrap gap-1.5 mb-4">
                 {paper.categories.map((cat) => (
                   <CategoryBadge key={cat} category={cat} />
                 ))}
+                {/* Research type pill — same style as PaperCard */}
+                {typeLabel && (
+                  <span className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono rounded-full
+                    border border-violet-500/30 bg-violet-500/10 text-violet-400/80">
+                    <BookOpen size={9} />
+                    {typeLabel}
+                  </span>
+                )}
                 {/* Open access badge */}
                 {paper.isOpenAccess && (
                   <a
