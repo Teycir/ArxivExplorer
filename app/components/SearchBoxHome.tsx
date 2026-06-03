@@ -5,7 +5,7 @@
 
 import { useState, useRef, type KeyboardEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, SlidersHorizontal, X } from 'lucide-react';
+import { Search, SlidersHorizontal, X, Code, Lock, BookOpen } from 'lucide-react';
 import { pushSearch } from '@/lib/searchHistory';
 import { SearchHistory } from './SearchHistory';
 
@@ -28,6 +28,15 @@ const DATE_RANGES = [
   { id: 'year', label: '1 year' },
 ];
 
+const PAPER_TYPES = [
+  { id: 'empirical', label: 'Empirical' },
+  { id: 'theoretical', label: 'Theoretical' },
+  { id: 'survey', label: 'Survey' },
+  { id: 'dataset', label: 'Dataset' },
+  { id: 'position', label: 'Position' },
+  { id: 'tutorial', label: 'Tutorial' },
+];
+
 export function SearchBoxHome() {
   const router   = useRouter();
   const [query,   setQuery]   = useState('');
@@ -37,9 +46,15 @@ export function SearchBoxHome() {
   const [date, setDate] = useState('');
   const [author, setAuthor] = useState('');
   const [minCitations, setMinCitations] = useState('');
+  const [paperType, setPaperType] = useState('');
+  const [hasCode, setHasCode] = useState(false);
+  const [openAccess, setOpenAccess] = useState(false);
   const wrapRef  = useRef<HTMLDivElement>(null);
 
-  const activeCount = [category, date, author, minCitations].filter(Boolean).length;
+  const activeCount = [
+    category, date, author, minCitations, paperType,
+    hasCode ? 'code' : '', openAccess ? 'oa' : ''
+  ].filter(Boolean).length;
 
   function submit(q?: string) {
     const final = (q ?? query).trim();
@@ -50,6 +65,9 @@ export function SearchBoxHome() {
     if (date) params.set('date', date);
     if (author) params.set('author', author);
     if (minCitations) params.set('minCitations', minCitations);
+    if (paperType) params.set('paperType', paperType);
+    if (hasCode) params.set('hasCode', '1');
+    if (openAccess) params.set('openAccess', '1');
     router.push(`/search?${params.toString()}`);
   }
 
@@ -60,6 +78,7 @@ export function SearchBoxHome() {
 
   function clearFilters() {
     setCategory(''); setDate(''); setAuthor(''); setMinCitations('');
+    setPaperType(''); setHasCode(false); setOpenAccess(false);
   }
 
   return (
@@ -156,6 +175,49 @@ export function SearchBoxHome() {
                 >{r.label}</button>
               ))}
             </div>
+          </div>
+
+          {/* Paper Type */}
+          <div>
+            <p className="text-[10px] font-mono text-neon-red/40 mb-1.5 flex items-center gap-1">
+              <BookOpen size={10} /> PAPER TYPE
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {PAPER_TYPES.map(pt => (
+                <button key={pt.id}
+                  onClick={() => setPaperType(paperType === pt.id ? '' : pt.id)}
+                  className={`px-2 py-0.5 text-[10px] font-mono rounded border transition-all ${
+                    paperType === pt.id
+                      ? 'border-violet-500/60 bg-violet-500/20 text-violet-300'
+                      : 'border-neon-red/15 text-neon-red/40 hover:border-neon-red/30'
+                  }`}
+                >{pt.label}</button>
+              ))}
+            </div>
+          </div>
+
+          {/* Toggles: Has Code + Open Access */}
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => setHasCode(!hasCode)}
+              className={`flex items-center gap-1 px-2.5 py-1 text-[10px] font-mono rounded-lg border transition-all ${
+                hasCode
+                  ? 'border-emerald-500/60 bg-emerald-500/15 text-emerald-400'
+                  : 'border-neon-red/20 text-neon-red/40 hover:border-emerald-500/30 hover:text-emerald-400/70'
+              }`}
+            >
+              <Code size={11} /> Has Code
+            </button>
+            <button
+              onClick={() => setOpenAccess(!openAccess)}
+              className={`flex items-center gap-1 px-2.5 py-1 text-[10px] font-mono rounded-lg border transition-all ${
+                openAccess
+                  ? 'border-sky-500/60 bg-sky-500/15 text-sky-400'
+                  : 'border-neon-red/20 text-neon-red/40 hover:border-sky-500/30 hover:text-sky-400/70'
+              }`}
+            >
+              <Lock size={11} /> Open Access
+            </button>
           </div>
 
           {/* Author + Citations */}

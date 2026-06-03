@@ -26,6 +26,11 @@ interface SearchPageProps {
     like?: string;   // "more like this" mode — arXiv ID
     category?: string;
     date?: string;
+    author?: string;
+    minCitations?: string;
+    paperType?: string;
+    hasCode?: string;
+    openAccess?: string;
   }>;
 }
 
@@ -46,7 +51,15 @@ export async function generateMetadata({ searchParams }: SearchPageProps): Promi
 
 async function fetchResults(
   query: string,
-  opts: { category?: string; date?: string }
+  opts: {
+    category?: string;
+    date?: string;
+    author?: string;
+    minCitations?: string;
+    paperType?: string;
+    hasCode?: string;
+    openAccess?: string;
+  }
 ): Promise<{ data: SearchResult | null; error: string | null }> {
   try {
     const data = await searchPapers(query, opts);
@@ -57,7 +70,7 @@ async function fetchResults(
 }
 
 async function SearchResults({ searchParams }: SearchPageProps) {
-  const { q, like, category, date } = await searchParams;
+  const { q, like, category, date, author, minCitations, paperType, hasCode, openAccess } = await searchParams;
 
   // ── "More like this" mode ─────────────────────────────────────────────────
   if (like) {
@@ -111,7 +124,12 @@ async function SearchResults({ searchParams }: SearchPageProps) {
   // ── Server fetch ──────────────────────────────────────────────────────────
   const { data: result, error } = await fetchResults(query, {
     ...(category && { category }),
-    ...(date     && { date }),
+    ...(date && { date }),
+    ...(author && { author }),
+    ...(minCitations && { minCitations }),
+    ...(paperType && { paperType }),
+    ...(hasCode && { hasCode }),
+    ...(openAccess && { openAccess }),
   });
 
   // ── Error ─────────────────────────────────────────────────────────────────
@@ -144,8 +162,16 @@ async function SearchResults({ searchParams }: SearchPageProps) {
     );
   }
 
-  // Active filters for display (category + date only — code filter removed)
-  const activeFilters = [category, date].filter(Boolean);
+  // Active filters for display
+  const activeFilters = [
+    category,
+    date,
+    author,
+    minCitations && `≥${minCitations} citations`,
+    paperType,
+    hasCode === '1' && 'has code',
+    openAccess === '1' && 'open access'
+  ].filter(Boolean);
 
   // ── Results ───────────────────────────────────────────────────────────────
   return (

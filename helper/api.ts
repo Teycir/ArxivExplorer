@@ -62,12 +62,25 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 
 export async function searchPapers(
   query: string,
-  opts: { category?: string; date?: string } = {}
+  opts: {
+    category?: string;
+    date?: string;
+    author?: string;
+    minCitations?: string;
+    paperType?: string;
+    hasCode?: string;
+    openAccess?: string;
+  } = {}
 ): Promise<SearchResult> {
   if (!query.trim()) throw new Error('Search query must not be empty');
   const params = new URLSearchParams({ q: query });
   if (opts.category) params.set('category', opts.category);
-  if (opts.date)     params.set('date',     opts.date);
+  if (opts.date) params.set('date', opts.date);
+  if (opts.author) params.set('author', opts.author);
+  if (opts.minCitations) params.set('minCitations', opts.minCitations);
+  if (opts.paperType) params.set('paperType', opts.paperType);
+  if (opts.hasCode) params.set('hasCode', opts.hasCode);
+  if (opts.openAccess) params.set('openAccess', opts.openAccess);
   return apiFetch<SearchResult>(`/api/search?${params.toString()}`);
 }
 
