@@ -39,14 +39,19 @@ export async function handleTrending(
   const cacheKey = kvTrending(window);
   const ttl      = TTL_BY_WINDOW[window];
 
-  // 1. KV cache — validate that the first paper still exists with summary_ready = 1
+  // 1. KV cache — validate that the first paper is still fully complete
+  // (summary_ready=1 AND has a real summaries row with a non-empty tldr).
+  // Without the summaries join, a paper with summary_ready=1 but no summary
+  // row would pass the guard and keep stale/broken data cached.
   try {
     const cached = await kvGet<{ papers: { id: string }[] }>(env.CACHE, cacheKey);
     if (cached !== null) {
       const firstId = cached.papers?.[0]?.id;
       if (firstId) {
         const row = await env.DB.prepare(
-          'SELECT id FROM papers WHERE id = ? AND summary_ready = 1'
+          `SELECT p.id FROM papers p
+           JOIN summaries s ON s.paper_id = p.id
+           WHERE p.id = ? AND p.summary_ready = 1 AND s.tldr != ''`
         ).bind(firstId).first();
         if (row) return jsonResponse(cached, cors);
         // Cache is stale — fall through to re-query

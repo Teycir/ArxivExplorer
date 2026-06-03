@@ -78,7 +78,6 @@ export function rowToPaper(row: PaperRow): PaperWithSummary {
   if (row.revised_at) paper.revisedAt = row.revised_at;
   if (row.openalex_id) paper.openalexId = row.openalex_id;
   if (row.ss_paper_id) paper.ssPaperId = row.ss_paper_id;
-  if (row.ss_tldr) paper.ssTldr = row.ss_tldr;
   if (row.influential_citation_count != null) paper.influentialCitationCount = row.influential_citation_count;
   if (row.reference_count != null) paper.referenceCount = row.reference_count;
 
@@ -196,9 +195,10 @@ export async function getTrendingPapers(
     FROM papers p
     LEFT JOIN summaries s ON s.paper_id = p.id
     WHERE p.summary_ready = 1
+      AND p.published_at >= ?
     ORDER BY p.indexed_at DESC
     LIMIT ?
-  `).bind(fetchLimit).all<PaperRow>();
+  `).bind(since, fetchLimit).all<PaperRow>();
 
   return results.map(rowToPaper).filter(isPaperComplete).slice(0, limit);
 }

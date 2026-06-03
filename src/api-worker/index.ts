@@ -28,6 +28,8 @@ import { handleCitations } from './routes/citations';
 import { handleConcept } from './routes/concept';
 import { handleInstitution } from './routes/institution';
 import { handlePaperCode, handlePaperBenchmarks } from './routes/enrichment';
+import { handleGraph } from './routes/graph';
+import { handleStats } from './routes/stats';
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -53,6 +55,16 @@ export default {
       // /api/topics
       if (path === '/api/topics') {
         return handleTopics(request, env, ctx);
+      }
+
+      // /api/stats
+      if (path === '/api/stats') {
+        return handleStats(request, env, ctx);
+      }
+
+      // /api/graph
+      if (path === '/api/graph') {
+        return handleGraph(request, env, ctx);
       }
 
       // /api/search?q=

@@ -317,7 +317,10 @@ export async function handleCrossRefBatch(request: Request, env: Env): Promise<R
           now, id,
         ).run();
         ok++;
-      } catch { failed++; }
+      } catch (err) {
+        console.error(`[admin/crossref-batch] failed for paper ${id} (doi: ${doi}):`, err);
+        failed++;
+      }
     }
 
     return new Response(JSON.stringify({ ok: true, processed: results.length, enriched: ok, skipped, failed }), {

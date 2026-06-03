@@ -18,7 +18,8 @@ export interface Paper {
   // ── Enrichment fields (Phase 1) ──────────────────────────────────────────
   openalexId?: string;
   ssPaperId?: string;
-  ssTldr?: string;
+  // ss_tldr intentionally omitted — not populated by any ingest path yet.
+  // Wire it up via the citations route (ss_paper_id is already stored) when needed.
   isOpenAccess: boolean;
   oaUrl: string | null;
   concepts: Array<{ name: string; wikidataId: string; score: number }>;
@@ -122,7 +123,7 @@ export interface PaperRow {
   // Enrichment columns (papers table)
   openalex_id?: string;
   ss_paper_id?: string;
-  ss_tldr?: string;
+  // ss_tldr: not selected — not populated by any ingest path; see Paper interface comment.
   is_open_access?: number;
   oa_url?: string;
   concepts?: string;      // JSON

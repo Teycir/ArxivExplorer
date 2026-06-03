@@ -21,13 +21,16 @@
   },
   "dependencies": {
     "@opennextjs/cloudflare": "^1.19.10",
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.6.1",
     "clsx": "^2.1.1",
     "framer-motion": "^11.18.2",
     "lucide-react": "^1.16.0",
     "next": "16.2.6",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
-    "tailwind-merge": "^2.4.0"
+    "tailwind-merge": "^2.4.0",
+    "three": "^0.184.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241022.0",

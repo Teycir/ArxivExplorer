@@ -129,6 +129,9 @@ export function Navbar() {
               </span>
             )}
           </Link>
+          <Link href="/explore" className="hover:text-neon-red/70 transition-colors font-semibold">
+            Explore 3D
+          </Link>
           <Link href="/rss.xml" className="hover:text-neon-red/70 transition-colors" target="_blank">
             RSS
           </Link>

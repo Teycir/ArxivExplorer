@@ -114,7 +114,10 @@ export async function handleSearch(
   }
 
   // Step 4: Merge, then fetch any semantic-only papers that FTS missed
-  const merged = await mergeResults(env.DB, ftsRows, semanticMatches, limit);
+  const { papers: merged, d1Errors } = await mergeResults(env.DB, ftsRows, semanticMatches, limit);
+  if (d1Errors > 0) {
+    warnings.push(`semantic_d1_fetch_failed: ${d1Errors} paper(s) dropped due to D1 errors`);
+  }
 
   const response = {
     papers: merged,
@@ -216,7 +219,7 @@ async function mergeResults(
   ftsRows: Array<{ paper: PaperWithSummary; score: number }>,
   semanticMatches: Array<{ paperId: string; score: number }>,
   limit: number
-): Promise<PaperWithSummary[]> {
+): Promise<{ papers: PaperWithSummary[]; d1Errors: number }> {
   const scoreMap = new Map<string, { paper?: PaperWithSummary; score: number }>();
 
   for (const { paper, score } of ftsRows) {
@@ -238,6 +241,7 @@ async function mergeResults(
     .map(([id]) => id);
 
   // Batch-fetch missing papers from D1 in parallel (up to VECTORIZE_TOP_K gaps)
+  let d1Errors = 0;
   if (missingIds.length > 0) {
     const fetched = await Promise.allSettled(
       missingIds.map(id => getPaperById(db, id))
@@ -249,9 +253,9 @@ async function mergeResults(
         scoreMap.get(id)!.paper = r.value;
       } else {
         if (r.status === 'rejected') {
-          // D1 fetch error — log so it's visible; remove from results so the
-          // client doesn't see a half-populated entry with no paper data.
+          // D1 fetch error — log and count so caller can set degraded:true.
           console.error(`[search] D1 fetch failed for semantic-only paper ${id}:`, r.reason);
+          d1Errors++;
         }
         // 'fulfilled' + null means index lag (paper in Vectorize but not yet in D1) — silent drop is fine.
         scoreMap.delete(id);
@@ -265,7 +269,7 @@ async function mergeResults(
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
 
-  return ranked.map(e => e.paper!);
+  return { papers: ranked.map(e => e.paper!), d1Errors };
 }
 
 // ─── More Like This ────────────────────────────────────────────────────────
@@ -285,7 +289,11 @@ async function handleMoreLikeThis(
   try {
     const cached = await kvGet<unknown>(env.CACHE, cacheKey);
     if (cached !== null) return jsonResponse(cached, cors);
-  } catch { /* cache miss — continue */ }
+  } catch (err) {
+    // KV parse/read error — surface as 503 (same policy as paper.ts / author.ts).
+    console.error(`[search/like] KV read error for ${paperId}:`, err);
+    return errorResponse(`Cache error: ${String(err)}`, cors, 503);
+  }
 
   // Fetch the source paper's vector by ID
   let sourceVectors;

@@ -141,3 +141,7 @@ export async function getInstitutionPapers(
 ): Promise<{ institution: string; papers: PaperWithSummary[]; total: number }> {
   return apiFetch(`/api/institution/${encodeURIComponent(name)}`);
 }
+
+export async function getStats(): Promise<{ totalPapers: number }> {
+  return apiFetch('/api/stats');
+}

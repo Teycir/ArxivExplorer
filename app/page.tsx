@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { getTrendingPapers, getTopics } from '@/helper/api';
+import { getTrendingPapers, getTopics, getStats } from '@/helper/api';
 import { AnimatedTagline } from './components/AnimatedTagline';
 import { BackgroundBeams } from './components/ui/background-beams';
 import { SearchBoxHome } from './components/SearchBoxHome';
@@ -44,12 +44,14 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   const activeWindow: TrendingWindow =
     rawWindow === 'day' || rawWindow === 'month' ? rawWindow : 'week';
 
-  const [trending, topicsData] = await Promise.all([
+  const [trending, topicsData, stats] = await Promise.all([
     fetchTrending(activeWindow),
     getTopics().catch(() => ({ topics: [], total: 0 })),
+    getStats().catch(() => ({ totalPapers: 0 })),
   ]);
 
   const topics = topicsData.topics;
+  const totalPapers = stats.totalPapers;
 
   return (
     <main className="flex-1 flex flex-col">
@@ -107,6 +109,35 @@ export default async function HomePage({ searchParams }: HomePageProps) {
       </section>
 
       <div className="max-w-5xl mx-auto w-full px-4 pb-24 flex flex-col gap-16">
+        {/* ── 3D Explore ─────────────────────────────────────────────────────── */}
+        <section className="flex flex-col items-center gap-3 -mt-4">
+          <Link
+            href="/explore"
+            className="group inline-flex items-center gap-3 px-8 py-4 text-sm font-mono font-bold uppercase tracking-wider
+              border-2 border-neon-red/50 rounded-lg
+              bg-gradient-to-r from-neon-red/10 to-neon-red/5
+              hover:from-neon-red/20 hover:to-neon-red/10
+              hover:border-neon-red hover:shadow-[0_0_24px_rgba(0,255,65,0.35)]
+              transition-all duration-300 text-neon-red"
+          >
+            {/* 3-node graph icon */}
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0 opacity-80 group-hover:opacity-100 transition-opacity">
+              <circle cx="9"  cy="3"  r="2" fill="currentColor"/>
+              <circle cx="3"  cy="14" r="2" fill="currentColor"/>
+              <circle cx="15" cy="14" r="2" fill="currentColor"/>
+              <line x1="9"  y1="5"  x2="3"  y2="12" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+              <line x1="9"  y1="5"  x2="15" y2="12" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+              <line x1="5"  y1="14" x2="13" y2="14" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
+            </svg>
+            <span>Explore Research in 3D</span>
+          </Link>
+          {totalPapers > 0 && (
+            <p className="text-[10px] font-mono text-neon-red/30">
+              {totalPapers.toLocaleString()} papers with KNN connections
+            </p>
+          )}
+        </section>
+
         {/* ── Topics ────────────────────────────────────────────────────────── */}
         <section>
           <div className="flex flex-col items-center gap-3 mb-5">
@@ -117,6 +148,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
               All topics are scoped to Computer Science — ML, security, systems, theory, and more.
             </p>
           </div>
+
           <TopicChips topics={topics} />
         </section>
 
