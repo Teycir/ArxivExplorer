@@ -122,7 +122,22 @@ export async function getTopicPapers(
 
 export async function getAuthorPapers(
   name: string
-): Promise<{ author: string; papers: PaperWithSummary[]; total: number }> {
+): Promise<{
+  author: string;
+  papers: PaperWithSummary[];
+  total: number;
+  stats?: {
+    totalPapers: number;
+    topCategories: Array<{ cat: string; count: number }>;
+    topCoAuthors: Array<{ name: string; count: number }>;
+    timeline: Array<{ year: string; count: number }>;
+    recentCount: number;
+    codeCount: number;
+    openAccCount: number;
+    totalInfluentialCites: number;
+    benchmarkCount: number;
+  };
+}> {
   return apiFetch(`/api/author/${encodeURIComponent(name)}`);
 }
 

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { getAuthorPapers } from '@/helper/api';
 import { Navbar } from '../../components/Navbar';
 import { PaperCard } from '../../components/PaperCard';
+import { AuthorStatsPanel } from '../../components/AuthorStatsPanel';
 import { Users } from 'lucide-react';
 
 // ISR: 6h (matches KV TTL)
@@ -33,7 +34,7 @@ export default async function AuthorPage({ params }: Props) {
     notFound();
   }
 
-  const { author, papers } = data;
+  const { author, papers, total, stats } = data;
 
   return (
     <>
@@ -49,34 +50,42 @@ export default async function AuthorPage({ params }: Props) {
         </nav>
 
         {/* Header */}
-        <div className="flex items-center gap-3 mb-8">
-          <div className="w-10 h-10 rounded-full border border-neon-red/30 bg-neon-red/5
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-12 h-12 rounded-full border border-neon-red/30 bg-neon-red/5
             flex items-center justify-center flex-shrink-0">
-            <Users size={18} className="text-neon-red/50" />
+            <Users size={20} className="text-neon-red/50" />
           </div>
           <div>
             <h1 className="text-xl font-mono font-bold text-white/90">{author}</h1>
             <p className="text-xs text-neon-red/40 font-mono mt-0.5">
-              {papers.length} indexed paper{papers.length !== 1 ? 's' : ''}
+              {total} indexed paper{total !== 1 ? 's' : ''}
             </p>
           </div>
         </div>
 
+        {/* Stats panel — rendered client-side so it doesn't block SSR */}
+        {stats && <AuthorStatsPanel stats={stats} />}
+
         {/* Papers */}
-        {papers.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-24 gap-3 text-center">
-            <p className="text-neon-red/40 font-mono text-sm">No papers indexed for this author.</p>
-            <Link href="/" className="mt-2 text-xs text-neon-red/40 hover:text-neon-red font-mono underline">
-              ← Back to home
-            </Link>
-          </div>
-        ) : (
-          <div className="grid gap-4">
-            {papers.map((paper) => (
-              <PaperCard key={paper.id} paper={paper} showAbstract />
-            ))}
-          </div>
-        )}
+        <div className="mt-8">
+          <h2 className="text-xs font-mono font-bold text-neon-red/50 uppercase tracking-widest mb-4">
+            Papers
+          </h2>
+          {papers.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-24 gap-3 text-center">
+              <p className="text-neon-red/40 font-mono text-sm">No papers indexed for this author.</p>
+              <Link href="/" className="mt-2 text-xs text-neon-red/40 hover:text-neon-red font-mono underline">
+                ← Back to home
+              </Link>
+            </div>
+          ) : (
+            <div className="grid gap-4">
+              {papers.map((paper) => (
+                <PaperCard key={paper.id} paper={paper} showAbstract />
+              ))}
+            </div>
+          )}
+        </div>
       </main>
     </>
   );

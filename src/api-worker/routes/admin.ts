@@ -45,6 +45,41 @@ export async function handleVectorizeUpsert(request: Request, env: Env): Promise
 }
 
 /**
+ * POST /admin/kv/delete
+ * Deletes a KV cache key. Body: { "key": "kv:topic:slug" }
+ */
+export async function handleKvDelete(request: Request, env: Env): Promise<Response> {
+  if (!checkAuth(request, env)) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  try {
+    const { key } = await request.json() as { key: string };
+    if (!key) {
+      return new Response(JSON.stringify({ error: 'Missing key' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    await env.CACHE.delete(key);
+
+    return new Response(JSON.stringify({ success: true, key }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  } catch (err) {
+    console.error('[admin] kv/delete error:', err);
+    return new Response(JSON.stringify({ error: String(err) }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+}
+
+/**
  * POST /admin/retry-failed
  * Resets summary_ready=2 papers back to summary_ready=0 so the next ingest
  * run picks them up again. Optional JSON body: { "older_than_days": 7 }

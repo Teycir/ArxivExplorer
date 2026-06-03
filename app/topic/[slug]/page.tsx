@@ -8,6 +8,8 @@ import { CategoryBadge } from '../../components/CategoryBadge';
 import { CategoryScopeBar } from '../../components/CategoryScopeBar';
 import { Database } from 'lucide-react';
 import { TOPICS, TOPIC_SLUGS } from '@/lib/topics';
+import { TopicActivityTracker } from '../../components/TopicActivityTracker';
+import { AchievementToast } from '../../components/AchievementToast';
 
 // ISR: 12h (matches KV TTL)
 export const revalidate = 43200;
@@ -67,6 +69,8 @@ export default async function TopicPage({ params }: Props) {
   return (
     <>
       <Navbar />
+      <TopicActivityTracker slug={slug} />
+      <AchievementToast />
       <main className="max-w-5xl mx-auto w-full px-4 py-8 flex-1">
         {/* Breadcrumb */}
         <nav className="flex items-center gap-2 text-xs font-mono text-neon-red/30 mb-6">

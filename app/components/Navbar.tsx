@@ -132,6 +132,9 @@ export function Navbar() {
           <Link href="/explore" className="hover:text-neon-red/70 transition-colors font-semibold">
             Stats
           </Link>
+          <Link href="/achievements" className="hover:text-neon-red/70 transition-colors hidden sm:block" title="Achievements">
+            🏆
+          </Link>
           <Link href="/rss.xml" className="hover:text-neon-red/70 transition-colors" target="_blank">
             RSS
           </Link>

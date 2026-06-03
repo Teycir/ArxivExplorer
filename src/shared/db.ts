@@ -65,21 +65,10 @@ export function rowToPaper(row: PaperRow): PaperWithSummary {
     htmlUrl: row.html_url ?? null,
     indexedAt: row.indexed_at,
     summaryReady: row.summary_ready as 0 | 1 | 2,
-    // ── Enrichment fields ───────────────────────────────────────────────────
-    isOpenAccess: (row.is_open_access ?? 0) === 1,
-    oaUrl: row.oa_url ?? null,
-    concepts: safeJsonParse(row.concepts, []),
-    affiliations: safeJsonParse(row.affiliations, []),
-    codeCount: row.code_count ?? 0,
-    hasBenchmark: (row.has_benchmark ?? 0) === 1,
     summary: null,
   };
 
   if (row.revised_at) paper.revisedAt = row.revised_at;
-  if (row.openalex_id) paper.openalexId = row.openalex_id;
-  if (row.ss_paper_id) paper.ssPaperId = row.ss_paper_id;
-  if (row.influential_citation_count != null) paper.influentialCitationCount = row.influential_citation_count;
-  if (row.reference_count != null) paper.referenceCount = row.reference_count;
 
   if (row.tldr && row.key_contributions && row.methods && row.limitations &&
       row.beginner_explain && row.technical_summary && row.generated_at && row.model_version) {
@@ -93,14 +82,6 @@ export function rowToPaper(row: PaperRow): PaperWithSummary {
       technicalSummary: row.technical_summary,
       generatedAt: row.generated_at,
       modelVersion: row.model_version,
-      // Enriched summary fields — safe defaults for pre-migration rows
-      keywords: safeJsonParse<string[]>(row.keywords, []),
-      entities: safeJsonParse(row.entities, []),
-      paperType: (row.paper_type as Summary['paperType']) ?? 'unknown',
-      novelty: row.novelty ?? '',
-      applications: safeJsonParse<string[]>(row.applications, []),
-      prerequisites: safeJsonParse<string[]>(row.prerequisites, []),
-      followUpQuestions: safeJsonParse<string[]>(row.follow_up_questions, []),
     };
     paper.summary = summary;
   }
@@ -125,13 +106,8 @@ function safeJsonParse<T>(value: string | undefined, fallback: T): T {
 const PAPER_SELECT = `
       p.id, p.title, p.authors, p.abstract, p.categories,
       p.published_at, p.revised_at, p.pdf_url, p.html_url, p.indexed_at, p.summary_ready,
-      p.is_open_access, p.oa_url, p.concepts, p.affiliations,
-      p.code_count, p.has_benchmark, p.openalex_id, p.ss_paper_id,
-      p.influential_citation_count, p.reference_count,
       s.tldr, s.key_contributions, s.methods, s.limitations,
-      s.beginner_explain, s.technical_summary, s.generated_at, s.model_version,
-      s.keywords, s.entities, s.paper_type, s.novelty,
-      s.applications, s.prerequisites, s.follow_up_questions`;
+      s.beginner_explain, s.technical_summary, s.generated_at, s.model_version`;
 
 // ─── Paper Queries ──────────────────────────────────────────────────────────
 
@@ -255,26 +231,20 @@ export async function getPapersByTopic(
     return results.map(rowToPaper).filter(isPaperComplete).slice(0, limit);
   }
 
-  // For multiple categories, use UNION ALL (faster than DISTINCT on large sets)
-  const fetchLimit = Math.ceil(limit * 2 / tags.length);
+  // For multiple categories, use UNION ALL
   const unions = tags.map(() => `
     SELECT ${PAPER_SELECT}
     FROM paper_categories pc
     JOIN papers p ON p.id = pc.paper_id
     LEFT JOIN summaries s ON s.paper_id = p.id
     WHERE pc.category = ? AND p.summary_ready = 1
-    ORDER BY p.published_at DESC
-    LIMIT ?
   `).join(' UNION ALL ');
-
-  const binds: (string | number)[] = [];
-  tags.forEach(tag => { binds.push(tag, fetchLimit); });
 
   const { results } = await db.prepare(`
     SELECT * FROM (${unions})
     ORDER BY published_at DESC
     LIMIT ?
-  `).bind(...binds, limit * 2).all<PaperRow>();
+  `).bind(...tags, limit * 2).all<PaperRow>();
 
   // Deduplicate by ID (papers may appear in multiple categories)
   const seen = new Set<string>();

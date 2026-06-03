@@ -171,6 +171,12 @@ export default {
         return handleBulkInsertRelated(request, env);
       }
 
+      // /admin/kv/delete (POST) — delete KV cache key
+      if (path === '/admin/kv/delete' && request.method === 'POST') {
+        const { handleKvDelete } = await import('./routes/admin');
+        return handleKvDelete(request, env);
+      }
+
       return new Response(JSON.stringify({ error: 'Not found', path }), {
         status: 404,
         headers: { 'Content-Type': 'application/json', ...cors },

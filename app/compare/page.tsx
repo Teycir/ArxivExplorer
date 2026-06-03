@@ -29,8 +29,8 @@ export default async function ComparePage({
           <div className="text-center space-y-4">
             <h1 className="text-2xl font-mono font-bold text-white">Compare Papers</h1>
             <p className="text-sm text-neutral-500 font-mono">
-              Add paper IDs to the URL:{' '}
-              <code className="text-neon-red/60">/compare?ids=id1,id2,id3</code>
+              Add up to 6 paper IDs to the URL:{' '}
+              <code className="text-neon-red/60">/compare?ids=id1,id2,...,id6</code>
             </p>
           </div>
         </main>
@@ -42,7 +42,7 @@ export default async function ComparePage({
     .split(',')
     .map(id => id.trim())
     .filter(Boolean)
-    .slice(0, 4); // max 4
+    .slice(0, 6); // max 6 (roadmap Phase 4 enhancement)
 
   if (ids.length === 0) notFound();
 

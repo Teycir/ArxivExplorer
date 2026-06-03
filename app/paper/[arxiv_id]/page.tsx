@@ -19,6 +19,9 @@ import { CopyBibtex } from '../../components/CopyBibtex';
 import { CopyId } from '../../components/CopyId';
 import { ShareButton } from '../../components/ShareButton';
 import { AuthorLinks } from '../../components/AuthorLinks';
+import { SkillLadder } from '../../components/SkillLadder';
+import { ActivityTracker } from '../../components/ActivityTracker';
+import { AchievementToast } from '../../components/AchievementToast';
 
 interface Props {
   params: Promise<{ arxiv_id: string }>;
@@ -105,6 +108,14 @@ export default async function PaperPage({ params }: Props) {
   return (
     <>
       <Navbar />
+      {/* Activity tracking + achievement toasts (client-side, zero cost) */}
+      <ActivityTracker
+        paperId={arxivId}
+        hasCode={paper.codeCount > 0}
+        hasBenchmark={paper.hasBenchmark}
+        influentialCitationCount={paper.influentialCitationCount}
+      />
+      <AchievementToast />
       <main className="max-w-5xl mx-auto w-full px-4 py-8 flex-1">
         {/* Breadcrumb */}
         <nav className="flex items-center gap-2 text-xs font-mono text-neon-red/30 mb-6">
@@ -233,6 +244,15 @@ export default async function PaperPage({ params }: Props) {
 
             {/* AI Summary + enriched panels */}
             <SummarySection paper={paper} />
+
+            {/* Skill ladder — only shown when summary has prerequisites */}
+            {paper.summary?.prerequisites && paper.summary.prerequisites.length > 0 && (
+              <SkillLadder
+                paperId={paper.id}
+                prerequisites={paper.summary.prerequisites}
+                paperTitle={paper.title}
+              />
+            )}
 
             {/* Code repositories */}
             {repos.length > 0 && <CodeSection repos={repos} />}

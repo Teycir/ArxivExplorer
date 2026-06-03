@@ -14,6 +14,7 @@ import { BookmarkDot } from './BookmarkDot';
 import { MoreLikeThisButton } from './MoreLikeThisButton';
 import { AuthorLinks } from './AuthorLinks';
 import { CopyId } from './CopyId';
+import { QualityBadges } from './QualityBadges';
 
 interface PaperCardProps {
   paper: PaperWithSummary;
@@ -87,6 +88,8 @@ export function PaperCard({ paper, showAbstract = false }: PaperCardProps) {
               Open Access
             </a>
           )}
+          {/* Quality badges: Influential, Benchmarked, Comprehensive, Recent */}
+          <QualityBadges paper={paper} compact />
           <span className="ml-auto flex items-center gap-1 text-xs text-neon-red/30 font-mono">
             <Calendar size={11} />
             {formatDate(paper.publishedAt)}
