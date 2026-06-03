@@ -109,7 +109,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
       </section>
 
       <div className="max-w-5xl mx-auto w-full px-4 pb-24 flex flex-col gap-16">
-        {/* ── 3D Explore ─────────────────────────────────────────────────────── */}
+        {/* ── Index Stats ────────────────────────────────────────────────────── */}
         <section className="flex flex-col items-center gap-3 -mt-4">
           <Link
             href="/explore"
@@ -120,20 +120,11 @@ export default async function HomePage({ searchParams }: HomePageProps) {
               hover:border-neon-red hover:shadow-[0_0_24px_rgba(0,255,65,0.35)]
               transition-all duration-300 text-neon-red"
           >
-            {/* 3-node graph icon */}
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0 opacity-80 group-hover:opacity-100 transition-opacity">
-              <circle cx="9"  cy="3"  r="2" fill="currentColor"/>
-              <circle cx="3"  cy="14" r="2" fill="currentColor"/>
-              <circle cx="15" cy="14" r="2" fill="currentColor"/>
-              <line x1="9"  y1="5"  x2="3"  y2="12" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-              <line x1="9"  y1="5"  x2="15" y2="12" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-              <line x1="5"  y1="14" x2="13" y2="14" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/>
-            </svg>
-            <span>Explore Research in 3D</span>
+            <span>Index Stats</span>
           </Link>
           {totalPapers > 0 && (
             <p className="text-[10px] font-mono text-neon-red/30">
-              {totalPapers.toLocaleString()} papers with KNN connections
+              {totalPapers.toLocaleString()} papers indexed
             </p>
           )}
         </section>

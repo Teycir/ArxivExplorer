@@ -39,7 +39,8 @@ async function main() {
   // Get papers with summaries
   const papersJson = execSync(
     `wrangler d1 execute arxiv-explorer --remote --json --command="
-      SELECT id, title, primary_category
+      SELECT id, title,
+             COALESCE(primary_category, json_extract(categories, '$[0]'), 'cs.LG') AS primary_category
       FROM papers
       WHERE summary_ready = 1
       ORDER BY published_at DESC
@@ -82,7 +83,7 @@ async function main() {
   let clusterId = 0;
   
   rows.forEach((r: any) => {
-    const cat = r.primary_category || 'unknown';
+    const cat = r.primary_category || 'cs.LG';
     if (!categoryMap.has(cat)) {
       categoryMap.set(cat, clusterId++);
     }
@@ -90,14 +91,15 @@ async function main() {
 
   console.log(`Generated ${clusterId} clusters`);
 
-  // Generate 3D positions using force-directed layout simulation
-  const positions = generatePositions(rows.length, edgeRows);
+  // Generate 3D positions using cluster-aware lobe layout
+  const categories = rows.map((r: any) => r.primary_category || 'cs.LG');
+  const positions = generatePositions(rows.length, edgeRows, categories);
 
   const papers: Paper[] = rows.map((r: any, i: number) => ({
     id: r.id,
     title: r.title,
-    category: r.primary_category || 'unknown',
-    cluster: categoryMap.get(r.primary_category || 'unknown') ?? 0,
+    category: r.primary_category || 'cs.LG',
+    cluster: categoryMap.get(r.primary_category || 'cs.LG') ?? 0,
     x: positions[i]!.x,
     y: positions[i]!.y,
     z: positions[i]!.z,
@@ -122,56 +124,56 @@ async function main() {
   console.log(`✅ Written ${papers.length} papers, ${edges.length} edges to ${outPath}`);
 }
 
-function generatePositions(count: number, edges: any[]): Array<{x: number; y: number; z: number}> {
-  // Build adjacency map
-  const adj = new Map<number, number[]>();
-  const idToIndex = new Map<string, number>();
-  
-  // Initialize positions randomly in a sphere
-  const positions = Array.from({ length: count }, () => {
-    const theta = Math.random() * Math.PI * 2;
-    const phi = Math.acos(2 * Math.random() - 1);
-    const r = 15;
-    return {
-      x: r * Math.sin(phi) * Math.cos(theta),
-      y: r * Math.sin(phi) * Math.sin(theta),
-      z: r * Math.cos(phi),
-    };
-  });
-
-  // Simple force-directed layout (10 iterations)
-  const ITERATIONS = 10;
-  const REPULSION = 0.5;
-  const ATTRACTION = 0.01;
-
-  for (let iter = 0; iter < ITERATIONS; iter++) {
-    const forces = positions.map(() => ({ x: 0, y: 0, z: 0 }));
-
-    // Repulsion between all pairs
-    for (let i = 0; i < count; i++) {
-      for (let j = i + 1; j < count; j++) {
-        const dx = positions[j]!.x - positions[i]!.x;
-        const dy = positions[j]!.y - positions[i]!.y;
-        const dz = positions[j]!.z - positions[i]!.z;
-        const dist = Math.sqrt(dx*dx + dy*dy + dz*dz) + 0.01;
-        const force = REPULSION / (dist * dist);
-        
-        forces[i]!.x -= force * dx / dist;
-        forces[i]!.y -= force * dy / dist;
-        forces[i]!.z -= force * dz / dist;
-        forces[j]!.x += force * dx / dist;
-        forces[j]!.y += force * dy / dist;
-        forces[j]!.z += force * dz / dist;
-      }
-    }
-
-    // Apply forces
-    for (let i = 0; i < count; i++) {
-      positions[i]!.x += forces[i]!.x;
-      positions[i]!.y += forces[i]!.y;
-      positions[i]!.z += forces[i]!.z;
-    }
+// Generate cluster-aware 3D positions.
+// Each category gets its own lobe on a large sphere; papers within
+// a lobe are spread with fibonacci sampling + jitter for natural look.
+function generatePositions(
+  count: number,
+  _edges: unknown[],
+  categories: string[],
+): Array<{x: number; y: number; z: number}> {
+  // Group indices by category
+  const groups = new Map<string, number[]>();
+  for (let i = 0; i < count; i++) {
+    const cat = categories[i] ?? 'cs.LG';
+    if (!groups.has(cat)) groups.set(cat, []);
+    groups.get(cat)!.push(i);
   }
+
+  const clusterKeys = Array.from(groups.keys());
+  const numClusters = clusterKeys.length;
+  const CLUSTER_RADIUS = 12;  // distance from origin to lobe centre
+  const SPREAD = 4;            // radius of each lobe
+
+  const positions: Array<{x: number; y: number; z: number}> = new Array(count);
+
+  clusterKeys.forEach((cat, ci) => {
+    const indices = groups.get(cat)!;
+    // Distribute lobe centres evenly over a sphere surface
+    const phi   = Math.acos(1 - 2 * (ci + 0.5) / numClusters);
+    const theta = Math.PI * (1 + Math.sqrt(5)) * ci;
+    const cx = CLUSTER_RADIUS * Math.sin(phi) * Math.cos(theta);
+    const cy = CLUSTER_RADIUS * Math.sin(phi) * Math.sin(theta);
+    const cz = CLUSTER_RADIUS * Math.cos(phi);
+
+    indices.forEach((paperIdx, pi) => {
+      // Fibonacci sphere sampling within lobe
+      const t2 = (pi + 0.5) / indices.length;
+      const p2 = Math.acos(1 - 2 * t2);
+      const t3 = Math.PI * (1 + Math.sqrt(5)) * pi;
+      // Deterministic jitter so same-run is reproducible
+      const seed = (paperIdx * 9301 + 49297) % 233280;
+      const jx = (seed / 233280 - 0.5) * 1.2;
+      const jy = ((seed * 17) % 233280 / 233280 - 0.5) * 1.2;
+      const jz = ((seed * 31) % 233280 / 233280 - 0.5) * 1.2;
+
+      positions[paperIdx] = {
+        x: cx + SPREAD * Math.sin(p2) * Math.cos(t3) + jx,
+        y: cy + SPREAD * Math.sin(p2) * Math.sin(t3) + jy,
+        z: cz + SPREAD * Math.cos(p2) + jz,
+      };
+    });
+  });
 
   return positions;
 }
