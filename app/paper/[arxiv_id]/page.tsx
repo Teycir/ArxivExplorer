@@ -15,6 +15,8 @@ import type { PaperWithSummary, RelatedPaper, PaperCode, PaperBenchmark } from '
 import { ExternalLink, FileText, Users, Calendar, Lock, Building2 } from 'lucide-react';
 import { BookmarkButton } from '../../components/BookmarkButton';
 import { ExportButton } from '../../components/ExportButton';
+import { CopyBibtex } from '../../components/CopyBibtex';
+import { CopyId } from '../../components/CopyId';
 import { ShareButton } from '../../components/ShareButton';
 import { AuthorLinks } from '../../components/AuthorLinks';
 
@@ -173,7 +175,7 @@ export default async function PaperPage({ params }: Props) {
                 </span>
                 <span className="flex items-center gap-1">
                   <FileText size={12} />
-                  arXiv:{arxivId}
+                  <CopyId id={arxivId} />
                 </span>
                 {paper.influentialCitationCount != null && paper.influentialCitationCount > 0 && (
                   <span className="text-amber-400/50">
@@ -186,6 +188,8 @@ export default async function PaperPage({ params }: Props) {
               <div className="flex flex-wrap gap-2">
                 <BookmarkButton id={arxivId} title={paper.title} authors={paper.authors} categories={paper.categories} />
                 <ShareButton id={arxivId} title={paper.title} tldr={paper.summary?.tldr} />
+                <CopyBibtex id={arxivId} title={paper.title} authors={paper.authors}
+                  categories={paper.categories} publishedAt={paper.publishedAt} />
                 <ExportButton id={arxivId} title={paper.title} authors={paper.authors}
                   categories={paper.categories} publishedAt={paper.publishedAt} summary={paper.summary} />
                 {paper.pdfUrl && (

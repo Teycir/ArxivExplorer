@@ -27,25 +27,27 @@ const WINDOW_LABELS: Record<TrendingWindow, string> = {
 };
 
 interface HomePageProps {
-  searchParams: Promise<{ window?: string }>;
+  searchParams: Promise<{ window?: string; cat?: string }>;
 }
 
-async function fetchTrending(window: TrendingWindow): Promise<PaperWithSummary[]> {
+async function fetchTrending(window: TrendingWindow, category?: string): Promise<PaperWithSummary[]> {
   try {
     const data = await getTrendingPapers(window);
-    return data.papers ?? [];
+    const papers = data.papers ?? [];
+    if (category) return papers.filter(p => p.categories.includes(category));
+    return papers;
   } catch {
     return [];
   }
 }
 
 export default async function HomePage({ searchParams }: HomePageProps) {
-  const { window: rawWindow } = await searchParams;
+  const { window: rawWindow, cat: activeCategory } = await searchParams;
   const activeWindow: TrendingWindow =
     rawWindow === 'day' || rawWindow === 'month' ? rawWindow : 'week';
 
   const [trending, topicsData, stats] = await Promise.all([
-    fetchTrending(activeWindow),
+    fetchTrending(activeWindow, activeCategory),
     getTopics().catch(() => ({ topics: [], total: 0 })),
     getStats().catch(() => ({ totalPapers: 0 })),
   ]);
@@ -140,7 +142,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
             </p>
           </div>
 
-          <TopicChips topics={topics} />
+          <TopicChips topics={topics.map(t => ({ ...t, paperCount: t.paperCount }))} />
         </section>
 
         {/* ── Personalized feed (client, needs bookmarks) ───────────────── */}
@@ -148,7 +150,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 
         {/* ── Trending ──────────────────────────────────────────────────────── */}
         <section>
-          <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
+          <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
             <h2 className="text-xs font-mono font-bold text-neon-red/50 uppercase tracking-widest">
               Trending
             </h2>
@@ -158,7 +160,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
               {(['day', 'week', 'month'] as TrendingWindow[]).map((w) => (
                 <Link
                   key={w}
-                  href={w === 'week' ? '/' : `/?window=${w}`}
+                  href={w === 'week' ? (activeCategory ? `/?cat=${activeCategory}` : '/') : `/?window=${w}${activeCategory ? `&cat=${activeCategory}` : ''}`}
                   scroll={false}
                   className={[
                     'px-2.5 py-1 text-[10px] font-mono font-semibold uppercase tracking-wider',
@@ -174,24 +176,59 @@ export default async function HomePage({ searchParams }: HomePageProps) {
             </div>
 
             <Link
-              href={`/search?q=neural+networks&date=${activeWindow}`}
+              href={`/search?q=*&date=${activeWindow}${activeCategory ? `&category=${activeCategory}` : ''}`}
               className="text-xs text-neon-red/40 hover:text-neon-red/70 transition-colors font-mono"
             >
               See more →
             </Link>
           </div>
 
+          {/* Category filter chips */}
+          <div className="flex flex-wrap gap-1.5 mb-5">
+            <Link
+              href={activeWindow === 'week' ? '/' : `/?window=${activeWindow}`}
+              scroll={false}
+              className={[
+                'px-2.5 py-1 text-[10px] font-mono rounded border transition-all',
+                !activeCategory
+                  ? 'border-neon-red/50 bg-neon-red/10 text-neon-red'
+                  : 'border-neon-red/15 text-neon-red/35 hover:border-neon-red/30 hover:text-neon-red/60',
+              ].join(' ')}
+            >
+              All
+            </Link>
+            {[
+              { id: 'cs.AI', label: 'AI' },
+              { id: 'cs.LG', label: 'ML' },
+              { id: 'cs.CL', label: 'NLP' },
+              { id: 'cs.CV', label: 'Vision' },
+              { id: 'cs.CR', label: 'Crypto' },
+              { id: 'cs.RO', label: 'Robotics' },
+              { id: 'cs.DC', label: 'Distributed' },
+              { id: 'cs.SE', label: 'Software' },
+            ].map(c => (
+              <Link
+                key={c.id}
+                href={activeWindow === 'week' ? `/?cat=${c.id}` : `/?window=${activeWindow}&cat=${c.id}`}
+                scroll={false}
+                className={[
+                  'px-2.5 py-1 text-[10px] font-mono rounded border transition-all',
+                  activeCategory === c.id
+                    ? 'border-neon-red/50 bg-neon-red/10 text-neon-red'
+                    : 'border-neon-red/15 text-neon-red/35 hover:border-neon-red/30 hover:text-neon-red/60',
+                ].join(' ')}
+              >
+                {c.label}
+              </Link>
+            ))}
+          </div>
+
+          {/* Trending grid */}
           {trending.length === 0 ? (
-            <div className="rounded-xl border border-neon-red/10 bg-dark-bg px-5 py-12 text-center">
-              <p className="text-sm text-neon-red/30 font-mono">
-                No papers indexed in the last {activeWindow === 'day' ? '24 hours' : activeWindow === 'week' ? '7 days' : '30 days'} yet.
-              </p>
-            </div>
+            <p className="text-sm text-neon-red/30 text-center py-8 font-mono">No papers found</p>
           ) : (
-            <div className="grid gap-4">
-              {trending.slice(0, 6).map((paper) => (
-                <PaperCard key={paper.id} paper={paper} />
-              ))}
+            <div className="grid grid-cols-1 gap-4">
+              {trending.map(p => <PaperCard key={p.id} paper={p} />)}
             </div>
           )}
         </section>

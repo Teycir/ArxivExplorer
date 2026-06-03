@@ -21,9 +21,10 @@ const VISIT_KEY  = 'arxiv_topic_visits';
 const NEW_WINDOW = 48 * 60 * 60 * 1000; // 48 h in ms
 
 export interface TopicChip {
-  slug:      string;
-  label:     string;
-  category?: string;
+  slug:       string;
+  label:      string;
+  category?:  string;
+  paperCount?: number;
 }
 
 function readVisits(): Record<string, number> {
@@ -90,6 +91,12 @@ export function TopicChips({ topics }: { topics: TopicChip[] }) {
               />
             )}
             {t.label}
+            {t.paperCount != null && t.paperCount > 0 && (
+              <span className="text-[9px] font-bold tabular-nums
+                text-neon-red/40 border border-neon-red/15 rounded px-1 py-0.5">
+                {t.paperCount >= 1000 ? `${(t.paperCount / 1000).toFixed(1)}k` : t.paperCount}
+              </span>
+            )}
             {t.category && (
               <span className="text-[9px] font-normal normal-case tracking-normal
                 text-neon-red/30 border border-neon-red/15 rounded px-1 py-0.5 hidden sm:inline">

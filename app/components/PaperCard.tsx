@@ -9,10 +9,11 @@ import { CategoryBadge } from './CategoryBadge';
 import { formatDate, truncate } from '@/helper/format';
 import type { PaperWithSummary } from '@/src/shared/types';
 import { isPaperComplete } from '@/lib/utils';
-import { FileText, Calendar, Users, Code, Lock, BookOpen } from 'lucide-react';
+import { FileText, Calendar, Users, Code, Lock, BookOpen, Sparkles } from 'lucide-react';
 import { BookmarkDot } from './BookmarkDot';
 import { MoreLikeThisButton } from './MoreLikeThisButton';
 import { AuthorLinks } from './AuthorLinks';
+import { CopyId } from './CopyId';
 
 interface PaperCardProps {
   paper: PaperWithSummary;
@@ -36,14 +37,25 @@ export function PaperCard({ paper, showAbstract = false }: PaperCardProps) {
   const paperType = paper.summary!.paperType;
   const typeLabel = paperType && paperType !== 'unknown' ? PAPER_TYPE_LABELS[paperType] : null;
 
+  // NEW badge: published within last 48 h
+  const isNew = Date.now() - new Date(paper.publishedAt).getTime() < 48 * 60 * 60 * 1000;
+
   return (
     <Link href={`/paper/${encodeURIComponent(paper.id)}`} className="block group">
       <Card>
-        {/* Header row: categories + date */}
+        {/* Header row: categories + badges + date */}
         <div className="flex flex-wrap items-center gap-2 mb-3">
           {paper.categories.slice(0, 3).map((cat) => (
             <CategoryBadge key={cat} category={cat} />
           ))}
+          {/* NEW badge */}
+          {isNew && (
+            <span className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono rounded-full
+              border border-neon-red/50 bg-neon-red/10 text-neon-red font-bold animate-pulse">
+              <Sparkles size={9} />
+              NEW
+            </span>
+          )}
           {/* Research type pill */}
           {typeLabel && (
             <span className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono rounded-full
@@ -87,7 +99,7 @@ export function PaperCard({ paper, showAbstract = false }: PaperCardProps) {
           {paper.title}
         </h3>
 
-        {/* Authors — each name is a clickable link to the author page */}
+        {/* Authors */}
         <div className="flex items-start gap-1.5 mb-3">
           <Users size={11} className="flex-shrink-0 text-neon-red/40 mt-0.5" />
           <p className="text-xs text-neon-red/40 font-mono leading-relaxed">
@@ -95,16 +107,16 @@ export function PaperCard({ paper, showAbstract = false }: PaperCardProps) {
           </p>
         </div>
 
-        {/* TL;DR — always present after isPaperComplete guard */}
+        {/* TL;DR */}
         <p className="text-xs text-white/55 leading-relaxed">
           {truncate(tldr, 200)}
         </p>
 
-        {/* Footer: arXiv ID + more-like-this + bookmark indicator */}
+        {/* Footer: copy ID + more-like-this + bookmark */}
         <div className="mt-3 pt-3 border-t border-neon-red/10 flex items-center justify-between gap-2">
-          <span className="flex items-center gap-1 text-xs text-neon-red/30 font-mono shrink-0">
-            <FileText size={11} />
-            {paper.id}
+          <span className="flex items-center gap-1 shrink-0">
+            <FileText size={11} className="text-neon-red/30" />
+            <CopyId id={paper.id} />
           </span>
           <span className="flex items-center gap-2">
             <MoreLikeThisButton id={paper.id} />
