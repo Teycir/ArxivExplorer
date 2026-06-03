@@ -15,17 +15,15 @@ export interface Paper {
   htmlUrl: string | null;  // stored in DB; null when not provided by arXiv
   indexedAt: string;
   summaryReady: 0 | 1 | 2; // 0=pending, 1=ready, 2=failed
-  // ── Enrichment fields (Phase 1) ──────────────────────────────────────────
+  // ── Enrichment fields (Phase 1) — optional until schema migration ──────
   openalexId?: string;
   ssPaperId?: string;
-  // ss_tldr intentionally omitted — not populated by any ingest path yet.
-  // Wire it up via the citations route (ss_paper_id is already stored) when needed.
-  isOpenAccess: boolean;
-  oaUrl: string | null;
-  concepts: Array<{ name: string; wikidataId: string; score: number }>;
-  affiliations: Array<{ author: string; institution: string; country: string; rorId?: string }>;
-  codeCount: number;
-  hasBenchmark: boolean;
+  isOpenAccess?: boolean;
+  oaUrl?: string | null;
+  concepts?: Array<{ name: string; wikidataId: string; score: number }>;
+  affiliations?: Array<{ author: string; institution: string; country: string; rorId?: string }>;
+  codeCount?: number;
+  hasBenchmark?: boolean;
   influentialCitationCount?: number;
   referenceCount?: number;
 }
@@ -40,14 +38,14 @@ export interface Summary {
   technicalSummary: string;
   generatedAt: string;
   modelVersion: string;
-  // ── Enrichment fields (Phase 2) ──────────────────────────────────────────
-  keywords: string[];
-  entities: Array<{ name: string; type: 'model' | 'dataset' | 'benchmark' }>;
-  paperType: 'empirical' | 'theoretical' | 'survey' | 'dataset' | 'position' | 'tutorial' | 'unknown';
-  novelty: string;
-  applications: string[];
-  prerequisites: string[];
-  followUpQuestions: string[];
+  // ── Enrichment fields (Phase 2) — optional until schema migration ──────
+  keywords?: string[];
+  entities?: Array<{ name: string; type: 'model' | 'dataset' | 'benchmark' }>;
+  paperType?: 'empirical' | 'theoretical' | 'survey' | 'dataset' | 'position' | 'tutorial' | 'unknown';
+  novelty?: string;
+  applications?: string[];
+  prerequisites?: string[];
+  followUpQuestions?: string[];
 }
 
 export interface PaperWithSummary extends Paper {

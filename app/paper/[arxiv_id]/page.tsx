@@ -111,9 +111,9 @@ export default async function PaperPage({ params }: Props) {
       {/* Activity tracking + achievement toasts (client-side, zero cost) */}
       <ActivityTracker
         paperId={arxivId}
-        hasCode={paper.codeCount > 0}
-        hasBenchmark={paper.hasBenchmark}
-        influentialCitationCount={paper.influentialCitationCount}
+        hasCode={(paper.codeCount ?? 0) > 0}
+        hasBenchmark={paper.hasBenchmark ?? false}
+        influentialCitationCount={paper.influentialCitationCount ?? 0}
       />
       <AchievementToast />
       <main className="max-w-5xl mx-auto w-full px-4 py-8 flex-1">
@@ -261,7 +261,7 @@ export default async function PaperPage({ params }: Props) {
             {benchmarks.length > 0 && <BenchmarkSection benchmarks={benchmarks} />}
 
             {/* Concept browser */}
-            {paper.concepts.length > 0 && <ConceptBrowser concepts={paper.concepts} />}
+            {paper.concepts && paper.concepts.length > 0 && <ConceptBrowser concepts={paper.concepts} />}
 
             {/* Abstract */}
             <Card title="Abstract">
