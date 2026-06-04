@@ -29,7 +29,7 @@ interface Props {
 
 // Force dynamic — never ISR-cache this page.
 // The API worker (KV) already handles caching at the data layer.
-export const dynamic = 'force-dynamic';
+export const revalidate = 3600; // 1 hour ISR for paper pages
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { arxiv_id } = await params;
@@ -108,6 +108,36 @@ export default async function PaperPage({ params }: Props) {
   return (
     <>
       <Navbar />
+      
+      {/* JSON-LD structured data for AI crawlers and search engines */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            '@context': 'https://schema.org',
+            '@type': 'ScholarlyArticle',
+            headline: paper.title,
+            description: paper.summary?.tldr ?? paper.abstract.slice(0, 300),
+            abstract: paper.abstract,
+            datePublished: paper.publishedAt,
+            dateModified: paper.revisedAt ?? paper.publishedAt,
+            author: paper.authors.map(name => ({
+              '@type': 'Person',
+              name: name,
+            })),
+            keywords: paper.summary?.keywords ?? [],
+            url: `https://arxivexplorer.arxivexplorer.workers.dev/paper/${paper.id}`,
+            sameAs: `https://arxiv.org/abs/${paper.id}`,
+            isAccessibleForFree: true,
+            license: 'https://arxiv.org/help/license',
+            about: paper.categories.map(cat => ({
+              '@type': 'Thing',
+              name: cat,
+            })),
+          }),
+        }}
+      />
+      
       {/* Activity tracking + achievement toasts (client-side, zero cost) */}
       <ActivityTracker
         paperId={arxivId}

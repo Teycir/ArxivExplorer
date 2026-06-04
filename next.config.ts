@@ -22,18 +22,15 @@ const nextConfig: NextConfig = {
       {
         source: '/:path*',
         headers: [
-          { key: 'Cache-Control', value: 'no-store, must-revalidate' },
-          { key: 'Pragma',        value: 'no-cache' },
-          { key: 'Expires',       value: '0' },
           {
             key: 'Content-Security-Policy',
             value: [
               "default-src 'self'",
               "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
               "worker-src 'self' blob:",
-              "style-src 'self' 'unsafe-inline'",
+              "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               "img-src 'self' data: blob: https://arxiv.org",
-              "font-src 'self' data:",
+              "font-src 'self' data: https://fonts.gstatic.com",
               "connect-src 'self' https://arxiv-api.arxivexplorer.workers.dev",
               "frame-ancestors 'none'",
               "base-uri 'self'",
