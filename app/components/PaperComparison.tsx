@@ -236,7 +236,7 @@ export function PaperComparison({ papers }: PaperComparisonProps) {
                     Code
                   </span>
                 )}
-                {paper.hasBenchmark && (
+                {(paper.hasBenchmark ?? false) && (
                   <span className="px-1.5 py-0.5 text-[9px] font-mono rounded border border-purple-500/30 text-purple-400/70 bg-purple-500/10">
                     Benchmarked
                   </span>
@@ -249,7 +249,7 @@ export function PaperComparison({ papers }: PaperComparisonProps) {
 
       {/* ── Comparison sections ───────────────────────────────────────── */}
       {visibleFields.map(field => (
-        <ComparisonSection key={field.key} title={field.label} papers={papers} fieldKey={field.key} isList={field.isList} />
+        <ComparisonSection key={field.key} title={field.label} papers={papers} fieldKey={field.key} {...(field.isList !== undefined && { isList: field.isList })} />
       ))}
     </div>
   );

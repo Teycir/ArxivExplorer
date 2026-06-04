@@ -66,11 +66,11 @@ export function PaperCard({ paper, showAbstract = false }: PaperCardProps) {
             </span>
           )}
           {/* Code badge */}
-          {paper.codeCount > 0 && (
+          {(paper.codeCount ?? 0) > 0 && (
             <span className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono rounded-full
               border border-emerald-500/30 bg-emerald-500/10 text-emerald-400/80">
               <Code size={9} />
-              {paper.codeCount} repo{paper.codeCount !== 1 ? 's' : ''}
+              {paper.codeCount} repo{(paper.codeCount ?? 1) !== 1 ? 's' : ''}
             </span>
           )}
           {/* Open access badge */}

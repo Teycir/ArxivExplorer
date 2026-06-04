@@ -43,7 +43,7 @@ export function QualityBadges({ paper, compact = false }: QualityBadgesProps) {
   }
 
   // Benchmarked: has benchmark results from Papers With Code
-  if (paper.hasBenchmark) {
+  if (paper.hasBenchmark ?? false) {
     badges.push(
       <span
         key="benchmarked"
@@ -90,11 +90,11 @@ export function QualityBadges({ paper, compact = false }: QualityBadgesProps) {
   }
 
   // Code available (only shown in non-compact mode to avoid dup with PaperCard's own badge)
-  if (!compact && paper.codeCount > 0) {
+  if (!compact && (paper.codeCount ?? 0) > 0) {
     badges.push(
       <span
         key="code"
-        title={`${paper.codeCount} code repositor${paper.codeCount !== 1 ? 'ies' : 'y'} linked`}
+        title={`${paper.codeCount ?? 0} code repositor${(paper.codeCount ?? 1) !== 1 ? 'ies' : 'y'} linked`}
         className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono rounded-full
           border border-emerald-500/30 bg-emerald-500/10 text-emerald-400/80 cursor-default"
       >
