@@ -622,6 +622,7 @@ See [LICENSE.md](LICENSE.md) for full terms, or [contact the author](https://tey
 - [Cloudflare](https://cloudflare.com) for the edge platform
 - [Next.js](https://nextjs.org) / [OpenNext](https://opennext.js.org) for the framework + Worker adapter
 - [Ollama](https://ollama.com) for local model inference
+- [SeekYou](https://github.com/Teycir/SeekYou) for BackgroundBeams, DecryptedText, and AnimatedTagline components
 
 ---
 
