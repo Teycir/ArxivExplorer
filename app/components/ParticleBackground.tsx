@@ -5,9 +5,11 @@ import * as THREE from 'three';
 
 export function ParticleBackground() {
   const containerRef = useRef<HTMLDivElement>(null);
+  const mountedRef = useRef(false);
 
   useEffect(() => {
-    if (!containerRef.current) return;
+    if (!containerRef.current || mountedRef.current) return;
+    mountedRef.current = true;
 
     const container = containerRef.current;
     const width = window.innerWidth;
@@ -193,24 +195,31 @@ export function ParticleBackground() {
     window.addEventListener('resize', handleResize);
 
     return () => {
+      mountedRef.current = false;
       window.removeEventListener('resize', handleResize);
-      scene.remove(points);
-      scene.remove(points2);
-      scene.remove(light);
-      scene.clear();
-      container.removeChild(renderer.domElement);
-      renderer.dispose();
+      
+      // Stop animation
+      if (container && renderer.domElement.parentNode === container) {
+        container.removeChild(renderer.domElement);
+      }
+      
+      // Dispose Three.js objects
       pointsGeometry.dispose();
       pointsGeometry2.dispose();
       pointsMaterial.dispose();
       pointsMaterial2.dispose();
+      renderer.dispose();
+      
+      // Clear scene
+      scene.remove(points, points2, light);
+      scene.clear();
     };
   }, []);
 
   return (
     <div
       ref={containerRef}
-      className="fixed inset-0 pointer-events-none opacity-30 z-0"
+      className="fixed inset-0 pointer-events-none opacity-50 z-0"
       style={{ mixBlendMode: 'screen' }}
       aria-hidden="true"
     />
