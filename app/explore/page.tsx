@@ -9,7 +9,7 @@ export const metadata: Metadata = {
   description: 'Browse CS research by topic, category, and trending papers.',
 };
 
-export const revalidate = 3600;
+export const dynamic = 'force-dynamic';
 
 const CAT_LABELS: Record<string, string> = {
   'cs.AI':   'Artificial Intelligence',

@@ -110,9 +110,10 @@ function cosine(a: Map<string, number>, b: Map<string, number>): number {
 interface PaperRow { id: string; title: string; abstract: string }
 
 function fetchCorpus(): PaperRow[] {
-  // Fetch in two pages of 500 to keep JSON output under buffer limit
+  // Fetch in pages of 500 to keep JSON output under buffer limit
   const out: PaperRow[] = [];
-  for (const offset of [0, 500]) {
+  let offset = 0;
+  while (true) {
     const rows = d1Query<PaperRow>(
       `SELECT id, title, substr(abstract, 1, 800) AS abstract
        FROM papers WHERE summary_ready=1
@@ -120,6 +121,7 @@ function fetchCorpus(): PaperRow[] {
     );
     out.push(...rows);
     if (rows.length < 500) break;
+    offset += 500;
   }
   return out;
 }

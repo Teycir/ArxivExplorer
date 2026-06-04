@@ -29,14 +29,23 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
       const { env } = await getCloudflareContext({ async: true });
       const apiBinding = (env as Record<string, { fetch: typeof fetch }>)['API'];
       if (apiBinding?.fetch) {
-        res = await apiBinding.fetch(`https://api-internal${path}`, init);
+        res = await apiBinding.fetch(`https://api-internal${path}`, {
+          ...init,
+          cache: 'no-store',
+        });
       } else {
         // Binding not available (local dev without wrangler) — fall back to HTTP
-        res = await fetch(`${PUBLIC_API}${path}`, init);
+        res = await fetch(`${PUBLIC_API}${path}`, {
+          ...init,
+          cache: 'no-store',
+        });
       }
     } catch {
       // If getCloudflareContext throws (e.g. non-CF environment), fall back
-      res = await fetch(`${PUBLIC_API}${path}`, init);
+      res = await fetch(`${PUBLIC_API}${path}`, {
+        ...init,
+        cache: 'no-store',
+      });
     }
   } else {
     // ── Client-side: plain HTTP ───────────────────────────────────────────
