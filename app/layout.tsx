@@ -2,7 +2,6 @@ import type { Metadata } from 'next';
 import './globals.css';
 import { Footer } from './components/Footer';
 import { ScrollProgress } from './components/ScrollProgress';
-import { ParticleBackground } from './components/ParticleBackground';
 
 export const metadata: Metadata = {
   metadataBase: new URL('https://arxivexplorer.arxivexplorer.workers.dev'),
@@ -42,7 +41,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className="dark">
       <body className="bg-dark-bg text-white font-mono antialiased min-h-screen flex flex-col">
         <ScrollProgress />
-        <ParticleBackground />
         {/* Subtle background grid */}
         <div className="fixed inset-0 bg-grid pointer-events-none" aria-hidden="true" />
         {/* Radial neon glow at top-center (neon-red = #00ff41 in this theme) */}

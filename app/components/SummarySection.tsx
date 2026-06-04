@@ -13,6 +13,7 @@ import type { PaperWithSummary } from '@/src/shared/types';
 import { getPaper } from '@/helper/api';
 import { Sparkles, Info, Loader2, Copy, Check, Tag, Lightbulb,
          BookOpen, ChevronDown, ChevronUp, Layers } from 'lucide-react';
+import { EntityTooltip } from './EntityTooltip';
 
 type Tab = 'tldr' | 'contributions' | 'methods' | 'limitations' | 'explain';
 
@@ -263,10 +264,11 @@ export function SummarySection({ paper: initialPaper }: { paper: PaperWithSummar
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   {names.map((n) => (
-                    <span key={n}
-                      className={`px-2 py-0.5 text-[10px] font-mono rounded border ${ENTITY_TYPE_COLORS[type] ?? 'border-white/10 text-white/40'}`}>
-                      {n}
-                    </span>
+                    <EntityTooltip key={n} entity={n}>
+                      <span className={`px-2 py-0.5 text-[10px] font-mono rounded border ${ENTITY_TYPE_COLORS[type] ?? 'border-white/10 text-white/40'}`}>
+                        {n}
+                      </span>
+                    </EntityTooltip>
                   ))}
                 </div>
               </div>

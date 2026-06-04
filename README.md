@@ -50,6 +50,12 @@ _Scan the QR code or copy the wallet address above._
 - **Paper Comparison** — Side-by-side comparison of up to 6 papers with field selector and CSV/Markdown export
 - **Paper Revisions** — View revision history and version comparison for updated papers
 - **Achievements System** — Gamified badges for user engagement (explorer, researcher, curator, etc.)
+- **Claim Tracker** — Find papers that support or contradict specific scientific claims using AI classification
+- **Citation Velocity** — Track papers with highest citation momentum (30-day growth rate)
+- **Research Frontier** — Discover bleeding-edge papers pushing the boundaries of their fields
+- **Author Timeline** — Visualize researcher's intellectual journey showing topic evolution and focus shifts
+- **Speed Dating Mode** — Swipe-based taste profiling to build personalized paper recommendations
+- **Reading Path** — Find shortest learning path between papers via prerequisites and related papers
 - **CLI Tool** — Command-line interface for AI assistants (Claude, ChatGPT) to search and explore papers
 - **Zero Latency AI** — All summaries pre-computed, served from edge cache
 - **No Login Required** — Instant access to all features

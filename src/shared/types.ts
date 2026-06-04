@@ -43,6 +43,7 @@ export interface Summary {
   entities?: Array<{ name: string; type: 'model' | 'dataset' | 'benchmark' }>;
   paperType?: 'empirical' | 'theoretical' | 'survey' | 'dataset' | 'position' | 'tutorial' | 'unknown';
   novelty?: string;
+  problemStatement?: string;
   applications?: string[];
   prerequisites?: string[];
   followUpQuestions?: string[];
@@ -144,6 +145,7 @@ export interface PaperRow {
   entities?: string;            // JSON [{name,type}]
   paper_type?: string;
   novelty?: string;
+  problem_statement?: string;
   applications?: string;        // JSON string[]
   prerequisites?: string;       // JSON string[]
   follow_up_questions?: string; // JSON string[]

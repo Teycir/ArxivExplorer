@@ -22,6 +22,9 @@ import { handleReadingPath } from './routes/reading-path';
 import { handleTopic } from './routes/topic';
 import { handleTrending } from './routes/trending';
 import { handleVelocity } from './routes/velocity';
+import { handleResearchFront } from './routes/front';
+import { handleClassifyClaim } from './routes/claim';
+import { handleEntityDefinitions } from './routes/entity-definitions';
 import { handleAuthor } from './routes/author';
 import { handleSitemap } from './routes/sitemap';
 import { handleVectorizeUpsert, handleRetryFailed, handleBackfillRelated, handleCrossRefBatch, handleGetAllPapers, handleClearRelated, handleBulkInsertRelated } from './routes/admin';
@@ -44,7 +47,12 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    // Only GET allowed (except admin routes)
+    // POST /api/classify-claim
+    if (path === '/api/classify-claim' && request.method === 'POST') {
+      return handleClassifyClaim(request, env);
+    }
+
+    // Only GET allowed (except admin and classify routes)
     if (request.method !== 'GET' && !path.startsWith('/admin/')) {
       return new Response(JSON.stringify({ error: 'Method not allowed' }), {
         status: 405,
@@ -76,6 +84,16 @@ export default {
       // /api/velocity — citation momentum
       if (path === '/api/velocity') {
         return handleVelocity(request, env, ctx);
+      }
+
+      // /api/front — research frontier
+      if (path === '/api/front') {
+        return handleResearchFront(request, env, ctx);
+      }
+
+      // /api/entity-definitions
+      if (path === '/api/entity-definitions') {
+        return handleEntityDefinitions(request, env);
       }
 
       // /api/sitemap

@@ -18,6 +18,7 @@ import { fetchArxivBatch } from './fetch-arxiv';
 import { generateEmbedding, upsertToVectorize } from './generate-embedding';
 import { generateSummary } from './generate-summary';
 import { generateEntities } from './generate-entities';
+import { storeEntityDefinitions } from './generate-entity-definitions';
 import { fetchOpenAlex } from './fetch-openalex';
 import { fetchPwc } from './fetch-pwc';
 import { computeAndStoreRelated } from './compute-related';

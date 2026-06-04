@@ -1,20 +1,8 @@
--- Canonical schema — generated from remote D1 2026-06-04
--- Single source of truth. Apply with:
---   wrangler d1 execute arxiv-explorer --remote --file=migrations/schema.sql
+-- Safe schema update - uses CREATE IF NOT EXISTS only
+-- Apply with: wrangler d1 execute arxiv-explorer --remote --file=migrations/schema.sql
 
-PRAGMA foreign_keys = OFF;
-
-DROP TABLE IF EXISTS related_papers;
-DROP TABLE IF EXISTS summaries;
-DROP TABLE IF EXISTS paper_categories;
-DROP TABLE IF EXISTS paper_benchmarks;
-DROP TABLE IF EXISTS paper_code;
-DROP TABLE IF EXISTS embeddings_meta;
-DROP TABLE IF EXISTS papers_fts;
-DROP TABLE IF EXISTS papers;
-DROP TABLE IF EXISTS topics;
-
-CREATE TABLE papers (
+-- Create tables only if they don't exist
+CREATE TABLE IF NOT EXISTS papers (
   id                         TEXT    PRIMARY KEY,
   title                      TEXT    NOT NULL,
   authors                    TEXT    NOT NULL,
@@ -53,7 +41,7 @@ CREATE TABLE papers (
   crossref_enriched_at       TEXT
 );
 
-CREATE TABLE summaries (
+CREATE TABLE IF NOT EXISTS summaries (
   paper_id          TEXT PRIMARY KEY REFERENCES papers(id),
   tldr              TEXT NOT NULL,
   key_contributions TEXT NOT NULL,
@@ -72,7 +60,7 @@ CREATE TABLE summaries (
   follow_up_questions TEXT
 );
 
-CREATE TABLE related_papers (
+CREATE TABLE IF NOT EXISTS related_papers (
   paper_id         TEXT    NOT NULL REFERENCES papers(id),
   related_paper_id TEXT    NOT NULL REFERENCES papers(id),
   similarity_score REAL    NOT NULL,
@@ -81,19 +69,19 @@ CREATE TABLE related_papers (
   PRIMARY KEY (paper_id, related_paper_id)
 );
 
-CREATE TABLE paper_categories (
+CREATE TABLE IF NOT EXISTS paper_categories (
   paper_id TEXT NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
   category TEXT NOT NULL,
   PRIMARY KEY (paper_id, category)
 );
 
-CREATE TABLE embeddings_meta (
+CREATE TABLE IF NOT EXISTS embeddings_meta (
   paper_id     TEXT PRIMARY KEY REFERENCES papers(id),
   vectorize_id TEXT NOT NULL,
   embedded_at  TEXT NOT NULL
 );
 
-CREATE TABLE topics (
+CREATE TABLE IF NOT EXISTS topics (
   slug          TEXT PRIMARY KEY,
   label         TEXT NOT NULL,
   description   TEXT,
@@ -101,7 +89,7 @@ CREATE TABLE topics (
   updated_at    TEXT NOT NULL
 );
 
-CREATE TABLE paper_code (
+CREATE TABLE IF NOT EXISTS paper_code (
   paper_id    TEXT NOT NULL REFERENCES papers(id),
   repo_url    TEXT NOT NULL,
   stars       INTEGER DEFAULT 0,
@@ -111,7 +99,7 @@ CREATE TABLE paper_code (
   PRIMARY KEY (paper_id, repo_url)
 );
 
-CREATE TABLE paper_benchmarks (
+CREATE TABLE IF NOT EXISTS paper_benchmarks (
   paper_id  TEXT    NOT NULL REFERENCES papers(id),
   task      TEXT    NOT NULL,
   dataset   TEXT    NOT NULL,
@@ -122,35 +110,42 @@ CREATE TABLE paper_benchmarks (
   PRIMARY KEY (paper_id, task, dataset, metric)
 );
 
-CREATE VIRTUAL TABLE papers_fts USING fts5(
+CREATE TABLE IF NOT EXISTS citation_snapshots (
+  paper_id TEXT NOT NULL,
+  citation_count INTEGER NOT NULL DEFAULT 0,
+  recorded_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (paper_id, recorded_at)
+);
+
+CREATE TABLE IF NOT EXISTS entity_definitions (
+  entity_name TEXT PRIMARY KEY,
+  definition TEXT NOT NULL,
+  generated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  model_version TEXT
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS papers_fts USING fts5(
   paper_id UNINDEXED,
   title,
   abstract,
   authors
 );
 
-CREATE INDEX idx_papers_published        ON papers(published_at DESC);
-CREATE INDEX idx_papers_indexed          ON papers(indexed_at DESC);
-CREATE INDEX idx_papers_summary          ON papers(summary_ready, indexed_at DESC);
-CREATE INDEX idx_papers_authors_norm     ON papers(authors_normalized);
-CREATE INDEX idx_paper_categories_category ON paper_categories(category, paper_id);
-CREATE INDEX idx_related_paper           ON related_papers(paper_id, rank);
-CREATE INDEX idx_paper_code_paper        ON paper_code(paper_id);
-CREATE INDEX idx_paper_benchmarks_paper  ON paper_benchmarks(paper_id);
+-- Create indexes if they don't exist
+CREATE INDEX IF NOT EXISTS idx_papers_published ON papers(published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_papers_indexed ON papers(indexed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_papers_summary ON papers(summary_ready, indexed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_papers_authors_norm ON papers(authors_normalized);
+CREATE INDEX IF NOT EXISTS idx_paper_categories_category ON paper_categories(category, paper_id);
+CREATE INDEX IF NOT EXISTS idx_related_paper ON related_papers(paper_id, rank);
+CREATE INDEX IF NOT EXISTS idx_paper_code_paper ON paper_code(paper_id);
+CREATE INDEX IF NOT EXISTS idx_paper_benchmarks_paper ON paper_benchmarks(paper_id);
+CREATE INDEX IF NOT EXISTS idx_citation_snapshots_recorded ON citation_snapshots(recorded_at DESC);
+CREATE INDEX IF NOT EXISTS idx_citation_snapshots_paper ON citation_snapshots(paper_id, recorded_at DESC);
+CREATE INDEX IF NOT EXISTS idx_entity_definitions_name ON entity_definitions(entity_name);
 
-CREATE TRIGGER papers_fts_insert AFTER INSERT ON papers BEGIN
-  INSERT INTO papers_fts(rowid, paper_id, title, abstract, authors)
-  VALUES (new.rowid, new.id, new.title, new.abstract, new.authors);
-END;
-
-CREATE TRIGGER papers_fts_update AFTER UPDATE ON papers BEGIN
-  UPDATE papers_fts
-  SET title=new.title, abstract=new.abstract, authors=new.authors, paper_id=new.id
-  WHERE rowid=new.rowid;
-END;
-
-CREATE TRIGGER papers_fts_delete AFTER DELETE ON papers BEGIN
-  DELETE FROM papers_fts WHERE rowid=old.rowid;
-END;
-
-PRAGMA foreign_keys = ON;
+-- Note: FTS triggers must be created manually if papers_fts table is new
+-- CREATE TRIGGER IF NOT EXISTS papers_fts_insert AFTER INSERT ON papers BEGIN
+--   INSERT INTO papers_fts(rowid, paper_id, title, abstract, authors)
+--   VALUES (new.rowid, new.id, new.title, new.abstract, new.authors);
+-- END;

@@ -5,6 +5,7 @@ import { getAuthorPapers } from '@/helper/api';
 import { Navbar } from '../../components/Navbar';
 import { PaperCard } from '../../components/PaperCard';
 import { AuthorStatsPanel } from '../../components/AuthorStatsPanel';
+import { AuthorTimeline } from '../../components/AuthorTimeline';
 import { Users } from 'lucide-react';
 
 // ISR: 6h (matches KV TTL)
@@ -65,6 +66,9 @@ export default async function AuthorPage({ params }: Props) {
 
         {/* Stats panel — rendered client-side so it doesn't block SSR */}
         {stats && <AuthorStatsPanel stats={stats} />}
+
+        {/* Timeline */}
+        <AuthorTimeline papers={papers} />
 
         {/* Papers */}
         <div className="mt-8">

@@ -34,7 +34,7 @@ export async function handleReadingPath(req: Request, env: Env): Promise<Respons
     return new Response(JSON.stringify({ path }), {
       headers: {
         'Content-Type': 'application/json',
-        'Cache-Control': 'public, max-age=86400', // 24h cache
+        'Cache-Control': 'public, max-age=86400',
       },
     });
   } catch (err) {
@@ -46,22 +46,19 @@ export async function handleReadingPath(req: Request, env: Env): Promise<Respons
 }
 
 async function findReadingPath(fromId: string, toId: string, env: Env): Promise<PathNode[]> {
-  // BFS to find shortest path
   const queue: Array<{ id: string; path: string[] }> = [{ id: fromId, path: [fromId] }];
   const visited = new Set<string>([fromId]);
-  const maxDepth = 5; // Limit search depth
+  const maxDepth = 5;
 
   while (queue.length > 0) {
     const current = queue.shift()!;
     
     if (current.path.length > maxDepth) continue;
 
-    // Get neighbors (related papers + prerequisites in reverse)
     const neighbors = await getNeighbors(current.id, env);
 
     for (const neighbor of neighbors) {
       if (neighbor === toId) {
-        // Found target — build full path with metadata
         const fullPath = [...current.path, toId];
         return await buildPathMetadata(fullPath, env);
       }
@@ -79,46 +76,28 @@ async function findReadingPath(fromId: string, toId: string, env: Env): Promise<
 async function getNeighbors(paperId: string, env: Env): Promise<string[]> {
   const neighbors = new Set<string>();
 
-  // 1. Get related papers
-  const relatedStmt = env.DB.prepare(
-    'SELECT related_id FROM related_papers WHERE paper_id = ? ORDER BY similarity_score DESC LIMIT 8'
-  );
-  const related = await relatedStmt.all<{ related_id: string }>();
-  for (const r of related.results) neighbors.add(r.related_id);
-
-  // 2. Get papers that list this as prerequisite (reverse lookup via search)
-  const prereqStmt = env.DB.prepare(`
-    SELECT s.paper_id
-    FROM summaries s
-    WHERE json_extract(s.prerequisites, '$') LIKE '%' || ? || '%'
-    LIMIT 5
-  `);
-  const prereqs = await prereqStmt.all<{ paper_id: string }>({ 1: paperId });
-  for (const p of prereqs.results) neighbors.add(p.paper_id);
+  const { results: related } = await env.DB.prepare(
+    'SELECT related_paper_id FROM related_papers WHERE paper_id = ? LIMIT 8'
+  ).bind(paperId).all<{ related_paper_id: string }>();
+  
+  for (const r of related) neighbors.add(r.related_paper_id);
 
   return Array.from(neighbors);
 }
 
 async function buildPathMetadata(paperIds: string[], env: Env): Promise<PathNode[]> {
   const placeholders = paperIds.map(() => '?').join(',');
-  const stmt = env.DB.prepare(`
+  const { results } = await env.DB.prepare(`
     SELECT p.id, p.title, s.tldr
     FROM papers p
     LEFT JOIN summaries s ON p.id = s.paper_id
     WHERE p.id IN (${placeholders})
-  `);
-
-  const results = await stmt.bind(...paperIds).all<{ id: string; title: string; tldr: string | null }>();
+  `).bind(...paperIds).all<{ id: string; title: string; tldr: string | null }>();
   
-  // Maintain order from paperIds
-  const map = new Map(results.results.map(r => [r.id, r]));
+  const map = new Map(results.map(r => [r.id, r]));
   return paperIds.map(id => {
     const paper = map.get(id);
     if (!paper) throw new Error(`Paper ${id} not found`);
-    return {
-      id: paper.id,
-      title: paper.title,
-      tldr: paper.tldr ?? 'No summary available',
-    };
+    return { id: paper.id, title: paper.title, tldr: paper.tldr ?? 'No summary available' };
   });
 }

@@ -15,6 +15,7 @@ import { MoreLikeThisButton } from './MoreLikeThisButton';
 import { AuthorLinks } from './AuthorLinks';
 import { CopyId } from './CopyId';
 import { QualityBadges } from './QualityBadges';
+import { ReproducibilityBadge } from './ReproducibilityBadge';
 
 interface PaperCardProps {
   paper: PaperWithSummary;
@@ -90,6 +91,8 @@ export function PaperCard({ paper, showAbstract = false }: PaperCardProps) {
           )}
           {/* Quality badges: Influential, Benchmarked, Comprehensive, Recent */}
           <QualityBadges paper={paper} compact />
+          {/* Reproducibility score */}
+          <ReproducibilityBadge paper={paper} />
           <span className="ml-auto flex items-center gap-1 text-xs text-neon-red/30 font-mono">
             <Calendar size={11} />
             {formatDate(paper.publishedAt)}

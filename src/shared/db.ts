@@ -87,6 +87,7 @@ export function rowToPaper(row: PaperRow): PaperWithSummary {
       entities:           safeJsonParse<Array<{ name: string; type: 'model' | 'dataset' | 'benchmark' }>>(row.entities, []),
       ...(row.paper_type && { paperType: row.paper_type as Summary['paperType'] }),
       ...(row.novelty && { novelty: row.novelty }),
+      ...(row.problem_statement && { problemStatement: row.problem_statement }),
       applications:       safeJsonParse<string[]>(row.applications, []),
       prerequisites:      safeJsonParse<string[]>(row.prerequisites, []),
       followUpQuestions:  safeJsonParse<string[]>(row.follow_up_questions, []),
@@ -131,7 +132,7 @@ const PAPER_SELECT = `
       p.influential_citation_count, p.reference_count,
       s.tldr, s.key_contributions, s.methods, s.limitations,
       s.beginner_explain, s.technical_summary, s.generated_at, s.model_version,
-      s.keywords, s.entities, s.paper_type, s.novelty,
+      s.keywords, s.entities, s.paper_type, s.novelty, s.problem_statement,
       s.applications, s.prerequisites, s.follow_up_questions`;
 
 // ─── Paper Queries ──────────────────────────────────────────────────────────
@@ -580,4 +581,61 @@ export async function getCitationVelocity(
     .all<PaperRow>();
 
   return rows.results.map(rowToPaper).filter(isPaperComplete).slice(0, limit);
+}
+
+
+/**
+ * Get papers pushing the research frontier (novelty indicators + recent).
+ */
+export async function getResearchFrontPapers(
+  db: D1Database,
+  limit = 20,
+  days = 90
+): Promise<PaperWithSummary[]> {
+  const since = new Date();
+  since.setDate(since.getDate() - days);
+  const sinceStr = since.toISOString().slice(0, 10);
+
+  const { results } = await db.prepare(`
+    SELECT ${PAPER_SELECT}
+    FROM papers p
+    LEFT JOIN summaries s ON s.paper_id = p.id
+    WHERE p.summary_ready = 1
+      AND p.published_at >= ?
+      AND (
+        s.novelty LIKE '%first%'
+        OR s.novelty LIKE '%novel%'
+        OR s.novelty LIKE '%we introduce%'
+        OR s.novelty LIKE '%previously unknown%'
+        OR s.novelty LIKE '%no prior work%'
+        OR s.novelty LIKE '%unprecedented%'
+      )
+    ORDER BY p.published_at DESC
+    LIMIT ?
+  `).bind(sinceStr, limit * 2).all<PaperRow>();
+
+  return results.map(rowToPaper).filter(isPaperComplete).slice(0, limit);
+}
+
+
+/**
+ * Search papers by problem statement (what the paper solves).
+ */
+export async function searchByProblem(
+  db: D1Database,
+  query: string,
+  limit = 20
+): Promise<PaperWithSummary[]> {
+  const { results } = await db.prepare(`
+    SELECT ${PAPER_SELECT}, bm25(problems_fts) AS score
+    FROM problems_fts f
+    JOIN papers p ON p.id = f.paper_id
+    LEFT JOIN summaries s ON s.paper_id = p.id
+    WHERE problems_fts MATCH ?
+      AND p.summary_ready = 1
+    ORDER BY score
+    LIMIT ?
+  `).bind(query, limit * 2).all<PaperRow & { score: number }>();
+
+  return results.map(rowToPaper).filter(isPaperComplete).slice(0, limit);
 }

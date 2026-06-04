@@ -40,6 +40,7 @@ JSON format:
   "keywords": ["keyword1", "keyword2", "keyword3"],
   "paper_type": "empirical",
   "novelty": "One sentence describing what is novel compared to prior work",
+  "problem_statement": "One sentence describing what problem this paper solves or what was broken before",
   "applications": ["application 1", "application 2"],
   "prerequisites": ["concept 1", "concept 2"],
   "follow_up_questions": ["Question 1?", "Question 2?"]
