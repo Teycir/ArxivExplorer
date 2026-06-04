@@ -147,7 +147,7 @@ export function SummarySection({ paper: initialPaper }: { paper: PaperWithSummar
   };
 
   // Group entities by type
-  const entityGroups = s.entities.reduce<Record<string, string[]>>((acc, e) => {
+  const entityGroups = (s.entities ?? []).reduce<Record<string, string[]>>((acc, e) => {
     (acc[e.type] ??= []).push(e.name);
     return acc;
   }, {});
@@ -206,13 +206,13 @@ export function SummarySection({ paper: initialPaper }: { paper: PaperWithSummar
         </div>
       )}
 
-      {s.keywords.length > 0 && (
+      {(s.keywords ?? []).length > 0 && (
         <div className="mb-4">
           <p className="flex items-center gap-1.5 text-[10px] font-mono text-neon-red/40 uppercase tracking-wider mb-2">
             <Tag size={10} /> Keywords
           </p>
           <div className="flex flex-wrap gap-1.5">
-            {s.keywords.map((kw) => (
+            {(s.keywords ?? []).map((kw) => (
               <Link
                 key={kw}
                 href={`/search?q=${encodeURIComponent(kw)}`}
@@ -252,13 +252,13 @@ export function SummarySection({ paper: initialPaper }: { paper: PaperWithSummar
         </div>
       )}
 
-      {s.prerequisites.length > 0 && (
+      {(s.prerequisites ?? []).length > 0 && (
         <div className="mb-4">
           <p className="flex items-center gap-1.5 text-[10px] font-mono text-neon-red/40 uppercase tracking-wider mb-2">
             <BookOpen size={10} /> Before reading this…
           </p>
           <div className="flex flex-wrap gap-1.5">
-            {s.prerequisites.map((p) => (
+            {(s.prerequisites ?? []).map((p) => (
               <Link
                 key={p}
                 href={`/search?q=${encodeURIComponent(p)}`}
@@ -273,11 +273,11 @@ export function SummarySection({ paper: initialPaper }: { paper: PaperWithSummar
         </div>
       )}
 
-      {s.applications.length > 0 && (
+      {(s.applications ?? []).length > 0 && (
         <div className="mb-4">
           <p className="text-[10px] font-mono text-neon-red/40 uppercase tracking-wider mb-2">Applications</p>
           <ul className="space-y-1">
-            {s.applications.map((a, i) => (
+            {(s.applications ?? []).map((a, i) => (
               <li key={i} className="flex gap-2 text-xs text-white/55">
                 <span className="text-neon-red/30 flex-shrink-0">→</span>{a}
               </li>
@@ -286,18 +286,18 @@ export function SummarySection({ paper: initialPaper }: { paper: PaperWithSummar
         </div>
       )}
 
-      {s.followUpQuestions.length > 0 && (
+      {(s.followUpQuestions ?? []).length > 0 && (
         <div>
           <button
             onClick={() => setShowFollowUp(!showFollowUp)}
             className="flex items-center gap-1.5 text-[10px] font-mono text-neon-red/40 uppercase tracking-wider mb-2 hover:text-neon-red/60 transition-colors"
           >
             {showFollowUp ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
-            Questions to explore ({s.followUpQuestions.length})
+            Questions to explore ({(s.followUpQuestions ?? []).length})
           </button>
           {showFollowUp && (
             <ul className="space-y-2 mt-1">
-              {s.followUpQuestions.map((q, i) => (
+              {(s.followUpQuestions ?? []).map((q, i) => (
                 <li key={i} className="flex gap-2 text-xs text-white/50 leading-relaxed">
                   <span className="text-neon-red/30 flex-shrink-0 font-mono">{i + 1}.</span>{q}
                 </li>
