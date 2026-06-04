@@ -21,7 +21,7 @@ _Scan the QR code or copy the wallet address above._
 <div align="center">
 
 ![License](https://img.shields.io/badge/license-BSL%201.1-neon_green?style=for-the-badge)
-![Framework](https://img.shields.io/badge/Framework-Next.js%2015-neon_green?style=for-the-badge)
+![Framework](https://img.shields.io/badge/Framework-Next.js%2016-neon_green?style=for-the-badge)
 ![Hosting](https://img.shields.io/badge/Hosting-Cloudflare%20Workers-neon_green?style=for-the-badge)
 ![Database](https://img.shields.io/badge/Database-Cloudflare%20D1-neon_green?style=for-the-badge)
 ![Vector](https://img.shields.io/badge/Vector-Cloudflare%20Vectorize-neon_green?style=for-the-badge)
@@ -80,10 +80,33 @@ Browser → Next.js Worker → API Worker → KV Cache → D1 Database
 
 ## Data Pipeline
 
-Papers flow through a two-stage pipeline:
+Papers flow through a multi-stage pipeline:
 
-1. **Fetch** — Ingest worker polls the arXiv API on a cron schedule and writes new papers to D1 with `summary_ready = 0`.
-2. **Summarise** — Either the ingest worker (Workers AI, rate-limited) or the local bulk script (Ollama, unlimited) generates structured summaries and embeddings, then flips `summary_ready = 1`.
+### 1. Fetch Stage
+Ingest worker polls the arXiv API on cron schedule (`0 * * * *` hourly) and writes new papers to D1 with `summary_ready = 0`.
+
+### 2. Summarize Stage
+Either the ingest worker (Workers AI, rate-limited) or the local bulk script (Ollama, unlimited) generates:
+- Structured summaries (tldr, contributions, methods, limitations, explanations)
+- Paper embeddings for semantic search
+- Sets `summary_ready = 1` when complete
+
+### 3. Enrichment Stage (optional)
+- **Citations**: Semantic Scholar API updates citation counts via cron
+- **CrossRef**: DOI-based metadata enrichment (daily cron `30 2 * * *`)
+- **OpenAlex**: Concepts, affiliations, open access metadata
+- **Papers With Code**: Code repositories, benchmarks, SOTA rankings
+
+### 4. Related Papers
+Pre-computes top-8 semantically similar papers using Vectorize and stores in `related_papers` table.
+
+### Cron Schedule
+
+The ingest worker has two cron triggers:
+- `0 * * * *` — Hourly ingestion + citation updates
+- `30 2 * * *` — Daily CrossRef enrichment batch (50 papers per run)
+
+Citation updates run as part of the hourly cron, fetching data from Semantic Scholar API.
 
 ### Bulk Local Processing
 
@@ -95,6 +118,9 @@ ADMIN_SECRET=<secret> npx tsx scripts/retry-failed-local.ts
 
 # Push a fully-processed local DB up to remote D1 + Vectorize
 ADMIN_SECRET=<secret> npx tsx scripts/push-local-to-remote.ts
+
+# Bulk ingest (fetch + summarize + embed in one pass)
+npx tsx scripts/bulk-ingest.ts --days 7 --categories cs.LG,cs.CL
 ```
 
 Both scripts use the **D1 REST API** directly (no `wrangler` subprocess per paper), which is ~100× faster than the naive approach and avoids shell-escaping issues with special characters in paper text.
@@ -130,11 +156,13 @@ wrangler vectorize create arxiv-papers --dimensions=768 --metric=cosine
 # Update wrangler config files with your IDs
 # Edit: wrangler.api.toml, wrangler.ingest.toml, wrangler.jsonc
 
-# Apply database schema
+# Apply database schema (canonical version)
 wrangler d1 execute arxiv-explorer --remote --file=migrations/schema.sql
 
-# Copy and fill env file
+# Copy and fill env files
 cp .env.local.example .env.local
+cp scripts/config.local.example.ts scripts/config.local.ts
+# Edit scripts/config.local.ts with your Cloudflare credentials
 ```
 
 ### Development
@@ -150,44 +178,99 @@ Visit [http://localhost:3000](http://localhost:3000)
 ### Deployment
 
 ```bash
+# Full deployment (Next.js + API worker)
 ./deploy.sh
 
 # Or individually:
-npm run deploy          # Next.js frontend (Worker mode)
+npm run deploy          # Next.js frontend (Worker mode via OpenNext)
 npm run deploy:api      # API worker
 npm run deploy:ingest   # Ingest worker
+
+# Note: deploy.sh does NOT deploy ingest worker
+# Deploy ingest worker manually when needed
 ```
 
 ## Project Structure
 
 ```
-├── app/                        # Next.js pages
-│   ├── page.tsx               # Home
+├── app/                        # Next.js 16 app directory
+│   ├── page.tsx               # Home page
 │   ├── search/                # Search results
-│   ├── paper/[id]/            # Paper detail
-│   └── topic/[slug]/          # Topic pages
+│   ├── paper/[id]/            # Paper detail pages
+│   ├── topic/[slug]/          # Topic pages
+│   ├── author/[name]/         # Author pages
+│   ├── concept/[name]/        # Concept pages
+│   ├── institution/[slug]/    # Institution pages
+│   ├── compare/               # Paper comparison
+│   ├── bookmarks/             # Bookmark management
+│   ├── explore/               # Explore page
+│   ├── achievements/          # Achievement tracking
+│   ├── rss.xml/               # RSS feed route
+│   │   └── route.ts
+│   └── components/            # React components
+│       ├── SummarySection.tsx
+│       ├── PaperCard.tsx
+│       ├── SearchFilters.tsx
+│       ├── BookmarkButton.tsx
+│       ├── CollectionManager.tsx
+│       └── ... (40+ components)
 ├── src/
-│   ├── api-worker/            # API endpoints
+│   ├── api-worker/            # Cloudflare Workers API
+│   │   ├── index.ts           # Router
 │   │   └── routes/
-│   │       ├── search.ts      # Hybrid search
+│   │       ├── search.ts      # Hybrid search (BM25 + semantic)
 │   │       ├── paper.ts       # Paper details
 │   │       ├── related.ts     # Related papers
-│   │       └── admin.ts       # Vectorize + maintenance (auth-gated)
-│   ├── ingest-worker/         # Background processing
-│   │   ├── fetch-arxiv.ts
+│   │       ├── trending.ts    # Trending papers
+│   │       ├── topic.ts       # Topic endpoints
+│   │       ├── author.ts      # Author endpoints
+│   │       ├── citations.ts   # Citation data
+│   │       ├── admin.ts       # Admin endpoints (Vectorize, maintenance)
+│   │       ├── enrichment.ts  # Data enrichment endpoints
+│   │       ├── concept.ts     # Concept search
+│   │       ├── institution.ts # Institution search
+│   │       ├── graph.ts       # Graph data
+│   │       ├── stats.ts       # Database statistics
+│   │       └── sitemap.ts     # Sitemap generation
+│   ├── ingest-worker/         # Background processing (cron)
+│   │   ├── index.ts           # Cron entrypoint
+│   │   ├── pipeline.ts        # Main ingestion pipeline
+│   │   ├── fetch-arxiv.ts     # arXiv API fetcher
 │   │   ├── generate-summary.ts
 │   │   ├── generate-embedding.ts
-│   │   └── pipeline.ts
-│   └── shared/                # Types & utils
+│   │   ├── generate-entities.ts
+│   │   ├── update-citations.ts # Semantic Scholar sync
+│   │   ├── fetch-crossref.ts  # CrossRef enrichment
+│   │   ├── fetch-openalex.ts  # OpenAlex enrichment
+│   │   ├── fetch-pwc.ts       # Papers With Code enrichment
+│   │   ├── compute-related.ts # Related papers computation
+│   │   └── tfidf.ts           # TF-IDF utilities
+│   └── shared/                # Shared types & utils
+│       ├── types.ts           # TypeScript interfaces
+│       ├── db.ts              # Database helpers
+│       └── utils.ts           # Utilities
 ├── scripts/
-│   ├── push-local-to-remote.ts   # Sync local DB → remote D1 + Vectorize
+│   ├── push-local-to-remote.ts   # Sync local → remote D1 + Vectorize
 │   ├── retry-failed-local.ts     # Reprocess pending papers via Ollama
 │   ├── bulk-ingest.ts            # Full bulk ingest pipeline
-│   ├── backfill-categories.ts    # Backfill paper_categories table
-│   └── upload-embeddings.ts      # Standalone Vectorize uploader
+│   ├── sync-remote-to-local.ts   # Sync remote → local
+│   ├── backfill-*.ts             # Various backfill scripts
+│   ├── upload-embeddings.ts      # Standalone Vectorize uploader
+│   ├── test-*.sh                 # Test scripts
+│   ├── config.local.example.ts   # Local config template
+│   └── ... (25+ utility scripts)
 ├── migrations/
-│   └── schema.sql             # Canonical D1 schema (single source of truth)
-└── wrangler.*.toml            # Cloudflare config per service (api, ingest, jsonc for frontend)
+│   ├── schema.sql             # Canonical D1 schema (single source of truth)
+│   ├── 0001_schema.sql        # Initial migration (legacy)
+│   └── 000*.sql               # Other migrations
+├── helper/                    # API client helpers
+├── lib/                       # Frontend libraries
+├── wrangler.api.toml          # API worker config
+├── wrangler.ingest.toml       # Ingest worker config
+├── wrangler.jsonc             # Next.js worker config (frontend)
+├── next.config.ts             # Next.js configuration
+├── open-next.config.ts        # OpenNext Cloudflare adapter config
+└── deploy.sh                  # Deployment script
 ```
 
 ## API Reference
@@ -201,14 +284,22 @@ GET  /api/search?q=...&date=week                      # Filter by date (day/week
 GET  /api/search?q=...&author=X&minCitations=Y&...    # Combine multiple filters
 GET  /api/paper/:id                                   # Paper detail + summary
 GET  /api/paper/:id/related                           # Semantically similar papers
-GET  /api/paper/:id/citations                         # Citation count from Semantic Scholar
+GET  /api/citations/:id                               # Citation count from Semantic Scholar
 GET  /api/trending                                    # Trending papers (KV cached)
 GET  /api/topic/:slug                                 # Topic paper collection
+GET  /api/topics                                      # List all topics
+GET  /api/author/:name                                # Author papers and statistics
+GET  /api/concept/:name                               # Papers by concept
+GET  /api/institution/:slug                           # Papers by institution
+GET  /api/stats                                       # Database statistics
+GET  /api/graph                                       # Paper citation/relationship graph data
+GET  /api/sitemap                                     # Sitemap for SEO
 GET  /rss.xml                                         # RSS feed (20 recent papers, 1h cache)
 GET  /compare?ids=id1,id2,id3                         # Compare up to 4 papers side-by-side
 
 POST /admin/vectorize/upsert                          # Bulk embed upsert (x-admin-secret)
 POST /admin/retry-failed                              # Reset summary_ready=2 → 0
+POST /admin/enrichment/*                              # Enrichment endpoints (OpenAlex, CrossRef, etc.)
 ```
 
 ## Configuration
@@ -216,26 +307,45 @@ POST /admin/retry-failed                              # Reset summary_ready=2 �
 ### Environment Variables
 
 ```bash
-# .env.local
+# .env.local (Next.js frontend)
 NEXT_PUBLIC_API_BASE=https://arxiv-api.yourdomain.workers.dev
 API_BASE=https://arxiv-api.yourdomain.workers.dev
+```
+
+```typescript
+// scripts/config.local.ts (for local scripts)
+export const CF_TOKEN = 'your-cloudflare-api-token';
+export const CF_ACCOUNT_ID = 'your-account-id';
+export const CF_D1_ID = 'your-d1-database-id';
 ```
 
 ### Ingestion Settings (`wrangler.ingest.toml`)
 
 ```toml
 [vars]
-ARXIV_FETCH_CATEGORIES = "cs.LG,cs.CL,cs.CV,stat.ML"
-ARXIV_FETCH_LIMIT_PER_CATEGORY = "30"
-INGEST_MAX_CONCURRENT = "5"
+ARXIV_FETCH_CATEGORIES = "cs.AI,cs.LG"                 # Default categories
+ARXIV_FETCH_LIMIT_PER_CATEGORY = "10"                  # Papers per category per cron
+INGEST_MAX_CONCURRENT = "3"                            # Concurrent AI processing
+ARXIV_RATE_LIMIT_DELAY_MS = "3000"                     # Delay between arXiv requests
+SUMMARY_MODEL = "@cf/meta/llama-3.1-8b-instruct"       # Workers AI summary model
+EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5"          # Workers AI embedding model
+
+# Optional Ollama (local AI)
+# OLLAMA_BASE = "https://your-tunnel.trycloudflare.com"
+# OLLAMA_SUMMARY_MODEL = "gemma4:e4b"
+# OLLAMA_EMBEDDING_MODEL = "nomic-embed-text"
 ```
 
 ### Admin Secret
 
-Required for Vectorize upserts and maintenance endpoints:
+Required for Vectorize upserts, maintenance endpoints, and enrichment endpoints:
 
 ```bash
+# Set for API worker
 wrangler secret put ADMIN_SECRET --config wrangler.api.toml
+
+# Use in local scripts
+ADMIN_SECRET=your-secret npx tsx scripts/push-local-to-remote.ts
 ```
 
 
@@ -243,7 +353,11 @@ wrangler secret put ADMIN_SECRET --config wrangler.api.toml
 
 ### papers
 - arXiv metadata (id, title, authors, abstract, categories, dates, URLs)
+- `authors_normalized` — lowercased for fast prefix search
+- `citation_count` — from Semantic Scholar (updated hourly via cron)
+- `citations_updated_at` — last citation sync timestamp
 - `summary_ready`: `0` = pending · `1` = done · `2` = failed
+- Additional fields: `comment`, `journal_ref`, `doi`, `primary_category`
 
 ### summaries
 - `tldr` — one-sentence result
@@ -255,10 +369,15 @@ wrangler secret put ADMIN_SECRET --config wrangler.api.toml
 - `model_version` — which model generated it
 
 ### Supporting tables
-- `paper_categories` — normalised category rows (indexed for topic queries)
+- `paper_categories` — normalized category rows (indexed for topic queries)
 - `papers_fts` — FTS5 virtual table with insert/update/delete triggers
 - `embeddings_meta` — tracks embedding generation per paper
-- `related_papers` — pre-computed top-8 semantic neighbours
+- `related_papers` — pre-computed top-8 semantic neighbors
+- `topics` — curated topic collections with category mappings
+
+### Canonical schema file
+
+The **single source of truth** is `migrations/schema.sql` (not `migrations/0001_schema.sql`).
 
 ### Rebuild from scratch
 
@@ -266,7 +385,7 @@ wrangler secret put ADMIN_SECRET --config wrangler.api.toml
 # Apply canonical schema (wipes and recreates all tables)
 wrangler d1 execute arxiv-explorer --remote --file=migrations/schema.sql
 
-# Push local data (970 papers, summaries, categories, FTS, embeddings)
+# Push local data (papers, summaries, categories, FTS, embeddings)
 ADMIN_SECRET=<secret> npx tsx scripts/push-local-to-remote.ts
 ```
 
@@ -274,19 +393,19 @@ ADMIN_SECRET=<secret> npx tsx scripts/push-local-to-remote.ts
 
 - **Search**: <300 ms (KV cache hit) · <600 ms (D1 fallback)
 - **Paper detail**: <200 ms (KV cache hit) · <500 ms (D1 fallback)
-- **Cache hit rate**: >85 %
-- **DB size**: ~970 papers, 1 961 category rows, 970 FTS rows
+- **Cache hit rate**: >85%
 - **Throughput**: 33 req/s under mixed load
-- **Uptime**: 100% (production tested)
+- **Edge deployment**: Global CDN via Cloudflare Workers
+- **Uptime**: Production tested with zero downtime deployments
 
-## New Features (2026-06-01)
+## Key Features
 
 ### Citation Tracking
-- **Endpoint**: `GET /api/paper/:id/citations`
+- **Endpoint**: `GET /api/citations/:id`
 - **Source**: Semantic Scholar API
-- **Updates**: Automatic hourly cron (50 papers per run, 7-day refresh cycle)
-- **Storage**: `citation_count` and `citations_updated_at` fields in D1
-- **Rate Limiting**: 3-second delay between requests
+- **Updates**: Automatic cron job (update-citations worker)
+- **Storage**: `citation_count` and `citations_updated_at` fields in papers table
+- **Rate Limiting**: Respects Semantic Scholar rate limits
 
 ### Paper Collections
 - **Location**: `/bookmarks` page
@@ -326,21 +445,23 @@ ADMIN_SECRET=<secret> npx tsx scripts/push-local-to-remote.ts
 
 ### Integration Tests
 ```bash
+cd scripts
 ./test-integration.sh      # Core functionality tests
 ./test-new-features.sh     # New features tests
+./test-full.sh             # Comprehensive test suite
 ```
 
 ### Stress Testing
 ```bash
+cd scripts
 ./test-stress.sh           # Production load testing
 ```
 
-**Latest Test Results** (2026-06-01):
-- Search: 200-300ms response time
-- Cache: 232ms average hit time
-- Throughput: 33 req/s
-- Error rate: 0%
-- See `TEST_RESULTS.md` for full report
+### API Deep Testing
+```bash
+cd scripts
+./test-api-deep.sh         # Deep API endpoint testing
+```
 
 ## Troubleshooting
 
@@ -354,7 +475,11 @@ npx wrangler d1 execute arxiv-explorer --remote --config wrangler.api.toml \
 ### Retry pending/failed papers locally
 
 ```bash
+# Retry up to 50 papers
 ADMIN_SECRET=<secret> LIMIT=50 npx tsx scripts/retry-failed-local.ts
+
+# Process with higher concurrency (careful with GPU memory)
+ADMIN_SECRET=<secret> LIMIT=100 CONCURRENCY=2 npx tsx scripts/retry-failed-local.ts
 ```
 
 ### Push local DB to remote
@@ -370,10 +495,16 @@ wrangler tail arxiv-api    --format=pretty   # API worker
 wrangler tail arxiv-ingest --format=pretty   # Ingest worker
 ```
 
+### Sync remote DB to local
+
+```bash
+npx tsx scripts/sync-remote-to-local.ts
+```
+
 ### Reset database
 
 ```bash
-./reset-and-ingest.sh
+./scripts/reset-and-ingest.sh
 ```
 
 ## Design Notes
@@ -381,6 +512,12 @@ wrangler tail arxiv-ingest --format=pretty   # Ingest worker
 ### Why Worker instead of Pages
 
 Deploying the Next.js frontend as a Cloudflare Worker (via OpenNext `main` + `assets`) rather than Cloudflare Pages avoids the per-request nonce that Pages unconditionally injects into `script-src`. That injection happens at the CDN layer before the response reaches the browser, so no amount of middleware or `_headers` file can override it. The Worker deployment has no such injection and serves the app's own CSP intact.
+
+The deployment uses:
+- `@opennextjs/cloudflare` adapter
+- OpenNext build: `npx opennextjs-cloudflare build`
+- Output: `.open-next/worker.js` + `.open-next/assets/`
+- Wrangler config: `wrangler.jsonc` with `main` and `assets` bindings
 
 ### Search Algorithm
 

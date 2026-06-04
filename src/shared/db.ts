@@ -82,9 +82,29 @@ export function rowToPaper(row: PaperRow): PaperWithSummary {
       technicalSummary: row.technical_summary,
       generatedAt: row.generated_at,
       modelVersion: row.model_version,
+      // Enrichment fields (present after 0006_enrichment.sql migration)
+      keywords:           safeJsonParse<string[]>(row.keywords, []),
+      entities:           safeJsonParse<Array<{ name: string; type: 'model' | 'dataset' | 'benchmark' }>>(row.entities, []),
+      paperType:          (row.paper_type as Summary['paperType']) ?? undefined,
+      novelty:            row.novelty ?? undefined,
+      applications:       safeJsonParse<string[]>(row.applications, []),
+      prerequisites:      safeJsonParse<string[]>(row.prerequisites, []),
+      followUpQuestions:  safeJsonParse<string[]>(row.follow_up_questions, []),
     };
     paper.summary = summary;
   }
+
+  // Paper-level enrichment fields (present after 0006_enrichment.sql migration)
+  if (row.is_open_access !== undefined) paper.isOpenAccess = row.is_open_access === 1;
+  if (row.oa_url !== undefined)         paper.oaUrl = row.oa_url ?? null;
+  if (row.code_count !== undefined)     paper.codeCount = row.code_count ?? 0;
+  if (row.has_benchmark !== undefined)  paper.hasBenchmark = row.has_benchmark === 1;
+  if (row.influential_citation_count !== undefined) paper.influentialCitationCount = row.influential_citation_count ?? 0;
+  if (row.reference_count !== undefined) paper.referenceCount = row.reference_count ?? 0;
+  if (row.openalex_id !== undefined)    paper.openalexId = row.openalex_id ?? undefined;
+  if (row.ss_paper_id !== undefined)    paper.ssPaperId = row.ss_paper_id ?? undefined;
+  if (row.concepts !== undefined)       paper.concepts = safeJsonParse(row.concepts, []);
+  if (row.affiliations !== undefined)   paper.affiliations = safeJsonParse(row.affiliations, []);
 
   return paper;
 }
@@ -106,8 +126,13 @@ function safeJsonParse<T>(value: string | undefined, fallback: T): T {
 const PAPER_SELECT = `
       p.id, p.title, p.authors, p.abstract, p.categories,
       p.published_at, p.revised_at, p.pdf_url, p.html_url, p.indexed_at, p.summary_ready,
+      p.is_open_access, p.oa_url, p.concepts, p.affiliations,
+      p.code_count, p.has_benchmark, p.openalex_id, p.ss_paper_id,
+      p.influential_citation_count, p.reference_count,
       s.tldr, s.key_contributions, s.methods, s.limitations,
-      s.beginner_explain, s.technical_summary, s.generated_at, s.model_version`;
+      s.beginner_explain, s.technical_summary, s.generated_at, s.model_version,
+      s.keywords, s.entities, s.paper_type, s.novelty,
+      s.applications, s.prerequisites, s.follow_up_questions`;
 
 // ─── Paper Queries ──────────────────────────────────────────────────────────
 
@@ -401,15 +426,7 @@ export async function ftsSearch(
 
   const { results } = await db.prepare(`
     SELECT
-      p.id, p.title, p.authors, p.abstract, p.categories,
-      p.published_at, p.revised_at, p.pdf_url, p.html_url, p.indexed_at, p.summary_ready,
-      p.is_open_access, p.oa_url, p.concepts, p.affiliations,
-      p.code_count, p.has_benchmark, p.openalex_id, p.ss_paper_id,
-      p.influential_citation_count, p.reference_count,
-      s.tldr, s.key_contributions, s.methods, s.limitations,
-      s.beginner_explain, s.technical_summary, s.generated_at, s.model_version,
-      s.keywords, s.entities, s.paper_type, s.novelty,
-      s.applications, s.prerequisites, s.follow_up_questions,
+      ${PAPER_SELECT.replace(/\n\s*/g, '\n      ')},
       bm25(papers_fts, 10.0, 1.0, 5.0) AS keyword_score
     FROM papers_fts f
     JOIN papers p ON p.id = f.paper_id
@@ -466,15 +483,7 @@ export async function getPapersByConceptName(
 ): Promise<PaperWithSummary[]> {
   const fetchLimit = limit * 2;
   const { results } = await db.prepare(`
-    SELECT p.id, p.title, p.authors, p.abstract, p.categories,
-      p.published_at, p.revised_at, p.pdf_url, p.html_url, p.indexed_at, p.summary_ready,
-      p.is_open_access, p.oa_url, p.concepts, p.affiliations,
-      p.code_count, p.has_benchmark, p.openalex_id, p.ss_paper_id,
-      p.influential_citation_count, p.reference_count,
-      s.tldr, s.key_contributions, s.methods, s.limitations,
-      s.beginner_explain, s.technical_summary, s.generated_at, s.model_version,
-      s.keywords, s.entities, s.paper_type, s.novelty,
-      s.applications, s.prerequisites, s.follow_up_questions
+    SELECT ${PAPER_SELECT}
     FROM papers p
     LEFT JOIN summaries s ON s.paper_id = p.id
     WHERE p.summary_ready = 1
@@ -494,15 +503,7 @@ export async function getPapersByInstitution(
 ): Promise<PaperWithSummary[]> {
   const fetchLimit = limit * 2;
   const { results } = await db.prepare(`
-    SELECT p.id, p.title, p.authors, p.abstract, p.categories,
-      p.published_at, p.revised_at, p.pdf_url, p.html_url, p.indexed_at, p.summary_ready,
-      p.is_open_access, p.oa_url, p.concepts, p.affiliations,
-      p.code_count, p.has_benchmark, p.openalex_id, p.ss_paper_id,
-      p.influential_citation_count, p.reference_count,
-      s.tldr, s.key_contributions, s.methods, s.limitations,
-      s.beginner_explain, s.technical_summary, s.generated_at, s.model_version,
-      s.keywords, s.entities, s.paper_type, s.novelty,
-      s.applications, s.prerequisites, s.follow_up_questions
+    SELECT ${PAPER_SELECT}
     FROM papers p
     LEFT JOIN summaries s ON s.paper_id = p.id
     WHERE p.summary_ready = 1

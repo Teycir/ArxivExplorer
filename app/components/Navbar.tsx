@@ -1,10 +1,5 @@
 'use client';
 // app/components/Navbar.tsx
-// Sticky top nav — logo + search input.
-//
-// Bookmark count is kept live via two listeners:
-//   • 'arxiv:bookmarks-changed'  – same-tab instant update (fired by bookmarks.ts)
-//   • 'storage'                  – cross-tab update when localStorage is written elsewhere
 
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -61,16 +56,13 @@ export function Navbar() {
   const [bookmarkCount, setBookmarkCount] = useState(0);
 
   useEffect(() => {
-    // Initial read
     setBookmarkCount(loadBookmarks().bookmarks.length);
 
     function refresh() {
       setBookmarkCount(loadBookmarks().bookmarks.length);
     }
 
-    // Same-tab instant update — fired by bookmarks.ts writeRaw()
     window.addEventListener('arxiv:bookmarks-changed', refresh);
-    // Cross-tab update — fired by browser when localStorage changes in another tab
     window.addEventListener('storage', refresh);
 
     return () => {
@@ -83,7 +75,7 @@ export function Navbar() {
     <nav className="sticky top-0 z-50 w-full border-b border-neon-red/10
       bg-dark-bg/80 backdrop-blur-md">
       <div className="max-w-5xl mx-auto px-4 h-14 flex items-center gap-4">
-        {/* RSS Icon - top left */}
+        {/* RSS Icon */}
         <Link href="/rss.xml" target="_blank"
           className="flex-shrink-0 text-neon-red/40 hover:text-neon-red transition-colors"
           title="RSS Feed">
@@ -104,7 +96,7 @@ export function Navbar() {
           </span>
         </Link>
 
-        {/* Search bar — wrapped in Suspense so it's safe in any RSC page */}
+        {/* Search bar */}
         <Suspense fallback={
           <div className="relative flex-1 max-w-lg">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neon-red/35" />
@@ -128,9 +120,6 @@ export function Navbar() {
                 {bookmarkCount > 99 ? '99+' : bookmarkCount}
               </span>
             )}
-          </Link>
-          <Link href="/explore" className="hover:text-neon-red/70 transition-colors font-semibold">
-            Stats
           </Link>
           <Link href="/achievements" className="hover:text-neon-red/70 transition-colors hidden sm:block" title="Achievements">
             🏆

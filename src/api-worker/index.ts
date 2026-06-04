@@ -28,7 +28,6 @@ import { handleCitations } from './routes/citations';
 import { handleConcept } from './routes/concept';
 import { handleInstitution } from './routes/institution';
 import { handlePaperCode, handlePaperBenchmarks } from './routes/enrichment';
-import { handleGraph } from './routes/graph';
 import { handleStats } from './routes/stats';
 
 export default {
@@ -60,11 +59,6 @@ export default {
       // /api/stats
       if (path === '/api/stats') {
         return handleStats(request, env, ctx);
-      }
-
-      // /api/graph
-      if (path === '/api/graph') {
-        return handleGraph(request, env, ctx);
       }
 
       // /api/search?q=
@@ -141,37 +135,37 @@ export default {
         return handleVectorizeUpsert(request, env);
       }
 
-      // /admin/retry-failed (POST) — reset summary_ready=2 → 0 for retry
+      // /admin/retry-failed (POST)
       if (path === '/admin/retry-failed' && request.method === 'POST') {
         return handleRetryFailed(request, env);
       }
 
-      // /admin/backfill-related (POST) — compute related for papers missing them
+      // /admin/backfill-related (POST)
       if (path === '/admin/backfill-related' && request.method === 'POST') {
         return handleBackfillRelated(request, env);
       }
 
-      // /admin/crossref-batch (POST) — run a bounded CrossRef enrichment batch
+      // /admin/crossref-batch (POST)
       if (path === '/admin/crossref-batch' && request.method === 'POST') {
         return handleCrossRefBatch(request, env);
       }
 
-      // /admin/papers/all (GET) — get all papers for offline processing
+      // /admin/papers/all (GET)
       if (path === '/admin/papers/all' && request.method === 'GET') {
         return handleGetAllPapers(request, env);
       }
 
-      // /admin/related/clear (POST) — clear related_papers table
+      // /admin/related/clear (POST)
       if (path === '/admin/related/clear' && request.method === 'POST') {
         return handleClearRelated(request, env);
       }
 
-      // /admin/related/bulk-insert (POST) — bulk insert related_papers
+      // /admin/related/bulk-insert (POST)
       if (path === '/admin/related/bulk-insert' && request.method === 'POST') {
         return handleBulkInsertRelated(request, env);
       }
 
-      // /admin/kv/delete (POST) — delete KV cache key
+      // /admin/kv/delete (POST)
       if (path === '/admin/kv/delete' && request.method === 'POST') {
         const { handleKvDelete } = await import('./routes/admin');
         return handleKvDelete(request, env);
@@ -182,7 +176,6 @@ export default {
         headers: { 'Content-Type': 'application/json', ...cors },
       });
     } catch (err) {
-      // Surface all unexpected errors — never hide them
       console.error('[api-worker] Unhandled error:', err);
       return new Response(
         JSON.stringify({ error: 'Internal server error', detail: String(err) }),
