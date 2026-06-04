@@ -42,12 +42,15 @@ _Scan the QR code or copy the wallet address above._
 - **Hybrid Search** — Combines keyword (BM25) and semantic (vector) search for accurate results
 - **Advanced Filtering** — Filter by author, citation count, category, and date range (day/week/month)
 - **RSS Feed** — Subscribe to recent papers with AI summaries at `/rss.xml` (1-hour cache, 20 papers)
-- **AI Summaries** — Pre-generated summaries with TL;DR, key contributions, methods, and limitations
+- **AI Summaries** — Pre-generated summaries with TL;DR, key contributions, methods, limitations, and enriched metadata
 - **Related Papers** — Discover similar papers through semantic similarity
 - **Topic Browsing** — Curated collections for popular research areas
 - **Citation Tracking** — Real-time citation counts from Semantic Scholar with automatic updates
-- **Paper Collections** — Organize bookmarks into named collections with JSON/BibTeX export
-- **Paper Comparison** — Side-by-side comparison of up to 4 papers
+- **Paper Collections** — Organize bookmarks into playlists with JSON/BibTeX export
+- **Paper Comparison** — Side-by-side comparison of up to 6 papers with field selector and CSV/Markdown export
+- **Paper Revisions** — View revision history and version comparison for updated papers
+- **Achievements System** — Gamified badges for user engagement (explorer, researcher, curator, etc.)
+- **CLI Tool** — Command-line interface for AI assistants (Claude, ChatGPT) to search and explore papers
 - **Zero Latency AI** — All summaries pre-computed, served from edge cache
 - **No Login Required** — Instant access to all features
 
@@ -202,7 +205,9 @@ npm run deploy:ingest   # Ingest worker
 │   ├── concept/[name]/        # Concept pages
 │   ├── institution/[slug]/    # Institution pages
 │   ├── compare/               # Paper comparison
+│   ├── diff/[id]/             # Paper revision history
 │   ├── bookmarks/             # Bookmark management
+│   ├── playlists/             # Playlist management
 │   ├── explore/               # Explore page
 │   ├── achievements/          # Achievement tracking
 │   ├── rss.xml/               # RSS feed route
@@ -229,7 +234,6 @@ npm run deploy:ingest   # Ingest worker
 │   │       ├── enrichment.ts  # Data enrichment endpoints
 │   │       ├── concept.ts     # Concept search
 │   │       ├── institution.ts # Institution search
-│   │       ├── graph.ts       # Graph data
 │   │       ├── stats.ts       # Database statistics
 │   │       └── sitemap.ts     # Sitemap generation
 │   ├── ingest-worker/         # Background processing (cron)
@@ -292,10 +296,9 @@ GET  /api/author/:name                                # Author papers and statis
 GET  /api/concept/:name                               # Papers by concept
 GET  /api/institution/:slug                           # Papers by institution
 GET  /api/stats                                       # Database statistics
-GET  /api/graph                                       # Paper citation/relationship graph data
 GET  /api/sitemap                                     # Sitemap for SEO
 GET  /rss.xml                                         # RSS feed (20 recent papers, 1h cache)
-GET  /compare?ids=id1,id2,id3                         # Compare up to 4 papers side-by-side
+GET  /compare?ids=id1,id2,id3                         # Compare up to 6 papers side-by-side
 
 POST /admin/vectorize/upsert                          # Bulk embed upsert (x-admin-secret)
 POST /admin/retry-failed                              # Reset summary_ready=2 → 0
@@ -391,12 +394,12 @@ ADMIN_SECRET=<secret> npx tsx scripts/push-local-to-remote.ts
 
 ## Performance
 
-- **Search**: <300 ms (KV cache hit) · <600 ms (D1 fallback)
-- **Paper detail**: <200 ms (KV cache hit) · <500 ms (D1 fallback)
-- **Cache hit rate**: >85%
-- **Throughput**: 33 req/s under mixed load
+- **Search**: <240 ms average (KV cache hit) · <400 ms (D1 fallback)
+- **Paper detail**: <190 ms average (KV cache hit) · <500 ms (D1 fallback)
+- **Cache hit rate**: ~85% (188ms average cache hit time)
+- **Throughput**: 50 req/s under mixed load
 - **Edge deployment**: Global CDN via Cloudflare Workers
-- **Uptime**: Production tested with zero downtime deployments
+- **Stress tested**: 100 concurrent requests, 0% error rate
 
 ## Key Features
 
@@ -462,6 +465,58 @@ cd scripts
 cd scripts
 ./test-api-deep.sh         # Deep API endpoint testing
 ```
+
+## CLI Tool for AI Assistants
+
+A command-line interface designed for AI assistants (Claude Code, ChatGPT, etc.) to programmatically search and explore papers.
+
+### Installation
+
+```bash
+# Quick install
+./install-cli.sh
+
+# Manual
+cd cli
+npm run build
+npm link
+```
+
+### Usage
+
+```bash
+# Search papers
+arxiv-cli search "transformer attention" 5
+
+# Get paper details with AI summary
+arxiv-cli paper 2605.30353
+
+# Show trending papers
+arxiv-cli trending 10
+
+# Browse topics
+arxiv-cli topics
+arxiv-cli topic large-language-models 20
+
+# Author papers
+arxiv-cli author "Yann LeCun" 10
+```
+
+### Output Format
+
+Clean, structured text optimized for AI parsing:
+
+```
+ID: 2605.30353
+Title: Physics Is All You Need...
+Authors: John Doe, Jane Smith...
+Published: 2026-06-03
+Categories: cs.LG, cs.AI
+TL;DR: This paper introduces...
+URL: https://arxiv.org/abs/2605.30353
+```
+
+See `cli/README.md` for complete documentation.
 
 ## Troubleshooting
 
