@@ -1,0 +1,15 @@
+{
+  "name": "arxiv-cli",
+  "version": "1.0.0",
+  "description": "CLI tool for AI assistants to search arXiv papers",
+  "bin": {
+    "arxiv-cli": "./arxiv-cli.js"
+  },
+  "scripts": {
+    "build": "tsc arxiv-cli.ts --target ES2022 --module NodeNext --outDir .",
+    "prepublish": "npm run build"
+  },
+  "keywords": ["arxiv", "papers", "research", "cli", "ai"],
+  "author": "Teycir Ben Soltane",
+  "license": "BSL-1.1"
+}
