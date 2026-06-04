@@ -27,3 +27,6 @@ CACHE_TTL_SEARCH_SECONDS = "7200"
 CACHE_TTL_TRENDING_SECONDS = "3600"
 CACHE_TTL_EMBED_SECONDS = "86400"
 ALLOWED_ORIGIN = "https://arxivexplorer.arxivexplorer.workers.dev"
+
+# Set ADMIN_SECRET via: wrangler secret put ADMIN_SECRET --config wrangler.api.toml
+# Required for /admin/* endpoints (Vectorize upserts, maintenance)

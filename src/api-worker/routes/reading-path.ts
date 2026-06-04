@@ -1,7 +1,7 @@
 // src/api-worker/routes/reading-path.ts
 // Find shortest reading path between two papers using prerequisites + related papers
 
-import type { Env } from '../index';
+import type { Env } from '../../shared/types';
 
 interface PathNode {
   id: string;

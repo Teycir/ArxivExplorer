@@ -112,10 +112,10 @@ Pre-computes top-8 semantically similar papers using Vectorize and stores in `re
 ### Cron Schedule
 
 The ingest worker has two cron triggers:
-- `0 * * * *` — Hourly ingestion + citation updates
+- `* * * * *` — Every minute (processes 1 paper per run with 1 retry on failure)
 - `30 2 * * *` — Daily CrossRef enrichment batch (50 papers per run)
 
-Citation updates run as part of the hourly cron, fetching data from Semantic Scholar API.
+Citation updates run as part of the minutely cron, fetching data from Semantic Scholar API.
 
 ### Bulk Local Processing
 
@@ -333,17 +333,25 @@ export const CF_D1_ID = 'your-d1-database-id';
 ```toml
 [vars]
 ARXIV_FETCH_CATEGORIES = "cs.AI,cs.LG"                 # Default categories
-ARXIV_FETCH_LIMIT_PER_CATEGORY = "10"                  # Papers per category per cron
-INGEST_MAX_CONCURRENT = "3"                            # Concurrent AI processing
+ARXIV_FETCH_LIMIT_PER_CATEGORY = "0"                   # Papers per category per cron (0 = process pending only)
+INGEST_MAX_CONCURRENT = "1"                            # Concurrent AI processing
 ARXIV_RATE_LIMIT_DELAY_MS = "3000"                     # Delay between arXiv requests
 SUMMARY_MODEL = "@cf/meta/llama-3.1-8b-instruct"       # Workers AI summary model
 EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5"          # Workers AI embedding model
+INGEST_PHASE = "hourly"                                # Phase identifier
+POLITE_EMAIL = "your-email@example.com"                # Contact email for arXiv API
 
 # Optional Ollama (local AI)
 # OLLAMA_BASE = "https://your-tunnel.trycloudflare.com"
 # OLLAMA_SUMMARY_MODEL = "gemma4:e4b"
 # OLLAMA_EMBEDDING_MODEL = "nomic-embed-text"
 ```
+
+**Minutely cron schedule**:
+- Processes exactly 1 pending paper per run (summary_ready = 0 or failed within 7 days)
+- Retries once on failure (2 total attempts)
+- Daily quota: 113 papers/day max (5,000 neurons, 50% of daily budget reserved for tooltips)
+- Quota tracking via KV with automatic reset at 00:00 UTC
 
 ### Admin Secret
 

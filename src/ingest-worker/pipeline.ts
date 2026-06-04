@@ -32,6 +32,45 @@ export async function runIngestionPipeline(env: Env): Promise<IngestResult> {
 
   console.info(`[pipeline] Phase: ${phase} | categories: ${categories.join(', ')} | limit: ${maxPerCategory}/cat`);
 
+  // ── Daily neuron quota check ─────────────────────────────────────────────
+  // Cloudflare Workers AI Free Tier (as of 2026-06-05):
+  //   - 10,000 neurons/day (resets at 00:00 UTC)
+  //   - Applies to both Free and Paid Workers plans
+  //
+  // Cost per paper (using @cf/meta/llama-3.1-8b-instruct + @cf/baai/bge-base-en-v1.5):
+  //   - Embedding: 6,058 neurons per 1M tokens → ~6 neurons per paper (1k tokens)
+  //   - Summary: 25,608 input + 75,147 output neurons per 1M tokens → ~38 neurons per paper
+  //   - Total: ~44 neurons/paper
+  //
+  // Conservative limit calculation:
+  //   - Budget: 10,000 neurons/day
+  //   - Reserved for tooltips/entity definitions: 50%
+  //   - Available for ingestion: 50% = 5,000 neurons/day
+  //   - Max papers: 5,000 / 44 = 113 papers/day
+  const DAILY_NEURON_BUDGET = 10_000;
+  const INGESTION_ALLOCATION = 0.5; // 50% reserved for tooltip AI
+  const NEURONS_PER_PAPER = 44;
+  const MAX_PAPERS_PER_DAY = Math.floor((DAILY_NEURON_BUDGET * INGESTION_ALLOCATION) / NEURONS_PER_PAPER);
+
+  const todayKey = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+  const quotaKey = `quota:${todayKey}`;
+  const quotaData = await env.CACHE.get(quotaKey);
+  let todayProcessed = quotaData ? parseInt(quotaData, 10) : 0;
+
+  if (todayProcessed >= MAX_PAPERS_PER_DAY) {
+    console.warn(`[pipeline] Daily quota exhausted: ${todayProcessed}/${MAX_PAPERS_PER_DAY} papers`);
+    return {
+      fetched: 0,
+      newPapers: 0,
+      summarized: 0,
+      failed: 0,
+      neuronsEstimate: 0,
+    };
+  }
+
+  const remainingQuota = MAX_PAPERS_PER_DAY - todayProcessed;
+  console.info(`[pipeline] Daily quota: ${todayProcessed}/${MAX_PAPERS_PER_DAY} used, ${remainingQuota} remaining`);
+
   const result: IngestResult = {
     fetched: 0,
     newPapers: 0,
@@ -83,11 +122,9 @@ export async function runIngestionPipeline(env: Env): Promise<IngestResult> {
 
   console.info(`[pipeline] ${newEntries.length} new papers (${scopedEntries.length - newEntries.length} already indexed, ${dropped} out-of-scope dropped)`);
 
-  // Step 2b: Also fetch papers needing (re)processing:
-  //   - summary_ready = 0: newly inserted, never attempted
-  //   - summary_ready = 2: previously failed within the last 7 days (retry on fresh quota)
-  // Limit is the same as maxPerCategory so a single ingest run can drain a full failed batch.
-  const retryLimit = Math.max(maxPerCategory, 20);
+  // Step 2b: Fetch exactly 1 pending paper (summary_ready = 0 or failed within 7 days)
+  // Respect daily quota limit
+  const retryLimit = Math.min(1, remainingQuota);
   const pendingPapers = await getPendingPapers(env.DB, retryLimit);
   console.info(`[pipeline] ${pendingPapers.length} pending/failed-retry papers need processing`);
 
@@ -110,7 +147,16 @@ export async function runIngestionPipeline(env: Env): Promise<IngestResult> {
   const allToProcess = [...newEntries, ...pendingPapers];
   const settledResults = await runConcurrent(
     allToProcess,
-    async (entry) => processSinglePaper(entry, env),
+    async (entry) => {
+      // Retry logic: 1 attempt, then retry once on failure
+      try {
+        await processSinglePaper(entry, env);
+      } catch (err) {
+        console.warn(`[pipeline] First attempt failed for ${entry.id}, retrying...`);
+        await delay(2000); // 2s delay before retry
+        await processSinglePaper(entry, env); // Throws on 2nd failure
+      }
+    },
     concurrency
   );
 
@@ -139,6 +185,34 @@ export async function runIngestionPipeline(env: Env): Promise<IngestResult> {
   }
 
   console.info(`[pipeline] Done — ${result.summarized} summarized, ${result.failed} failed, ~${result.neuronsEstimate} neurons${categoryFetchErrors > 0 ? `, ${categoryFetchErrors}/${categories.length} category fetches failed` : ''}`);
+  
+  // Update daily quota counter
+  const newTotal = todayProcessed + result.summarized;
+  await env.CACHE.put(quotaKey, newTotal.toString(), {
+    expirationTtl: 86400 + 3600, // 25h (ensures it expires after day boundary)
+  });
+  
+  // Write health check to KV after successful run
+  try {
+    await env.CACHE.put('kv:health:last_ingest', JSON.stringify({
+      timestamp: new Date().toISOString(),
+      phase,
+      fetched: result.fetched,
+      new_papers: result.newPapers,
+      summarized: result.summarized,
+      failed: result.failed,
+      neurons: result.neuronsEstimate,
+      daily_quota: {
+        date: todayKey,
+        used: newTotal,
+        limit: MAX_PAPERS_PER_DAY,
+        remaining: MAX_PAPERS_PER_DAY - newTotal,
+      },
+    }), { expirationTtl: 86400 }); // 24h TTL
+  } catch (err) {
+    console.warn('[pipeline] Failed to write health check to KV:', err);
+  }
+
   return result;
 }
 
@@ -173,8 +247,17 @@ async function processSinglePaper(entry: ArxivEntry, env: Env): Promise<void> {
     ]);
     if (summaryResult.status === 'rejected') throw summaryResult.reason;
     summaryFields = summaryResult.value;
-    if (entitiesResult.status === 'fulfilled') entities = entitiesResult.value;
-    else console.warn(`[pipeline] Entity extraction failed for ${id} (non-fatal):`, entitiesResult.reason);
+    if (entitiesResult.status === 'fulfilled') {
+      entities = entitiesResult.value;
+      // Generate and store entity definitions (non-fatal)
+      try {
+        await storeEntityDefinitions(entities, env);
+      } catch (err) {
+        console.warn(`[pipeline] Entity definitions failed for ${id} (non-fatal):`, err);
+      }
+    } else {
+      console.warn(`[pipeline] Entity extraction failed for ${id} (non-fatal):`, entitiesResult.reason);
+    }
   } catch (err) {
     await markFailed(env.DB, id);
     throw new Error(`Summary failed for ${id}: ${String(err)}`);
@@ -187,8 +270,8 @@ async function processSinglePaper(entry: ArxivEntry, env: Env): Promise<void> {
         INSERT OR REPLACE INTO summaries
           (paper_id, tldr, key_contributions, methods, limitations,
            beginner_explain, technical_summary, generated_at, model_version,
-           keywords, entities, paper_type, novelty, applications, prerequisites, follow_up_questions)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           keywords, entities, paper_type, novelty, applications, prerequisites, follow_up_questions, problem_statement)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).bind(
         id,
         summaryFields.tldr,
@@ -206,6 +289,7 @@ async function processSinglePaper(entry: ArxivEntry, env: Env): Promise<void> {
         JSON.stringify(summaryFields.applications),
         JSON.stringify(summaryFields.prerequisites),
         JSON.stringify(summaryFields.follow_up_questions),
+        summaryFields.problem_statement ?? null,
       ),
       env.DB.prepare(
         'UPDATE papers SET summary_ready = 1 WHERE id = ?'

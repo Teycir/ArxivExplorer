@@ -4,7 +4,7 @@ compatibility_date = "2025-01-01"
 workers_dev = true
 
 [triggers]
-crons = ["0 * * * *", "30 2 * * *"]  # every hour (ingest) + 02:30 daily (CrossRef)
+crons = ["* * * * *"]  # every minute for testing
 
 [[d1_databases]]
 binding = "DB"
@@ -33,9 +33,15 @@ binding = "AI"
 ARXIV_FETCH_CATEGORIES = "cs.AI,cs.LG"
 SUMMARY_MODEL = "@cf/meta/llama-3.1-8b-instruct"
 EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5"
-ARXIV_FETCH_LIMIT_PER_CATEGORY = "10"
-INGEST_MAX_CONCURRENT = "3"
+ARXIV_FETCH_LIMIT_PER_CATEGORY = "0"
+INGEST_MAX_CONCURRENT = "1"
 ARXIV_RATE_LIMIT_DELAY_MS = "3000"
+INGEST_PHASE = "hourly"
+POLITE_EMAIL = "your-email@example.com"
+
+# Bulk schedule (overrides hourly defaults)
+BULK_FETCH_CATEGORIES = "cs.AI,cs.LG,cs.CL,cs.CV,cs.CR,cs.NE,stat.ML"
+BULK_FETCH_LIMIT_PER_CATEGORY = "50"
 
 # ── Ollama (optional) ─────────────────────────────────────────────────────────
 # When OLLAMA_BASE is set the ingest-worker calls Ollama FIRST and only falls

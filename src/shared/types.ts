@@ -187,6 +187,7 @@ export interface SummaryFields {
   keywords: string[];
   paper_type: string;
   novelty: string;
+  problem_statement?: string;
   applications: string[];
   prerequisites: string[];
   follow_up_questions: string[];
