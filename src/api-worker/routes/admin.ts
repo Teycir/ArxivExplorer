@@ -7,16 +7,46 @@
 
 import type { Env } from '../../shared/types';
 
-function checkAuth(request: Request, env: Env): boolean {
+const RATE_LIMIT_KEY = 'admin:ratelimit:';
+const MAX_ATTEMPTS = 3;
+const WINDOW_MS = 60_000;
+
+async function checkAuth(request: Request, env: Env): Promise<{ ok: boolean; status: number; message?: string }> {
   const adminSecret = env.ADMIN_SECRET;
-  const provided    = request.headers.get('x-admin-secret');
-  return !!(adminSecret && provided && provided === adminSecret);
+  const provided = request.headers.get('x-admin-secret');
+  const ip = request.headers.get('cf-connecting-ip') || 'unknown';
+  const key = RATE_LIMIT_KEY + ip;
+
+  if (!adminSecret || !provided) {
+    return { ok: false, status: 401, message: 'Unauthorized' };
+  }
+
+  // Check rate limit
+  const cached = await env.CACHE.get(key);
+  if (cached) {
+    const attempts = parseInt(cached, 10);
+    if (attempts >= MAX_ATTEMPTS) {
+      return { ok: false, status: 429, message: 'Too many failed attempts' };
+    }
+  }
+
+  // Verify secret
+  if (provided !== adminSecret) {
+    const current = cached ? parseInt(cached, 10) : 0;
+    await env.CACHE.put(key, String(current + 1), { expirationTtl: Math.floor(WINDOW_MS / 1000) });
+    return { ok: false, status: 401, message: 'Unauthorized' };
+  }
+
+  // Success - clear rate limit
+  await env.CACHE.delete(key);
+  return { ok: true, status: 200 };
 }
 
 export async function handleVectorizeUpsert(request: Request, env: Env): Promise<Response> {
-  if (!checkAuth(request, env)) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-      status: 401,
+  const auth = await checkAuth(request, env);
+  if (!auth.ok) {
+    return new Response(JSON.stringify({ error: auth.message }), {
+      status: auth.status,
       headers: { 'Content-Type': 'application/json' },
     });
   }
@@ -49,9 +79,10 @@ export async function handleVectorizeUpsert(request: Request, env: Env): Promise
  * Deletes a KV cache key. Body: { "key": "kv:topic:slug" }
  */
 export async function handleKvDelete(request: Request, env: Env): Promise<Response> {
-  if (!checkAuth(request, env)) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-      status: 401,
+  const auth = await checkAuth(request, env);
+  if (!auth.ok) {
+    return new Response(JSON.stringify({ error: auth.message }), {
+      status: auth.status,
       headers: { 'Content-Type': 'application/json' },
     });
   }
@@ -86,9 +117,10 @@ export async function handleKvDelete(request: Request, env: Env): Promise<Respon
  * to override the default 7-day recency window (0 = reset all failed papers).
  */
 export async function handleRetryFailed(request: Request, env: Env): Promise<Response> {
-  if (!checkAuth(request, env)) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-      status: 401,
+  const auth = await checkAuth(request, env);
+  if (!auth.ok) {
+    return new Response(JSON.stringify({ error: auth.message }), {
+      status: auth.status,
       headers: { 'Content-Type': 'application/json' },
     });
   }
@@ -139,9 +171,10 @@ export async function handleRetryFailed(request: Request, env: Env): Promise<Res
  * Returns all papers with summary_ready=1 for offline processing
  */
 export async function handleGetAllPapers(request: Request, env: Env): Promise<Response> {
-  if (!checkAuth(request, env)) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-      status: 401,
+  const auth = await checkAuth(request, env);
+  if (!auth.ok) {
+    return new Response(JSON.stringify({ error: auth.message }), {
+      status: auth.status,
       headers: { 'Content-Type': 'application/json' },
     });
   }
@@ -171,9 +204,10 @@ export async function handleGetAllPapers(request: Request, env: Env): Promise<Re
  * Clears the entire related_papers table
  */
 export async function handleClearRelated(request: Request, env: Env): Promise<Response> {
-  if (!checkAuth(request, env)) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-      status: 401,
+  const auth = await checkAuth(request, env);
+  if (!auth.ok) {
+    return new Response(JSON.stringify({ error: auth.message }), {
+      status: auth.status,
       headers: { 'Content-Type': 'application/json' },
     });
   }
@@ -200,9 +234,10 @@ export async function handleClearRelated(request: Request, env: Env): Promise<Re
  * Body: { rows: [{ paperId, relatedId, score, rank }] }
  */
 export async function handleBulkInsertRelated(request: Request, env: Env): Promise<Response> {
-  if (!checkAuth(request, env)) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-      status: 401,
+  const auth = await checkAuth(request, env);
+  if (!auth.ok) {
+    return new Response(JSON.stringify({ error: auth.message }), {
+      status: auth.status,
       headers: { 'Content-Type': 'application/json' },
     });
   }
@@ -251,9 +286,11 @@ export async function handleBulkInsertRelated(request: Request, env: Env): Promi
  * This endpoint exists only to confirm the route is wired up.
  */
 export async function handleBackfillRelated(request: Request, env: Env): Promise<Response> {
-  if (!checkAuth(request, env)) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-      status: 401, headers: { 'Content-Type': 'application/json' },
+  const auth = await checkAuth(request, env);
+  if (!auth.ok) {
+    return new Response(JSON.stringify({ error: auth.message }), {
+      status: auth.status,
+      headers: { 'Content-Type': 'application/json' },
     });
   }
   return new Response(JSON.stringify({
@@ -273,9 +310,11 @@ export async function handleBackfillRelated(request: Request, env: Env): Promise
  *   -d '{"limit":50}'
  */
 export async function handleCrossRefBatch(request: Request, env: Env): Promise<Response> {
-  if (!checkAuth(request, env)) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-      status: 401, headers: { 'Content-Type': 'application/json' },
+  const auth = await checkAuth(request, env);
+  if (!auth.ok) {
+    return new Response(JSON.stringify({ error: auth.message }), {
+      status: auth.status,
+      headers: { 'Content-Type': 'application/json' },
     });
   }
 
@@ -302,10 +341,13 @@ export async function handleCrossRefBatch(request: Request, env: Env): Promise<R
     }
 
     const email = (env as unknown as Record<string, string>).POLITE_EMAIL ?? '';
-    let ok = 0, skipped = 0, failed = 0;
     const now = new Date().toISOString();
 
-    for (const { id, doi } of results) {
+    // Process in parallel batches of 5 to stay under Worker CPU limit
+    const CONCURRENCY = 5;
+    let ok = 0, skipped = 0, failed = 0;
+
+    const processPaper = async ({ id, doi }: { id: string; doi: string }) => {
       try {
         const res = await fetch(`https://api.crossref.org/works/${encodeURIComponent(doi)}`, {
           headers: {
@@ -319,11 +361,10 @@ export async function handleCrossRefBatch(request: Request, env: Env): Promise<R
           await env.DB.prepare(
             `UPDATE papers SET crossref_enriched_at = ? WHERE id = ?`
           ).bind(now, id).run();
-          skipped++;
-          continue;
+          return 'skipped';
         }
 
-        if (!res.ok) { failed++; continue; }
+        if (!res.ok) return 'failed';
 
         const data = await res.json() as {
           message?: {
@@ -334,7 +375,7 @@ export async function handleCrossRefBatch(request: Request, env: Env): Promise<R
           };
         };
         const msg = data.message;
-        if (!msg) { failed++; continue; }
+        if (!msg) return 'failed';
 
         const journalName = msg['container-title']?.[0] ?? null;
         const publisher   = msg.publisher ?? null;
@@ -351,10 +392,26 @@ export async function handleCrossRefBatch(request: Request, env: Env): Promise<R
           funders.length ? JSON.stringify(funders) : null,
           now, id,
         ).run();
-        ok++;
+        return 'ok';
       } catch (err) {
         console.error(`[admin/crossref-batch] failed for paper ${id} (doi: ${doi}):`, err);
-        failed++;
+        return 'failed';
+      }
+    };
+
+    // Process in batches
+    for (let i = 0; i < results.length; i += CONCURRENCY) {
+      const batch = results.slice(i, i + CONCURRENCY);
+      const outcomes = await Promise.allSettled(batch.map(processPaper));
+      
+      for (const outcome of outcomes) {
+        if (outcome.status === 'fulfilled') {
+          if (outcome.value === 'ok') ok++;
+          else if (outcome.value === 'skipped') skipped++;
+          else failed++;
+        } else {
+          failed++;
+        }
       }
     }
 

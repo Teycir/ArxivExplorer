@@ -194,6 +194,10 @@ export function ParticleBackground() {
 
     return () => {
       window.removeEventListener('resize', handleResize);
+      scene.remove(points);
+      scene.remove(points2);
+      scene.remove(light);
+      scene.clear();
       container.removeChild(renderer.domElement);
       renderer.dispose();
       pointsGeometry.dispose();

@@ -179,10 +179,13 @@ export function recordTopicView(slug: string): string[] {
 /** Get all achievements with lock/unlock status. */
 export function getAchievements(): AchievementEntry[] {
   const store = readStore();
-  return ACHIEVEMENT_DEFS.map(def => ({
-    ...def,
-    unlockedAt: store.achievements[def.id] ?? undefined,
-  }));
+  return ACHIEVEMENT_DEFS.map(def => {
+    const timestamp = store.achievements[def.id];
+    return {
+      ...def,
+      ...(timestamp !== undefined && { unlockedAt: timestamp }),
+    };
+  });
 }
 
 /** Current streak + stats snapshot for display. */

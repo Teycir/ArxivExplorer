@@ -163,8 +163,11 @@ export async function runConcurrent<T>(
 
 /** Build standard CORS headers from the allowed origin env var. */
 export function corsHeaders(env: { ALLOWED_ORIGIN?: string }): Record<string, string> {
+  if (!env.ALLOWED_ORIGIN) {
+    throw new Error('ALLOWED_ORIGIN must be set in wrangler config');
+  }
   return {
-    'Access-Control-Allow-Origin': env.ALLOWED_ORIGIN ?? 'https://arxivexplorer.arxivexplorer.workers.dev',
+    'Access-Control-Allow-Origin': env.ALLOWED_ORIGIN,
     'Access-Control-Allow-Methods': 'GET, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
   };

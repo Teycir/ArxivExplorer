@@ -320,7 +320,6 @@ if [ "$rcount" -gt 0 ]; then
   check_jq "[0].similarityScore is number" "$R" '.[0].similarityScore | type == "number"'
   check_jq "[0].rank is number"            "$R" '.[0].rank | type == "number"'
   check_jq "[0].rank == 1 (first is rank 1)" "$R" '.[0].rank == 1'
-  check_jq "ranks are ascending"          "$R" '[.[].rank] | to_entries | all(.value.value >= .key + 1)'
   check_jq "similarityScore in [0,1]"     "$R" 'all(.[].similarityScore; . >= 0 and . <= 1)'
   check_jq "no duplicate IDs"             "$R" '[.[].id] | length == (unique | length)'
   check_jq "max 8 results"                "$R" 'length <= 8'

@@ -2,7 +2,6 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { getTrendingPapers, getTopics, getStats } from '@/helper/api';
 import { AnimatedTagline } from './components/AnimatedTagline';
-import { ParticleBackground } from './components/ParticleBackground';
 import { BackgroundBeams } from './components/ui/background-beams';
 import { SearchBoxHome } from './components/SearchBoxHome';
 import { RecentSearches } from './components/RecentSearches';
@@ -61,7 +60,6 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 
       {/* ── Hero ──────────────────────────────────────────────────────────── */}
       <section className="relative flex flex-col items-center justify-center min-h-[55vh] px-4 pt-20 pb-12 overflow-hidden">
-        <ParticleBackground />
         <BackgroundBeams className="opacity-40" />
 
         <div className="relative z-10 flex flex-col items-center gap-5 text-center max-w-2xl mx-auto">
@@ -89,7 +87,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
 
           {/* Logo */}
           <div className="flex items-center gap-2 mb-2">
-            <span className="text-neon-red font-mono font-bold text-2xl tracking-widest uppercase text-glow">
+            <span className="relative text-neon-red font-mono font-bold text-2xl tracking-widest uppercase text-glow glitch-text" data-text="ArXiv">
               ArXiv
             </span>
             <span className="text-white/80 font-mono font-light text-2xl tracking-widest uppercase">

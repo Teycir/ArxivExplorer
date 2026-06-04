@@ -72,7 +72,7 @@ export function rowToPaper(row: PaperRow): PaperWithSummary {
 
   if (row.tldr && row.key_contributions && row.methods && row.limitations &&
       row.beginner_explain && row.technical_summary && row.generated_at && row.model_version) {
-    const summary: Summary = {
+    const summary = {
       paperId: row.id,
       tldr: row.tldr,
       keyContributions: safeJsonParse<string[]>(row.key_contributions, []),
@@ -85,12 +85,12 @@ export function rowToPaper(row: PaperRow): PaperWithSummary {
       // Enrichment fields (present after 0006_enrichment.sql migration)
       keywords:           safeJsonParse<string[]>(row.keywords, []),
       entities:           safeJsonParse<Array<{ name: string; type: 'model' | 'dataset' | 'benchmark' }>>(row.entities, []),
-      paperType:          (row.paper_type as Summary['paperType']) ?? undefined,
-      novelty:            row.novelty ?? undefined,
+      ...(row.paper_type && { paperType: row.paper_type as Summary['paperType'] }),
+      ...(row.novelty && { novelty: row.novelty }),
       applications:       safeJsonParse<string[]>(row.applications, []),
       prerequisites:      safeJsonParse<string[]>(row.prerequisites, []),
       followUpQuestions:  safeJsonParse<string[]>(row.follow_up_questions, []),
-    };
+    } as Summary;
     paper.summary = summary;
   }
 

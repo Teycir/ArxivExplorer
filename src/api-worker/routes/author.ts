@@ -56,7 +56,7 @@ function buildAuthorStats(author: string, papers: PaperWithSummary[]) {
   // Aggregated signals
   const now = Date.now();
   const recentCount  = papers.filter(p => now - new Date(p.publishedAt).getTime() < SIX_MONTHS_MS).length;
-  const codeCount    = papers.filter(p => p.codeCount > 0).length;
+  const codeCount    = papers.filter(p => (p.codeCount ?? 0) > 0).length;
   const openAccCount = papers.filter(p => p.isOpenAccess).length;
   const totalInfluentialCites = papers.reduce((s, p) => s + (p.influentialCitationCount ?? 0), 0);
   const benchmarkCount = papers.filter(p => p.hasBenchmark).length;
