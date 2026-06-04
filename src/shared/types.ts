@@ -221,6 +221,8 @@ export interface Env {
   OLLAMA_ENTITY_MODEL?: string;
   // Polite-pool email for OpenAlex and CrossRef
   POLITE_EMAIL?: string;
+  // Semantic Scholar API key (optional — raises rate limit from ~1 to 10 req/s)
+  SS_API_KEY?: string;
   // Phase control
   INGEST_PHASE?: 'bulk' | 'steady';
   INGEST_BULK_SCHEDULE?: string;

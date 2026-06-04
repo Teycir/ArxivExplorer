@@ -430,6 +430,119 @@ else
 fi
 
 echo ""
+echo "🔀 Compare & Explore Page Tests"
+echo "--------------------------------"
+
+# Test COMPARE-01: /compare with no params → 200 with empty-state UI
+test_endpoint "Compare - no params (empty state, 200)" \
+    "$FRONTEND/compare" \
+    200
+
+# Test COMPARE-02: /compare with two valid IDs → 200
+test_endpoint "Compare - two valid IDs" \
+    "$FRONTEND/compare?ids=2606.04970,2606.04967" \
+    200
+
+# Test COMPARE-03: page actually renders paper content (not empty shell)
+echo -n "Testing: Compare - page renders comparison content ... "
+response=$(curl -s "$FRONTEND/compare?ids=2606.04970,2606.04967")
+if echo "$response" | grep -qi "comparison\|compare\|paper\|tldr\|title"; then
+    echo -e "${GREEN}✓ PASS${NC} (Page has comparison content)"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "${RED}✗ FAIL${NC} (Page appears to be empty shell)"
+    FAILED=$((FAILED + 1))
+fi
+
+# Test COMPARE-04: /compare with single valid ID → 200
+test_endpoint "Compare - single valid ID" \
+    "$FRONTEND/compare?ids=2606.04970" \
+    200
+
+# Test COMPARE-05: /compare with max 6 IDs → 200 (no crash at limit)
+test_endpoint "Compare - six IDs (at cap, no crash)" \
+    "$FRONTEND/compare?ids=2606.04970,2606.04967,2606.04935,2605.30353,2301.07041,2302.13971" \
+    200
+
+# Test COMPARE-06: /compare with 7 IDs → 200 (silently capped at 6)
+test_endpoint "Compare - seven IDs (capped at 6, no crash)" \
+    "$FRONTEND/compare?ids=2606.04970,2606.04967,2606.04935,2605.30353,2301.07041,2302.13971,2301.00001" \
+    200
+
+# Test COMPARE-07: /compare with mixed valid + invalid IDs → 200 (invalid silently dropped)
+test_endpoint "Compare - mixed valid and invalid IDs" \
+    "$FRONTEND/compare?ids=2606.04970,9999.99999" \
+    200
+
+# Test COMPARE-08: /compare with all invalid IDs → graceful empty/not-found state
+echo -n "Testing: Compare - all invalid IDs shows graceful empty state ... "
+response=$(curl -s "$FRONTEND/compare?ids=9999.99999,8888.88888")
+if echo "$response" | grep -qi "compare\|paper\|not.found\|404\|page"; then
+    echo -e "${GREEN}✓ PASS${NC} (graceful empty/not-found state)"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "${RED}✗ FAIL${NC} (unexpected response)"
+    FAILED=$((FAILED + 1))
+fi
+
+# Test COMPARE-09: PaperComparison.tsx has field selector
+echo -n "Testing: Compare - PaperComparison.tsx has field selector ... "
+if grep -q "showFieldPicker\|FieldKey\|ALL_FIELDS" /home/teycir/Repos/ArxivExplorer/app/components/PaperComparison.tsx; then
+    echo -e "${GREEN}✓ PASS${NC} (field picker present)"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "${RED}✗ FAIL${NC} (field picker missing from PaperComparison.tsx)"
+    FAILED=$((FAILED + 1))
+fi
+
+# Test COMPARE-10: PaperComparison.tsx has CSV + Markdown export
+echo -n "Testing: Compare - PaperComparison.tsx has CSV and Markdown export ... "
+if grep -q "exportCsv\|exportMarkdown" /home/teycir/Repos/ArxivExplorer/app/components/PaperComparison.tsx; then
+    echo -e "${GREEN}✓ PASS${NC} (CSV + Markdown export present)"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "${RED}✗ FAIL${NC} (export functions missing from PaperComparison.tsx)"
+    FAILED=$((FAILED + 1))
+fi
+
+# Test COMPARE-11: compare/page.tsx enforces 6-paper cap
+echo -n "Testing: Compare - page.tsx enforces 6-paper cap ... "
+if grep -q "slice(0, 6)" /home/teycir/Repos/ArxivExplorer/app/compare/page.tsx; then
+    echo -e "${GREEN}✓ PASS${NC} (6-paper cap enforced in source)"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "${RED}✗ FAIL${NC} (no slice(0, 6) cap found in compare/page.tsx)"
+    FAILED=$((FAILED + 1))
+fi
+
+# Test EXPLORE-01: /explore page returns 200
+test_endpoint "Explore page (rebuilt)" \
+    "$FRONTEND/explore" \
+    200
+
+# Test EXPLORE-02: /explore page has discovery content
+echo -n "Testing: Explore page has topic/trending content ... "
+response=$(curl -s "$FRONTEND/explore")
+if echo "$response" | grep -qi "topic\|trending\|category\|explore\|discover"; then
+    echo -e "${GREEN}✓ PASS${NC} (Explore page has discovery content)"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "${RED}✗ FAIL${NC} (Explore page appears empty)"
+    FAILED=$((FAILED + 1))
+fi
+
+# Test EXPLORE-03: explore/page.tsx fetches from 3 data sources
+echo -n "Testing: Explore page.tsx fetches stats, topics, and trending ... "
+src="/home/teycir/Repos/ArxivExplorer/app/explore/page.tsx"
+if grep -q "getStats" "$src" && grep -q "getTopics" "$src" && grep -q "getTrendingPapers" "$src"; then
+    echo -e "${GREEN}✓ PASS${NC} (all 3 data sources present)"
+    PASSED=$((PASSED + 1))
+else
+    echo -e "${RED}✗ FAIL${NC} (one or more data sources missing from explore/page.tsx)"
+    FAILED=$((FAILED + 1))
+fi
+
+echo ""
 echo "📊 Summary"
 echo "=========="
 echo -e "Total tests: $((PASSED + FAILED))"

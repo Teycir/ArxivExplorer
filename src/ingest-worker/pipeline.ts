@@ -125,15 +125,16 @@ export async function runIngestionPipeline(env: Env): Promise<IngestResult> {
   // Neuron estimate: ~44 per paper (1 summary + 1 embedding)
   result.neuronsEstimate = result.summarized * 44;
 
-  // Step 9: Invalidate ALL trending cache windows (new papers arrived)
+  // Step 9: Invalidate trending + stats cache (new papers arrived)
   try {
     await Promise.all([
       kvDelete(env.CACHE, 'kv:trending:day'),
       kvDelete(env.CACHE, 'kv:trending:week'),
       kvDelete(env.CACHE, 'kv:trending:month'),
+      kvDelete(env.CACHE, 'kv:stats:v2'),
     ]);
   } catch (err) {
-    console.warn('[pipeline] Failed to invalidate trending cache:', err);
+    console.warn('[pipeline] Failed to invalidate trending/stats cache:', err);
   }
 
   console.info(`[pipeline] Done — ${result.summarized} summarized, ${result.failed} failed, ~${result.neuronsEstimate} neurons${categoryFetchErrors > 0 ? `, ${categoryFetchErrors}/${categories.length} category fetches failed` : ''}`);

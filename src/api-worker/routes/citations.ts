@@ -52,7 +52,7 @@ export async function handleCitations(
     const ssUrl = `https://api.semanticscholar.org/graph/v1/paper/arXiv:${normalizedId}?fields=citationCount,title`;
 
     const ssRes = await fetch(ssUrl, {
-      headers: { 'User-Agent': 'ArxivExplorer/1.0' },
+      headers: { 'User-Agent': 'ArxivExplorer/1.0', ...(env.SS_API_KEY ? { 'x-api-key': env.SS_API_KEY } : {}) },
     });
 
     if (!ssRes.ok) {

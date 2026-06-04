@@ -1,15 +1,25 @@
 #!/usr/bin/env tsx
 /**
  * scripts/backfill-pwc.ts
- * Backfills Papers With Code enrichment (code repos + benchmark results) for
- * all papers where pwc_enriched_at IS NULL.
+ * Backfills HuggingFace Papers enrichment (models, datasets, spaces, upvotes)
+ * for all papers where pwc_enriched_at IS NULL.
+ *
+ * Replaces the old PapersWithCode API (permanently dead as of 2026-06-04,
+ * redirects to huggingface.co/papers/trending).
+ *
+ * New data source: https://huggingface.co/api/papers/{arxiv_id}
+ *   - upvotes           → hf_upvotes (paper_code table, repo_url='hf')
+ *   - numTotalModels    → code_count  (proxy: "how many HF models cite this")
+ *   - numTotalDatasets  → stored in paper_code as a metadata row
+ *   - numTotalSpaces    → stored in paper_code as a metadata row
+ *   - linkedModels[0..3] → paper_code rows (repo_url = HF model page)
+ *
+ * has_benchmark stays 0 — HF API has no benchmark results endpoint.
+ * (Re-check when a replacement benchmark API is found.)
  *
  * Usage:
  *   npx tsx scripts/backfill-pwc.ts          # remote D1
  *   npx tsx scripts/backfill-pwc.ts --local  # local D1
- *
- * Makes 1–3 HTTP calls per paper (paper lookup → repos + results in parallel).
- * PWC has no documented rate limit; safe at this pace.
  */
 
 import { spawnSync } from 'child_process';
@@ -18,11 +28,11 @@ import * as os from 'os';
 import * as path from 'path';
 
 const BATCH_SIZE = 50;
-const DELAY_MS   = 300;
+const DELAY_MS   = 200;   // HF is generous; 200ms is plenty
 const isLocal    = process.argv.includes('--local');
 const DB_FLAG    = isLocal ? '--local' : '--remote';
 
-// ─── Wrangler D1 helpers (same pattern as backfill-related.ts) ───────────────
+// ─── Wrangler D1 helpers ──────────────────────────────────────────────────────
 
 function d1Query<T>(sql: string): T[] {
   const r = spawnSync(
@@ -52,101 +62,110 @@ function d1ExecFile(sql: string): void {
 const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
 const esc   = (s: string)  => s.replace(/'/g, "''");
 
-// ─── PWC API fetch ────────────────────────────────────────────────────────────
+// ─── HuggingFace Papers API ───────────────────────────────────────────────────
 
-const PWC_BASE = 'https://paperswithcode.com/api/v1';
+const HF_BASE = 'https://huggingface.co/api/papers';
 
-interface PWCPaper { id: string; slug: string }
-interface PWCRepo  { url: string; stars: number; framework: string | null; is_official: boolean }
-interface PWCResult { task: string; dataset: { name: string }; metrics: Array<{ name: string; value: string }>; rank: number | null }
-
-async function pwcGet<T>(path: string): Promise<T> {
-  const res = await fetch(`${PWC_BASE}${path}`);
-  if (!res.ok) throw new Error(`PWC HTTP ${res.status} for ${path}`);
-  return res.json() as Promise<T>;
+interface HFModel {
+  id: string;
+  downloads: number;
+  likes: number;
+  pipeline_tag?: string;
 }
 
-async function fetchPWC(arxivId: string): Promise<{
-  slug: string | null;
-  repos: PWCRepo[];
-  results: PWCResult[];
-}> {
-  const papers = await pwcGet<{ results: PWCPaper[] }>(`/papers/?arxiv_id=${arxivId}`);
-  if (!papers.results.length) return { slug: null, repos: [], results: [] };
+interface HFPaper {
+  id: string;
+  upvotes: number;
+  numTotalModels: number;
+  numTotalDatasets: number;
+  numTotalSpaces: number;
+  linkedModels: HFModel[];
+}
 
-  const { slug } = papers.results[0]!;
-  const [repoData, resultData] = await Promise.allSettled([
-    pwcGet<{ results: PWCRepo[] }>(`/paper/${slug}/repositories/`),
-    pwcGet<{ results: PWCResult[] }>(`/paper/${slug}/results/`),
-  ]);
-
-  return {
-    slug,
-    repos:   repoData.status   === 'fulfilled' ? repoData.value.results   : [],
-    results: resultData.status === 'fulfilled' ? resultData.value.results : [],
-  };
+async function fetchHF(arxivId: string): Promise<HFPaper | null> {
+  const res = await fetch(`${HF_BASE}/${arxivId}`, {
+    headers: { 'User-Agent': 'ArxivExplorer/1.0 (backfill script)' },
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`HF HTTP ${res.status} for ${arxivId}`);
+  return res.json() as Promise<HFPaper>;
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
-  console.log(`🔗 PWC backfill — ${isLocal ? 'local' : 'remote'} D1`);
+  console.log(`🤗 HuggingFace Papers backfill — ${isLocal ? 'local' : 'remote'} D1`);
+  console.log(`   (Replaces dead PapersWithCode API)\n`);
 
   const rows = d1Query<{ id: string }>(
     `SELECT id FROM papers WHERE pwc_enriched_at IS NULL ORDER BY indexed_at DESC`
   );
-  console.log(`   ${rows.length} papers to enrich`);
+  console.log(`   ${rows.length} papers to enrich\n`);
   if (!rows.length) { console.log('✅ Nothing to do.'); return; }
 
-  let ok = 0, skipped = 0, failed = 0;
+  let ok = 0, notOnHF = 0, failed = 0;
   const now = new Date().toISOString();
   const batch: string[] = [];
 
   for (let i = 0; i < rows.length; i++) {
     const id = rows[i]!.id;
     try {
-      const { slug, repos, results } = await fetchPWC(id);
+      const hf = await fetchHF(id);
       await delay(DELAY_MS);
 
-      if (!slug) {
-        // Not in PWC — mark enriched, don't retry for 30 days
+      if (!hf) {
+        // Paper not on HF — mark enriched so we don't retry endlessly
         batch.push(`UPDATE papers SET pwc_enriched_at='${now}' WHERE id='${esc(id)}';`);
-        skipped++;
+        notOnHF++;
       } else {
-        const codeCount   = repos.length;
-        const hasBenchmark = results.length > 0 ? 1 : 0;
+        const codeCount = hf.numTotalModels;  // # HF models that cite this paper
+
+        // Update papers row
         batch.push(
-          `UPDATE papers SET code_count=${codeCount}, has_benchmark=${hasBenchmark}, ` +
-          `pwc_enriched_at='${now}' WHERE id='${esc(id)}';`
+          `UPDATE papers SET ` +
+          `code_count=${codeCount}, ` +
+          `has_benchmark=0, ` +
+          `pwc_enriched_at='${now}' ` +
+          `WHERE id='${esc(id)}';`
         );
-        for (const repo of repos) {
-          const fw = repo.framework ? `'${esc(repo.framework)}'` : 'NULL';
+
+        // Insert summary metadata row (upvotes + counts) into paper_code
+        // repo_url='hf:meta' is a sentinel for the aggregate HF metadata row
+        batch.push(
+          `INSERT OR REPLACE INTO paper_code ` +
+          `(paper_id, repo_url, stars, framework, is_official, fetched_at) VALUES ` +
+          `('${esc(id)}', 'hf:meta', ${hf.upvotes}, ` +
+          `'hf:models=${hf.numTotalModels},datasets=${hf.numTotalDatasets},spaces=${hf.numTotalSpaces}', ` +
+          `0, '${now}');`
+        );
+
+        // Insert top linked models as individual paper_code rows
+        for (const model of hf.linkedModels.slice(0, 5)) {
+          const modelUrl = `https://huggingface.co/${model.id}`;
+          const tag = model.pipeline_tag ? `'${esc(model.pipeline_tag)}'` : 'NULL';
           batch.push(
-            `INSERT OR REPLACE INTO paper_code (paper_id,repo_url,stars,framework,is_official,fetched_at) ` +
-            `VALUES ('${esc(id)}','${esc(repo.url)}',${repo.stars || 0},${fw},${repo.is_official ? 1 : 0},'${now}');`
+            `INSERT OR REPLACE INTO paper_code ` +
+            `(paper_id, repo_url, stars, framework, is_official, fetched_at) VALUES ` +
+            `('${esc(id)}', '${esc(modelUrl)}', ${model.likes ?? 0}, ${tag}, 0, '${now}');`
           );
         }
-        for (const res of results) {
-          for (const metric of res.metrics) {
-            const val = parseFloat(metric.value);
-            if (isNaN(val)) continue;
-            const rank = res.rank != null ? res.rank : 'NULL';
-            batch.push(
-              `INSERT OR REPLACE INTO paper_benchmarks (paper_id,task,dataset,metric,value,sota_rank,fetched_at) ` +
-              `VALUES ('${esc(id)}','${esc(res.task)}','${esc(res.dataset.name)}','${esc(metric.name)}',${val},${rank},'${now}');`
-            );
-          }
-        }
+
         ok++;
       }
-    } catch (err) { console.error(`\n   ❌ ${id}: ${err}`); failed++; }
+    } catch (err) {
+      console.error(`\n   ❌ ${id}: ${err}`);
+      failed++;
+    }
 
     if (batch.length >= BATCH_SIZE) { d1ExecFile(batch.join('\n')); batch.length = 0; }
-    process.stdout.write(`\r   ${i + 1}/${rows.length}  ok:${ok} skip:${skipped} fail:${failed}  `);
+    process.stdout.write(`\r   ${i + 1}/${rows.length}  ok:${ok}  notOnHF:${notOnHF}  fail:${failed}  `);
   }
 
   if (batch.length) d1ExecFile(batch.join('\n'));
-  console.log(`\n\n✅ Done — enriched:${ok}  not-in-PWC:${skipped}  failed:${failed}`);
+  console.log(`\n\n✅ Done — enriched:${ok}  not-on-HF:${notOnHF}  failed:${failed}`);
+  console.log(`\nVerify:`);
+  console.log(`  npx wrangler d1 execute arxiv-explorer --remote --command \\`);
+  console.log(`  "SELECT COUNT(*) FROM papers WHERE pwc_enriched_at IS NOT NULL"`);
 }
 
 main().catch(e => { console.error('\n❌', e.message ?? e); process.exit(1); });

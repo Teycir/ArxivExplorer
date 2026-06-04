@@ -157,6 +157,6 @@ export async function getInstitutionPapers(
   return apiFetch(`/api/institution/${encodeURIComponent(name)}`);
 }
 
-export async function getStats(): Promise<{ totalPapers: number }> {
+export async function getStats(): Promise<{ totalPapers: number; categoryCounts: Array<{ category: string; count: number }> }> {
   return apiFetch('/api/stats');
 }
