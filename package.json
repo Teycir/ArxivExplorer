@@ -27,7 +27,8 @@
     "next": "16.2.6",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
-    "tailwind-merge": "^2.4.0"
+    "tailwind-merge": "^2.4.0",
+    "three": "^0.184.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241022.0",
@@ -35,6 +36,7 @@
     "@types/node": "^22.0.0",
     "@types/react": "^18.3.30",
     "@types/react-dom": "^18.3.7",
+    "@types/three": "^0.184.1",
     "@types/xml2js": "^0.4.14",
     "autoprefixer": "^10.5.0",
     "better-sqlite3": "^12.10.0",
