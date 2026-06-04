@@ -14,15 +14,14 @@ import { getPaper } from '@/helper/api';
 import { Sparkles, Info, Loader2, Copy, Check, Tag, Lightbulb,
          BookOpen, ChevronDown, ChevronUp, Layers } from 'lucide-react';
 
-type Tab = 'tldr' | 'contributions' | 'methods' | 'limitations' | 'beginner' | 'technical';
+type Tab = 'tldr' | 'contributions' | 'methods' | 'limitations' | 'explain';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'tldr',          label: 'TL;DR' },
   { id: 'contributions', label: 'Contributions' },
   { id: 'methods',       label: 'Methods' },
   { id: 'limitations',   label: 'Limitations' },
-  { id: 'beginner',      label: 'Beginner' },
-  { id: 'technical',     label: 'Technical' },
+  { id: 'explain',       label: 'Explain' },
 ];
 
 const ENTITY_TYPE_LABELS: Record<string, string> = {
@@ -38,6 +37,7 @@ const ENTITY_TYPE_COLORS: Record<string, string> = {
 
 export function SummarySection({ paper: initialPaper }: { paper: PaperWithSummary }) {
   const [active, setActive] = useState<Tab>('tldr');
+  const [expertise, setExpertise] = useState(0.5); // 0 = beginner, 1 = technical
   const [paper, setPaper] = useState(initialPaper);
   const [copied, setCopied] = useState(false);
   const [showFollowUp, setShowFollowUp] = useState(false);
@@ -46,13 +46,12 @@ export function SummarySection({ paper: initialPaper }: { paper: PaperWithSummar
   const getTabText = useCallback((tab: Tab, s: NonNullable<typeof paper.summary>): string => {
     switch (tab) {
       case 'tldr':          return s.tldr;
-      case 'beginner':      return s.beginnerExplain;
-      case 'technical':     return s.technicalSummary;
       case 'contributions': return s.keyContributions.map((c, i) => `${i + 1}. ${c}`).join('\n');
       case 'methods':       return s.methods.map(m => `• ${m}`).join('\n');
       case 'limitations':   return s.limitations.map(l => `⚠ ${l}`).join('\n');
+      case 'explain':       return expertise < 0.5 ? s.beginnerExplain : s.technicalSummary;
     }
-  }, []);
+  }, [expertise]);
 
   async function copyTab() {
     if (!paper.summary) return;
@@ -142,8 +141,32 @@ export function SummarySection({ paper: initialPaper }: { paper: PaperWithSummar
         ))}
       </ul>
     ),
-    beginner: <p className="text-sm text-white/75 leading-relaxed">{s.beginnerExplain}</p>,
-    technical: <p className="text-sm text-white/75 leading-relaxed font-mono text-xs">{s.technicalSummary}</p>,
+    explain: (
+      <div className="space-y-4">
+        <div className="flex items-center gap-3">
+          <span className="text-[10px] font-mono text-neon-red/40 uppercase tracking-wider whitespace-nowrap">Undergrad</span>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            value={expertise}
+            onChange={(e) => setExpertise(parseFloat(e.target.value))}
+            className="flex-1 h-1 bg-neon-red/10 rounded-lg appearance-none cursor-pointer
+              [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3
+              [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-neon-red
+              [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:transition-all
+              [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:rounded-full
+              [&::-moz-range-thumb]:bg-neon-red [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:cursor-pointer"
+          />
+          <span className="text-[10px] font-mono text-neon-red/40 uppercase tracking-wider whitespace-nowrap">Researcher</span>
+        </div>
+        <p className="text-sm text-white/75 leading-relaxed transition-all duration-300"
+           style={{ opacity: 1 - Math.abs(expertise - 0.5) * 0.4 }}>
+          {expertise < 0.5 ? s.beginnerExplain : s.technicalSummary}
+        </p>
+      </div>
+    ),
   };
 
   // Group entities by type

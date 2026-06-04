@@ -79,10 +79,16 @@ export async function searchPapers(
     paperType?: string;
     hasCode?: string;
     openAccess?: string;
+    embedText?: string;
   } = {}
 ): Promise<SearchResult> {
-  if (!query.trim()) throw new Error('Search query must not be empty');
-  const params = new URLSearchParams({ q: query });
+  if (!query.trim() && !opts.embedText) throw new Error('Search query must not be empty');
+  const params = new URLSearchParams();
+  if (opts.embedText) {
+    params.set('embedText', opts.embedText);
+  } else {
+    params.set('q', query);
+  }
   if (opts.category) params.set('category', opts.category);
   if (opts.date) params.set('date', opts.date);
   if (opts.author) params.set('author', opts.author);
@@ -116,6 +122,14 @@ export async function getTrendingPapers(
 ): Promise<{ papers: PaperWithSummary[]; total: number; window: string }> {
   return apiFetch<{ papers: PaperWithSummary[]; total: number; window: string }>(
     `/api/trending?window=${window}`
+  );
+}
+
+export async function getVelocityPapers(
+  limit = 20
+): Promise<{ papers: PaperWithSummary[]; total: number; window: string }> {
+  return apiFetch<{ papers: PaperWithSummary[]; total: number; window: string }>(
+    `/api/velocity?limit=${limit}`
   );
 }
 
@@ -168,4 +182,12 @@ export async function getInstitutionPapers(
 
 export async function getStats(): Promise<{ totalPapers: number; categoryCounts: Array<{ category: string; count: number }> }> {
   return apiFetch('/api/stats');
+}
+
+export async function getReadingPath(fromId: string, toId: string): Promise<{ path: Array<{ id: string; title: string; tldr: string }> }> {
+  return apiFetch(`/api/reading-path?from=${encodeURIComponent(fromId)}&to=${encodeURIComponent(toId)}`);
+}
+
+export async function searchByAbstract(text: string): Promise<SearchResult> {
+  return apiFetch<SearchResult>(`/api/search?embedText=${encodeURIComponent(text)}`);
 }

@@ -51,7 +51,7 @@ export function ParticleBackground() {
     const positions2 = new Float32Array(moversNum * 3);
 
     for (let i = 0; i < moversNum; i++) {
-      const range = (1 - Math.log(Math.floor(Math.random() * 254) + 2) / Math.log(256)) * 500;
+      const range = (1 - Math.log(Math.floor(Math.random() * 254) + 2) / Math.log(256)) * 500 + 100; // Add minimum distance from origin
       const rad = (Math.random() * 360 * Math.PI) / 180;
       const x = Math.cos(rad) * range;
       const z = Math.sin(rad) * range;
@@ -148,7 +148,7 @@ export function ParticleBackground() {
           mover.acceleration.set(0, 0, 0);
 
           if (mover.position.y > 500) {
-            const range = (1 - Math.log(Math.floor(Math.random() * 254) + 2) / Math.log(256)) * 500;
+            const range = (1 - Math.log(Math.floor(Math.random() * 254) + 2) / Math.log(256)) * 500 + 100; // Add minimum distance
             const rad = (Math.random() * 360 * Math.PI) / 180;
             const x = Math.cos(rad) * range;
             const z = Math.sin(rad) * range;

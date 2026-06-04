@@ -40,9 +40,18 @@ export async function handleSearch(
   const rawAuthor = url.searchParams.get('author')?.trim() ?? '';
   const rawMinCit = url.searchParams.get('minCitations')?.trim() ?? '';
   const rawLike   = url.searchParams.get('like')?.trim() ?? '';  // arXiv ID for "more like this"
+  const rawEmbed  = url.searchParams.get('embedText')?.trim() ?? '';  // Full text for semantic-only search
   const rawPaperType  = url.searchParams.get('paperType')?.trim() ?? '';
   const rawHasCode    = url.searchParams.get('hasCode');
   const rawOpenAccess = url.searchParams.get('openAccess');
+
+  // "Abstract search" mode: use provided text directly for semantic search, skip FTS
+  if (rawEmbed) {
+    if (rawEmbed.length > 5000) {
+      return errorResponse('Text too long (max 5000 characters)', cors, 400);
+    }
+    return handleAbstractSearch(rawEmbed, env, ctx, cors);
+  }
 
   // "More like this" mode: resolve the paper's embedding, skip text query
   if (rawLike) {
@@ -334,6 +343,64 @@ async function handleMoreLikeThis(
     total: papers.length,
     cached: false,
     query: `like:${paperId}`,
+  };
+
+  kvPutAsync(ctx, env.CACHE, cacheKey, { ...response, cached: true }, TTL_SEARCH);
+  return jsonResponse(response, cors);
+}
+
+// ─── Abstract Search ───────────────────────────────────────────────────────
+
+/**
+ * Semantic-only search using provided text (e.g., pasted abstract).
+ * Generates embedding for the full text, queries Vectorize, fetches papers.
+ */
+async function handleAbstractSearch(
+  text: string,
+  env: Env,
+  ctx: ExecutionContext,
+  cors: Record<string, string>,
+): Promise<Response> {
+  const textHash = await sha256Hex(text);
+  const cacheKey = `q:abstract:${textHash.slice(0, 32)}`;
+
+  try {
+    const cached = await kvGet<unknown>(env.CACHE, cacheKey);
+    if (cached !== null) return jsonResponse(cached, cors);
+  } catch (err) {
+    console.error('[search/abstract] KV read error:', err);
+  }
+
+  // Generate embedding for the provided text
+  let embedding: number[];
+  try {
+    embedding = await generateEmbedding(env, text);
+  } catch (err) {
+    console.error('[search/abstract] Embedding generation error:', err);
+    return errorResponse(`Embedding error: ${String(err)}`, cors, 500);
+  }
+
+  // Query Vectorize
+  const results = await env.VECTORIZE.query(embedding, {
+    topK: VECTORIZE_TOP_K,
+    returnMetadata: true,
+  });
+
+  // Fetch paper objects from D1
+  const papers = (await Promise.allSettled(
+    results.matches.map(m => getPaperById(env.DB, m.metadata?.paper_id as string))
+  ))
+    .filter((r): r is PromiseFulfilledResult<PaperWithSummary> =>
+      r.status === 'fulfilled' && r.value !== null
+    )
+    .map(r => r.value)
+    .slice(0, MAX_RESULTS);
+
+  const response = {
+    papers,
+    total: papers.length,
+    cached: false,
+    query: text.slice(0, 100) + (text.length > 100 ? '...' : ''),
   };
 
   kvPutAsync(ctx, env.CACHE, cacheKey, { ...response, cached: true }, TTL_SEARCH);

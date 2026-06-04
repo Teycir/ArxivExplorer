@@ -7,12 +7,13 @@ import { CategoryBadge } from '../../components/CategoryBadge';
 import { Card } from '../../components/Card';
 import { SummarySection } from '../../components/SummarySection';
 import { RelatedPapersList } from '../../components/RelatedPapersList';
+import { PaperLabel } from '../../components/PaperLabel';
 import { CodeSection } from '../../components/CodeSection';
 import { BenchmarkSection } from '../../components/BenchmarkSection';
 import { ConceptBrowser } from '../../components/ConceptBrowser';
 import { formatDate } from '@/helper/format';
 import type { PaperWithSummary, RelatedPaper, PaperCode, PaperBenchmark } from '@/src/shared/types';
-import { ExternalLink, FileText, Users, Calendar, Lock, Building2, BookOpen } from 'lucide-react';
+import { ExternalLink, FileText, Users, Calendar, Lock, Building2, BookOpen, MapPin } from 'lucide-react';
 import { BookmarkButton } from '../../components/BookmarkButton';
 import { ExportButton } from '../../components/ExportButton';
 import { CopyBibtex } from '../../components/CopyBibtex';
@@ -277,6 +278,12 @@ export default async function PaperPage({ params }: Props) {
                     <FileText size={12} /> Revisions
                   </Link>
                 )}
+                <Link href={`/reading-path?from=${arxivId}`}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono font-bold uppercase
+                    border border-sky-500/30 text-sky-400/70 rounded-lg
+                    hover:border-sky-500/60 hover:text-sky-400 hover:bg-sky-500/5 transition-all">
+                  <MapPin size={12} /> Find Path
+                </Link>
               </div>
             </Card>
 
@@ -308,7 +315,8 @@ export default async function PaperPage({ params }: Props) {
           </div>
 
           {/* ── Right: related papers sidebar ───────────────────── */}
-          <aside>
+          <aside className="flex flex-col gap-6">
+            <PaperLabel paper={paper} />
             <RelatedPapersList related={related} />
           </aside>
         </div>

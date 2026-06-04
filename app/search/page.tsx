@@ -13,6 +13,7 @@ import { Navbar } from '../components/Navbar';
 import { PaperCard } from '../components/PaperCard';
 import { SearchFilters } from '../components/SearchFilters';
 import { CategoryScopeBar } from '../components/CategoryScopeBar';
+import { AbstractSearch } from '../components/AbstractSearch';
 
 import type { SearchResult } from '@/src/shared/types';
 import { Search, AlertCircle, ShieldX, Loader2 } from 'lucide-react';
@@ -24,6 +25,7 @@ interface SearchPageProps {
   searchParams: Promise<{
     q?: string;
     like?: string;   // "more like this" mode — arXiv ID
+    embedText?: string;  // abstract search mode
     category?: string;
     date?: string;
     author?: string;
@@ -35,8 +37,9 @@ interface SearchPageProps {
 }
 
 export async function generateMetadata({ searchParams }: SearchPageProps): Promise<Metadata> {
-  const { q, like } = await searchParams;
+  const { q, like, embedText } = await searchParams;
   if (like) return { title: `Papers similar to ${like}` };
+  if (embedText) return { title: 'Similar papers from text' };
   const query = q?.trim() ?? '';
   if (!query) return { title: 'Search' };
   return {
@@ -70,7 +73,44 @@ async function fetchResults(
 }
 
 async function SearchResults({ searchParams }: SearchPageProps) {
-  const { q, like, category, date, author, minCitations, paperType, hasCode, openAccess } = await searchParams;
+  const { q, like, embedText, category, date, author, minCitations, paperType, hasCode, openAccess } = await searchParams;
+
+  // ── "Abstract search" mode ────────────────────────────────────────────────
+  if (embedText) {
+    let result: SearchResult | null = null;
+    let error: string | null = null;
+    try { result = await searchPapers('', { embedText }); } catch (err) {
+      error = err instanceof Error ? err.message : 'Failed to search by text';
+    }
+    if (error || !result) {
+      return (
+        <>
+          <AbstractSearch />
+          <div className="flex flex-col items-center justify-center py-32 gap-3 text-center">
+            <AlertCircle size={32} className="text-neon-red/50" />
+            <p className="text-neon-red/60 font-mono text-sm">Could not search by text</p>
+            <p className="text-white/30 font-mono text-xs max-w-md">{error ?? 'Unknown error'}</p>
+          </div>
+        </>
+      );
+    }
+    return (
+      <>
+        <AbstractSearch />
+        <div className="flex items-baseline justify-between mb-5 flex-wrap gap-2">
+          <p className="text-xs font-mono text-neon-red/40">
+            <span className="text-neon-red/25">~ similar papers from text </span>
+            <span className="ml-2 text-neon-red/25">· {result.total} result{result.total !== 1 ? 's' : ''}</span>
+          </p>
+        </div>
+        <div className="grid gap-4">
+          {result.papers.map((paper) => (
+            <PaperCard key={paper.id} paper={paper} />
+          ))}
+        </div>
+      </>
+    );
+  }
 
   // ── "More like this" mode ─────────────────────────────────────────────────
   if (like) {
@@ -111,11 +151,14 @@ async function SearchResults({ searchParams }: SearchPageProps) {
   // ── No query ──────────────────────────────────────────────────────────────
   if (!query) {
     return (
-      <div className="flex flex-col items-center justify-center py-32 text-center gap-4">
-        <Search size={40} className="text-neon-red/20" />
-        <p className="text-neon-red/40 font-mono text-sm">Type a query to search papers</p>
-        <CategoryScopeBar />
-      </div>
+      <>
+        <AbstractSearch />
+        <div className="flex flex-col items-center justify-center py-32 text-center gap-4">
+          <Search size={40} className="text-neon-red/20" />
+          <p className="text-neon-red/40 font-mono text-sm">Type a query to search papers</p>
+          <CategoryScopeBar />
+        </div>
+      </>
     );
   }
 
@@ -176,6 +219,7 @@ async function SearchResults({ searchParams }: SearchPageProps) {
   // ── Results ───────────────────────────────────────────────────────────────
   return (
     <>
+      <AbstractSearch />
       <SearchFilters />
       <div className="flex items-baseline justify-between mb-5 flex-wrap gap-2">
         <p className="text-xs font-mono text-neon-red/40">

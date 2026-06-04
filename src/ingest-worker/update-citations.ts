@@ -62,6 +62,8 @@ export async function updateCitations(env: Env): Promise<{ updated: number; fail
 
         if (res.ok) {
           const data: SemanticScholarResponse = await res.json();
+          const citationCount = data.citationCount ?? 0;
+          
           await env.DB.prepare(`
             UPDATE papers
             SET citation_count = ?,
@@ -72,13 +74,20 @@ export async function updateCitations(env: Env): Promise<{ updated: number; fail
                 reference_count = COALESCE(?, reference_count)
             WHERE id = ?
           `).bind(
-            data.citationCount ?? 0,
+            citationCount,
             data.paperId ?? null,
             data.tldr?.text ?? null,
             data.influentialCitationCount ?? null,
             data.referenceCount ?? null,
             id,
           ).run();
+          
+          // Log snapshot for velocity tracking
+          await env.DB.prepare(`
+            INSERT INTO citation_snapshots (paper_id, citation_count, recorded_at)
+            VALUES (?, ?, datetime('now'))
+          `).bind(id, citationCount).run();
+          
           updated++;
         } else if (res.status === 404) {
           // Not indexed in Semantic Scholar — mark so we don't retry for 7 days

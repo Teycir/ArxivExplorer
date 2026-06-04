@@ -108,6 +108,9 @@ export function Navbar() {
 
         {/* Nav links */}
         <div className="flex items-center gap-3 text-xs font-mono text-neon-red/40">
+          <Link href="/abstract-search" className="hover:text-neon-red/70 transition-colors hidden lg:block" title="Abstract Search">
+            📄
+          </Link>
           <Link href="/bookmarks" className="hover:text-neon-red/70 transition-colors flex items-center gap-1.5">
             <span className="hidden sm:inline">{bookmarkCount > 0 ? '★' : '☆'}</span>
             <span className="sm:hidden">{bookmarkCount > 0 ? '★' : '☆'}</span>

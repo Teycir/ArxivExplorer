@@ -516,3 +516,68 @@ export async function getPapersByInstitution(
   `).bind(institutionName, fetchLimit).all<PaperRow>();
   return results.map(rowToPaper).filter(isPaperComplete).slice(0, limit);
 }
+
+
+/**
+ * Compute citation velocity (30-day growth normalized by paper age).
+ * Returns papers with highest recent citation momentum.
+ */
+export async function getCitationVelocity(
+  db: D1Database,
+  limit = 20,
+  minAge = 90 // Minimum paper age in days to qualify
+): Promise<PaperWithSummary[]> {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 30); // 30-day window
+  const cutoffStr = cutoff.toISOString();
+
+  const ageFilter = new Date();
+  ageFilter.setDate(ageFilter.getDate() - minAge);
+  const ageFilterStr = ageFilter.toISOString();
+
+  // For each paper, compare latest vs 30 days ago
+  const query = `
+    WITH latest AS (
+      SELECT 
+        p.id,
+        p.citation_count as current_count,
+        p.published_at,
+        julianday('now') - julianday(p.published_at) as age_days
+      FROM papers p
+      WHERE p.citation_count > 0
+        AND p.published_at < ?
+        AND p.summary_ready = 1
+    ),
+    baseline AS (
+      SELECT 
+        cs.paper_id,
+        cs.citation_count as baseline_count
+      FROM citation_snapshots cs
+      INNER JOIN (
+        SELECT paper_id, MIN(recorded_at) as first_snapshot
+        FROM citation_snapshots
+        WHERE recorded_at <= ?
+        GROUP BY paper_id
+      ) oldest ON cs.paper_id = oldest.paper_id 
+                AND cs.recorded_at = oldest.first_snapshot
+    )
+    SELECT 
+      ${PAPER_SELECT},
+      COALESCE(b.baseline_count, 0) as baseline_count,
+      (l.current_count - COALESCE(b.baseline_count, 0)) as absolute_growth,
+      CAST((l.current_count - COALESCE(b.baseline_count, 0)) AS FLOAT) / l.age_days as velocity
+    FROM latest l
+    LEFT JOIN baseline b ON l.id = b.paper_id
+    INNER JOIN papers p ON l.id = p.id
+    LEFT JOIN summaries s ON p.id = s.paper_id
+    WHERE absolute_growth > 0
+    ORDER BY velocity DESC
+    LIMIT ?
+  `;
+
+  const rows = await db.prepare(query)
+    .bind(ageFilterStr, cutoffStr, limit * 2)
+    .all<PaperRow>();
+
+  return rows.results.map(rowToPaper).filter(isPaperComplete).slice(0, limit);
+}

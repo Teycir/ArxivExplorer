@@ -18,8 +18,10 @@ import { corsHeaders } from '../shared/utils';
 import { handleSearch } from './routes/search';
 import { handlePaper } from './routes/paper';
 import { handleRelated } from './routes/related';
+import { handleReadingPath } from './routes/reading-path';
 import { handleTopic } from './routes/topic';
 import { handleTrending } from './routes/trending';
+import { handleVelocity } from './routes/velocity';
 import { handleAuthor } from './routes/author';
 import { handleSitemap } from './routes/sitemap';
 import { handleVectorizeUpsert, handleRetryFailed, handleBackfillRelated, handleCrossRefBatch, handleGetAllPapers, handleClearRelated, handleBulkInsertRelated } from './routes/admin';
@@ -71,6 +73,11 @@ export default {
         return handleTrending(request, env, ctx);
       }
 
+      // /api/velocity — citation momentum
+      if (path === '/api/velocity') {
+        return handleVelocity(request, env, ctx);
+      }
+
       // /api/sitemap
       if (path === '/api/sitemap') {
         return handleSitemap(request, env, ctx);
@@ -98,6 +105,11 @@ export default {
       const benchmarksMatch = path.match(/^\/api\/paper\/([^/]+)\/benchmarks$/);
       if (benchmarksMatch) {
         return handlePaperBenchmarks(request, env, ctx, benchmarksMatch[1]!);
+      }
+
+      // /api/reading-path?from=X&to=Y
+      if (path === '/api/reading-path') {
+        return handleReadingPath(request, env);
       }
 
       // /api/paper/:id
