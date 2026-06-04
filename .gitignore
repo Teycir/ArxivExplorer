@@ -39,3 +39,4 @@ Thumbs.db
 npm-debug.log*
 .open-next
 tsconfig.tsbuildinfo
+backups
