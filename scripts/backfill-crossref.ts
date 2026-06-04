@@ -15,6 +15,7 @@
  *                  (~50 req/s vs default rate limit)
  */
 
+import * as fs from 'fs';
 
 // Load env vars (best-effort)
 for (const envFile of ['.env.local', '.env']) {

@@ -239,6 +239,14 @@ export default async function PaperPage({ params }: Props) {
                     <ExternalLink size={12} /> HTML
                   </a>
                 )}
+                {paper.revisedAt && paper.revisedAt !== paper.publishedAt && (
+                  <Link href={`/diff/${arxivId}`}
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono font-bold uppercase
+                      border border-violet-500/30 text-violet-400/70 rounded-lg
+                      hover:border-violet-500/60 hover:text-violet-400 hover:bg-violet-500/5 transition-all">
+                    <FileText size={12} /> Revisions
+                  </Link>
+                )}
               </div>
             </Card>
 
