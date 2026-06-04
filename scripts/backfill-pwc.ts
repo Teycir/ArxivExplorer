@@ -22,41 +22,24 @@
  *   npx tsx scripts/backfill-pwc.ts --local  # local D1
  */
 
-import { spawnSync } from 'child_process';
-import * as fs from 'fs';
-import * as os from 'os';
+import Database from 'better-sqlite3';
 import * as path from 'path';
 
 const BATCH_SIZE = 50;
-const DELAY_MS   = 200;   // HF is generous; 200ms is plenty
-const isLocal    = process.argv.includes('--local');
-const DB_FLAG    = isLocal ? '--local' : '--remote';
+const DELAY_MS   = 200;
 
-// ─── Wrangler D1 helpers ──────────────────────────────────────────────────────
+const LOCAL_DB = path.resolve('.wrangler/state/v3/d1/miniflare-D1DatabaseObject/arxiv-explorer.sqlite');
+const db = new Database(LOCAL_DB);
+db.pragma('journal_mode = WAL');
+
+// ─── Local SQLite helpers ─────────────────────────────────────────────────────
 
 function d1Query<T>(sql: string): T[] {
-  const r = spawnSync(
-    'npx', ['wrangler', 'd1', 'execute', 'arxiv-explorer', DB_FLAG, '--json', '--command', sql],
-    { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 }
-  );
-  const out = r.stdout ?? '';
-  const s = out.indexOf('['), e = out.lastIndexOf(']');
-  if (s === -1 || e === -1) throw new Error(`No JSON:\n${out.slice(0, 400)}`);
-  const parsed = JSON.parse(out.slice(s, e + 1)) as Array<{ results: T[]; success: boolean }>;
-  if (!parsed[0]?.success) throw new Error('D1 query failed');
-  return parsed[0].results;
+  return db.prepare(sql).all() as T[];
 }
 
 function d1ExecFile(sql: string): void {
-  const tmp = path.join(os.tmpdir(), `backfill-pwc-${Date.now()}.sql`);
-  try {
-    fs.writeFileSync(tmp, sql, 'utf8');
-    const r = spawnSync(
-      'npx', ['wrangler', 'd1', 'execute', 'arxiv-explorer', DB_FLAG, '--file', tmp],
-      { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }
-    );
-    if (r.status !== 0) throw new Error(r.stderr || r.stdout);
-  } finally { try { fs.unlinkSync(tmp); } catch { /* ignore */ } }
+  db.exec(sql);
 }
 
 const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
@@ -94,7 +77,7 @@ async function fetchHF(arxivId: string): Promise<HFPaper | null> {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
-  console.log(`🤗 HuggingFace Papers backfill — ${isLocal ? 'local' : 'remote'} D1`);
+  console.log(`🤗 HuggingFace Papers backfill — local SQLite`);
   console.log(`   (Replaces dead PapersWithCode API)\n`);
 
   const rows = d1Query<{ id: string }>(
@@ -162,10 +145,9 @@ async function main() {
   }
 
   if (batch.length) d1ExecFile(batch.join('\n'));
+  db.close();
   console.log(`\n\n✅ Done — enriched:${ok}  not-on-HF:${notOnHF}  failed:${failed}`);
-  console.log(`\nVerify:`);
-  console.log(`  npx wrangler d1 execute arxiv-explorer --remote --command \\`);
-  console.log(`  "SELECT COUNT(*) FROM papers WHERE pwc_enriched_at IS NOT NULL"`);
+  console.log(`\nNext: run push-local-to-remote.ts to sync to remote.`);
 }
 
 main().catch(e => { console.error('\n❌', e.message ?? e); process.exit(1); });

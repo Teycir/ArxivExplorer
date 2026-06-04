@@ -15,10 +15,6 @@
  *                  (~50 req/s vs default rate limit)
  */
 
-import { spawnSync } from 'child_process';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
 
 // Load env vars (best-effort)
 for (const envFile of ['.env.local', '.env']) {
@@ -34,34 +30,22 @@ for (const envFile of ['.env.local', '.env']) {
 const POLITE_EMAIL = process.env.POLITE_EMAIL ?? '';
 const BATCH_SIZE   = 50;
 const DELAY_MS     = 100;   // 10 req/s — well under Polite Pool 50 req/s
-const isLocal      = process.argv.includes('--local');
-const DB_FLAG      = isLocal ? '--local' : '--remote';
 
-// ─── Wrangler D1 helpers ─────────────────────────────────────────────────────
+import Database from 'better-sqlite3';
+import * as path from 'path';
+
+const LOCAL_DB = path.resolve('.wrangler/state/v3/d1/miniflare-D1DatabaseObject/arxiv-explorer.sqlite');
+const db = new Database(LOCAL_DB);
+db.pragma('journal_mode = WAL');
+
+// ─── Local SQLite helpers ─────────────────────────────────────────────────────
 
 function d1Query<T>(sql: string): T[] {
-  const r = spawnSync(
-    'npx', ['wrangler', 'd1', 'execute', 'arxiv-explorer', DB_FLAG, '--json', '--command', sql],
-    { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 }
-  );
-  const out = r.stdout ?? '';
-  const s = out.indexOf('['), e = out.lastIndexOf(']');
-  if (s === -1 || e === -1) throw new Error(`No JSON:\n${out.slice(0, 400)}\n${r.stderr?.slice(0, 200)}`);
-  const parsed = JSON.parse(out.slice(s, e + 1)) as Array<{ results: T[]; success: boolean }>;
-  if (!parsed[0]?.success) throw new Error('D1 query failed');
-  return parsed[0].results;
+  return db.prepare(sql).all() as T[];
 }
 
 function d1ExecFile(sql: string): void {
-  const tmp = path.join(os.tmpdir(), `backfill-cr-${Date.now()}.sql`);
-  try {
-    fs.writeFileSync(tmp, sql, 'utf8');
-    const r = spawnSync(
-      'npx', ['wrangler', 'd1', 'execute', 'arxiv-explorer', DB_FLAG, '--file', tmp],
-      { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }
-    );
-    if (r.status !== 0) throw new Error(r.stderr || r.stdout);
-  } finally { try { fs.unlinkSync(tmp); } catch { /* ignore */ } }
+  db.exec(sql);
 }
 
 const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
@@ -99,7 +83,7 @@ async function fetchCrossRef(doi: string): Promise<CrossRefWork['message'] | nul
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 async function main() {
-  console.log(`📖 CrossRef backfill — ${isLocal ? 'local' : 'remote'} D1`);
+  console.log(`📖 CrossRef backfill — local SQLite`);
   if (!POLITE_EMAIL) console.warn('⚠  POLITE_EMAIL not set — unauthenticated (lower rate limit)');
 
   const rows = d1Query<{ id: string; doi: string }>(
