@@ -211,7 +211,7 @@ export function SearchBoxHome() {
             <p className="text-[10px] font-mono text-neon-red/40 mb-1.5">AUTHOR</p>
             <input type="text" value={author} onChange={e => setAuthor(e.target.value)}
               placeholder="e.g. Hinton"
-              className="w-full px-2 py-1 text-xs font-mono bg-neutral-900 border border-neon-red/20 rounded text-white placeholder-neutral-600 focus:outline-none focus:border-neon-red/40"
+              className="w-full px-2 py-1 text-xs font-mono bg-neutral-900 border border-neon-red/20 rounded-lg text-white placeholder-neutral-600 focus:outline-none focus:border-neon-red/40"
             />
           </div>
 

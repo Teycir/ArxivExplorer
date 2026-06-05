@@ -129,7 +129,7 @@ function PurgeAllButton({ onPurge }: { onPurge: () => void }) {
       <div className="flex items-center gap-2 animate-in fade-in duration-150">
         <span className="text-xs font-mono text-red-400">Delete all?</span>
         <button onClick={confirm}
-          className="text-xs font-mono text-red-400 hover:text-red-300 border border-red-800/60 rounded px-2 py-0.5 transition-colors">
+          className="text-xs font-mono text-red-400 hover:text-red-300 border border-red-800/60 rounded-lg px-2 py-0.5 transition-colors">
           yes, purge
         </button>
         <button onClick={cancel}
@@ -146,7 +146,7 @@ function PurgeAllButton({ onPurge }: { onPurge: () => void }) {
       disabled={phase === 'purging'}
       className="text-xs font-mono text-neutral-600 hover:text-red-400
                  border border-neutral-800 hover:border-red-800/50
-                 rounded px-3 py-1 transition-colors disabled:opacity-40"
+                 rounded-lg px-3 py-1 transition-colors disabled:opacity-40"
     >
       {phase === 'purging' ? 'purging…' : 'purge all'}
     </button>
@@ -280,7 +280,7 @@ export function BookmarksList() {
         {/* status filter */}
         {(['all', 'unread', 'reading', 'done'] as const).map(s => (
           <button key={s} onClick={() => setFilter(s)}
-            className={`text-xs font-mono px-2 py-0.5 rounded border transition-colors
+            className={`text-xs font-mono px-2 py-0.5 rounded-lg border transition-colors
               ${filter === s
                 ? 'border-neon-red/50 text-neon-red bg-neon-red/10'
                 : 'border-neutral-800 text-neutral-500 hover:text-white hover:border-neutral-600'}`}>
@@ -293,7 +293,7 @@ export function BookmarksList() {
           <select
             value={collection}
             onChange={e => setCollection(e.target.value)}
-            className="text-xs font-mono bg-dark-bg border border-neutral-800 rounded px-2 py-0.5
+            className="text-xs font-mono bg-dark-bg border border-neutral-800 rounded-lg px-2 py-0.5
                        text-neutral-400 hover:border-neutral-600 transition-colors cursor-pointer">
             <option value="all">all collections</option>
             {collections.map(c => <option key={c} value={c}>{c}</option>)}

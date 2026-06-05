@@ -121,7 +121,7 @@ export function SkillLadder({ paperId, prerequisites, paperTitle }: SkillLadderP
                 <Link
                   href={`/search?q=${encodeURIComponent(prereq)}`}
                   className="text-[9px] font-mono text-neon-red/30 hover:text-neon-red/70 transition-colors
-                    border border-neon-red/15 hover:border-neon-red/40 rounded px-1.5 py-0.5"
+                    border border-neon-red/15 hover:border-neon-red/40 rounded-lg px-1.5 py-0.5"
                 >
                   find papers →
                 </Link>

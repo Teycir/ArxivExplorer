@@ -22,7 +22,7 @@ export function MoreLikeThisButton({ id }: { id: string }) {
       onClick={handleClick}
       title="Find similar papers"
       className="text-[10px] font-mono text-neon-red/30 hover:text-neon-red/70
-        border border-neon-red/10 hover:border-neon-red/30 rounded px-1.5 py-0.5
+        border border-neon-red/10 hover:border-neon-red/30 rounded-lg px-1.5 py-0.5
         transition-colors duration-150 whitespace-nowrap"
     >
       ~ more like this

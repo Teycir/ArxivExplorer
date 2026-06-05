@@ -95,7 +95,7 @@ export function CollectionManager({ bookmarkId, currentCollection, onUpdate }: C
                   placeholder="Collection name"
                   autoFocus
                   maxLength={30}
-                  className="flex-1 bg-neutral-800 border border-neon-red/20 rounded px-2 py-1 text-xs font-mono text-white placeholder-neutral-600 focus:outline-none focus:border-neon-red/50"
+                  className="flex-1 bg-neutral-800 border border-neon-red/20 rounded-lg px-2 py-1 text-xs font-mono text-white placeholder-neutral-600 focus:outline-none focus:border-neon-red/50"
                 />
                 <button
                   onClick={handleCreate}
@@ -179,14 +179,14 @@ export function CollectionExport({ bookmarks: propBookmarks }: { bookmarks?: Boo
       <span className="text-xs font-mono text-neutral-600">Export:</span>
       <button
         onClick={() => exportCollection()}
-        className="flex items-center gap-1 text-xs font-mono text-neutral-600 hover:text-neon-red border border-neutral-800 hover:border-neon-red/30 rounded px-2 py-1 transition-colors"
+        className="flex items-center gap-1 text-xs font-mono text-neutral-600 hover:text-neon-red border border-neutral-800 hover:border-neon-red/30 rounded-lg px-2 py-1 transition-colors"
       >
         <Download size={10} />
         JSON (all)
       </button>
       <button
         onClick={() => exportBibTeX()}
-        className="flex items-center gap-1 text-xs font-mono text-neutral-600 hover:text-neon-red border border-neutral-800 hover:border-neon-red/30 rounded px-2 py-1 transition-colors"
+        className="flex items-center gap-1 text-xs font-mono text-neutral-600 hover:text-neon-red border border-neutral-800 hover:border-neon-red/30 rounded-lg px-2 py-1 transition-colors"
       >
         <Download size={10} />
         BibTeX (all)

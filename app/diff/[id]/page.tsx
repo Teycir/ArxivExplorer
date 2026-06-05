@@ -62,7 +62,7 @@ export default async function PaperDiffPage({ params }: { params: { id: string }
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-block px-4 py-2 bg-neon-green/10 hover:bg-neon-green/20 
-                           border border-neon-green/30 rounded text-sm text-neon-green font-mono 
+                           border border-neon-green/30 rounded-lg text-sm text-neon-green font-mono 
                            transition-colors"
                 >
                   View on arXiv →

@@ -180,7 +180,7 @@ export function SearchFilters() {
                   onKeyDown={e => e.key === 'Enter' && applyAuthor()}
                   placeholder="e.g., Hinton"
                   className="flex-1 px-2 py-1 text-xs font-mono bg-neutral-900 border border-neon-red/20
-                    rounded text-white placeholder-neutral-600 focus:outline-none focus:border-neon-red/50"
+                    rounded-lg text-white placeholder-neutral-600 focus:outline-none focus:border-neon-red/50"
                 />
                 <button onClick={applyAuthor}
                   className="px-3 py-1 text-xs font-mono border border-neon-red/30 rounded

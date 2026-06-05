@@ -12,6 +12,7 @@ import { getPaperById } from '../../shared/db';
 import { kvGet, kvPutAsync } from '../cache/kv';
 import { kvPaperFull } from '../cache/keys';
 import { corsHeaders, jsonResponse, errorResponse } from '../../shared/utils';
+import { sanitizeArxivId } from '../../shared/sanitize';
 
 export async function handlePaper(
   request: Request,
@@ -21,8 +22,8 @@ export async function handlePaper(
 ): Promise<Response> {
   const cors = corsHeaders(env);
 
-  // arXiv IDs are strictly YYMM.NNNNN — no path separators allowed.
-  if (!arxivId || !/^[\w.-]+$/.test(arxivId)) {
+  arxivId = sanitizeArxivId(arxivId);
+  if (!arxivId) {
     return errorResponse('Invalid arXiv ID format', cors, 400);
   }
 

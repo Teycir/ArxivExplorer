@@ -11,11 +11,39 @@ import type { PaperWithSummary, SearchResult } from '@/src/shared/types';
 interface ClassifiedPaper extends PaperWithSummary {
   classification: 'support' | 'contradict' | 'neutral';
   reasoning?: string;
+  confidence?: number;
 }
 
 type Status = 'idle' | 'searching' | 'classifying' | 'done';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+const EXAMPLES = [
+  'Transformers outperform RNNs',
+  'Dropout prevents overfitting',
+  'Attention improves translation',
+  'BERT uses bidirectional',
+  'ResNets solve gradient'
+];
+
+function sanitizeClaim(input: string): string {
+  return input
+    .trim()
+    .replace(/[<>{}[\]\\]/g, '') // Remove potentially dangerous chars
+    .replace(/\s+/g, ' ')         // Normalize whitespace
+    .slice(0, 200);               // Hard cap at 200 chars
+}
+
+function validateClaim(claim: string): string | null {
+  const sanitized = sanitizeClaim(claim);
+  const words = sanitized.split(/\s+/).filter(Boolean);
+  
+  if (words.length < 3) {
+    return 'Claim must be at least 3 words (e.g., "Transformers outperform RNNs")';
+  }
+  
+  return null;
+}
 
 /**
  * Run tasks with a maximum concurrency cap.
@@ -62,9 +90,14 @@ async function classifyOne(
     }),
   });
 
+  if (res.status === 429) {
+    const json = await res.json() as { error: string; retryAfter?: number };
+    throw new Error(json.error || 'Rate limit exceeded. Please try again later.');
+  }
+
   if (!res.ok) return { ...paper, classification: 'neutral' };
 
-  const json = await res.json() as { result: 'support' | 'contradict' | 'neutral'; reasoning?: string };
+  const json = await res.json() as { result: 'support' | 'contradict' | 'neutral'; reasoning?: string; confidence?: number };
   const valid = ['support', 'contradict', 'neutral'];
   return {
     ...paper,
@@ -84,8 +117,13 @@ export default function ClaimTrackerPage() {
   const [error, setError]     = useState('');
 
   const handleSearch = useCallback(async () => {
-    const trimmed = claim.trim();
-    if (!trimmed) return;
+    const sanitized = sanitizeClaim(claim);
+    const validationError = validateClaim(sanitized);
+    
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
 
     setStatus('searching');
     setError('');
@@ -93,11 +131,12 @@ export default function ClaimTrackerPage() {
     setClassified(0);
     setTotal(0);
 
-    // ── Step 1: fetch relevant papers ──────────────────────────────────────
+    // ── Step 1: semantic search for relevant papers ───────────────────────
     let papers: PaperWithSummary[];
     try {
+      // Use embedText for pure semantic search - bypasses keyword noise
       const searchRes = await fetch(
-        `${API_BASE}/api/search?q=${encodeURIComponent(trimmed)}&limit=10`,
+        `${API_BASE}/api/search?embedText=${encodeURIComponent(sanitized)}&limit=30`,
         { headers: { 'Content-Type': 'application/json' } }
       );
       if (!searchRes.ok) throw new Error(`Search failed (${searchRes.status})`);
@@ -110,26 +149,36 @@ export default function ClaimTrackerPage() {
     }
 
     if (papers.length === 0) {
-      setStatus('done');
+      setError('No papers found matching your claim. Try rephrasing or broadening your search terms.');
+      setStatus('idle');
       return;
     }
 
-    // ── Step 2: classify in parallel (concurrency = 3) ─────────────────────
+    // Filter to most relevant papers (semantic search already ranked by relevance)
+    // Take top 15 papers - they're already semantically similar to the claim
+    papers = papers.slice(0, 15);
+
+    // ── Step 2: classify in parallel (concurrency = 5) ─────────────────────
     setTotal(papers.length);
     setStatus('classifying');
 
-    // We want progressive reveal: append each result as soon as it arrives,
-    // not wait for all. We do this by wrapping classifyOne to update state on
-    // each settlement rather than collecting at the end.
     const settled: ClassifiedPaper[] = [];
 
-    await pMap(papers, async (paper) => {
-      const result = await classifyOne(trimmed, paper);
-      // Append to results immediately so the UI can render it
-      setResults(prev => [...prev, result]);
-      setClassified(prev => prev + 1);
-      settled.push(result);
-    }, 3);
+    try {
+      await pMap(papers, async (paper) => {
+        const result = await classifyOne(sanitized, paper);
+        setResults(prev => [...prev, result]);
+        setClassified(prev => prev + 1);
+        settled.push(result);
+      }, 5);
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('Rate limit')) {
+        setError(err.message);
+        setStatus('idle');
+        return;
+      }
+      // Continue on other errors, show partial results
+    }
 
     setStatus('done');
   }, [claim]);
@@ -153,9 +202,26 @@ export default function ClaimTrackerPage() {
             <Scale size={28} className="text-neon-red" />
             <h1 className="text-2xl font-mono text-white">Claim Tracker</h1>
           </div>
-          <p className="text-sm font-mono text-neon-red/50 max-w-3xl mb-6">
-            Enter a scientific claim — papers are retrieved then classified in parallel.
+          <p className="text-sm font-mono text-neon-red/50 max-w-3xl mb-4">
+            Enter a scientific claim (minimum 3 words) — papers are retrieved then classified in parallel.
           </p>
+          
+          {/* Examples */}
+          <div className="mb-6">
+            <p className="text-xs font-mono text-neon-red/35 mb-2">Example claims:</p>
+            <div className="flex flex-wrap gap-2">
+              {EXAMPLES.map(example => (
+                <button
+                  key={example}
+                  onClick={() => setClaim(example)}
+                  disabled={isLoading}
+                  className="px-3 py-1.5 bg-neon-red/5 hover:bg-neon-red/10 border border-neon-red/20 hover:border-neon-red/30 rounded-lg text-xs font-mono text-neon-red/60 hover:text-neon-red transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {example}
+                </button>
+              ))}
+            </div>
+          </div>
 
           <div className="flex gap-3">
             <input
@@ -163,15 +229,15 @@ export default function ClaimTrackerPage() {
               value={claim}
               onChange={e => setClaim(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && !isLoading && handleSearch()}
-              placeholder='e.g. "transformers outperform RNNs on long sequences"'
-              className="flex-1 px-4 py-3 bg-black/40 border border-neon-red/20 rounded text-sm font-mono text-white placeholder:text-white/30 focus:border-neon-red/40 focus:outline-none"
+              placeholder="Enter at least 3 words..."
+              className="flex-1 px-4 py-3 bg-black/40 border border-neon-red/20 rounded-lg text-sm font-mono text-white placeholder:text-white/30 focus:border-neon-red/40 focus:outline-none"
               maxLength={200}
               disabled={isLoading}
             />
             <button
               onClick={handleSearch}
               disabled={!claim.trim() || isLoading}
-              className="px-6 py-3 bg-neon-red/10 hover:bg-neon-red/20 disabled:bg-neon-red/5 border border-neon-red/30 disabled:border-neon-red/10 rounded text-sm font-mono text-neon-red disabled:text-neon-red/30 transition-colors disabled:cursor-not-allowed"
+              className="px-6 py-3 bg-neon-red/10 hover:bg-neon-red/20 disabled:bg-neon-red/5 border border-neon-red/30 disabled:border-neon-red/10 rounded-lg text-sm font-mono text-neon-red disabled:text-neon-red/30 transition-colors disabled:cursor-not-allowed"
             >
               {isLoading ? 'Analyzing…' : 'Search'}
             </button>
@@ -180,7 +246,7 @@ export default function ClaimTrackerPage() {
 
         {/* Error */}
         {error && (
-          <div className="flex items-center gap-2 p-4 bg-red-500/10 border border-red-500/30 rounded mb-6">
+          <div className="flex items-center gap-2 p-4 bg-red-500/10 border border-red-500/30 rounded-lg mb-6">
             <AlertCircle size={16} className="text-red-500" />
             <p className="text-sm font-mono text-red-400">{error}</p>
           </div>

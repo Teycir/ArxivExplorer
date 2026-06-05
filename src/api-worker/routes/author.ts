@@ -12,6 +12,7 @@ import { getPapersByAuthor } from '../../shared/db';
 import { kvGet, kvPutAsync } from '../cache/kv';
 import { kvAuthor, TTL_AUTHOR } from '../cache/keys';
 import { corsHeaders, jsonResponse, errorResponse } from '../../shared/utils';
+import { sanitizeAuthor } from '../../shared/sanitize';
 
 const SIX_MONTHS_MS = 6 * 30 * 24 * 60 * 60 * 1000;
 
@@ -82,8 +83,8 @@ export async function handleAuthor(
 ): Promise<Response> {
   const cors = corsHeaders(env);
 
-  const decoded = decodeURIComponent(name).trim();
-  if (!decoded || decoded.length > 200) {
+  const decoded = sanitizeAuthor(decodeURIComponent(name));
+  if (!decoded) {
     return errorResponse('Invalid author name', cors, 400);
   }
 

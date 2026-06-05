@@ -20,10 +20,14 @@ import {
   sha256Hex, normaliseQuery, embeddingModel,
   corsHeaders, jsonResponse, errorResponse,
 } from '../../shared/utils';
+import {
+  sanitizeQuery, sanitizeCategory, sanitizeDateFilter,
+  sanitizeAuthor, sanitizeInt, sanitizeArxivId,
+} from '../../shared/sanitize';
 
 const KEYWORD_WEIGHT = 0.25;
 const SEMANTIC_WEIGHT = 0.75;
-const MAX_RESULTS = 5;  // Show only top 5 highest quality matches
+const DEFAULT_RESULTS = 10;  // Default for UI search
 const MIN_RESULTS = 1;
 const VECTORIZE_TOP_K = 20;
 const MIN_RELATIVE_SCORE = 0.70;  // Quality gate: drop results below 70% of best score
@@ -35,14 +39,14 @@ export async function handleSearch(
 ): Promise<Response> {
   const cors = corsHeaders(env);
   const url = new URL(request.url);
-  const rawQ      = url.searchParams.get('q')?.trim() ?? '';
-  const rawCat    = url.searchParams.get('category')?.trim() ?? '';
-  const rawDate   = url.searchParams.get('date')?.trim() ?? '';
-  const rawAuthor = url.searchParams.get('author')?.trim() ?? '';
-  const rawMinCit = url.searchParams.get('minCitations')?.trim() ?? '';
-  const rawLike   = url.searchParams.get('like')?.trim() ?? '';  // arXiv ID for "more like this"
-  const rawEmbed  = url.searchParams.get('embedText')?.trim() ?? '';  // Full text for semantic-only search
-  const rawPaperType  = url.searchParams.get('paperType')?.trim() ?? '';
+  const rawQ      = sanitizeQuery(url.searchParams.get('q'));
+  const rawCat    = sanitizeCategory(url.searchParams.get('category'));
+  const rawDate   = sanitizeDateFilter(url.searchParams.get('date'));
+  const rawAuthor = sanitizeAuthor(url.searchParams.get('author'));
+  const rawMinCit = sanitizeInt(url.searchParams.get('minCitations'), 0, 100000);
+  const rawLike   = sanitizeArxivId(url.searchParams.get('like'));  // arXiv ID for "more like this"
+  const rawEmbed  = sanitizeQuery(url.searchParams.get('embedText'));  // Full text for semantic-only search
+  const rawPaperType  = sanitizeQuery(url.searchParams.get('paperType'));
   const rawHasCode    = url.searchParams.get('hasCode');
   const rawOpenAccess = url.searchParams.get('openAccess');
 
@@ -62,30 +66,24 @@ export async function handleSearch(
   if (!rawQ) {
     return errorResponse('Missing query parameter: q', cors, 400);
   }
-  if (rawQ.length > 500) {
-    return errorResponse('Query too long (max 500 characters)', cors, 400);
-  }
 
   const filters: SearchFilters = {
     ...(rawCat       && { category:     rawCat }),
     ...(rawDate      && { date:         rawDate }),
     ...(rawAuthor    && { author:       rawAuthor }),
-    ...(rawMinCit    && { minCitations: parseInt(rawMinCit, 10) || 0 }),
+    ...(rawMinCit > 0 && { minCitations: rawMinCit }),
     ...(rawPaperType && { paperType:    rawPaperType }),
     ...(rawHasCode   === '1' && { hasCode:    true }),
     ...(rawOpenAccess === '1' && { openAccess: true }),
   };
 
-  // Optional limit param — clamped to [1, MAX_RESULTS]. (BUG-2 fix)
-  const rawLimit = url.searchParams.get('limit');
-  const limit = rawLimit
-    ? Math.min(MAX_RESULTS, Math.max(MIN_RESULTS, parseInt(rawLimit, 10) || MAX_RESULTS))
-    : MAX_RESULTS;
+  // Optional limit param — clamped to [1, 50] for claim tracker bulk retrieval
+  const limit = sanitizeInt(url.searchParams.get('limit'), MIN_RESULTS, 50) || DEFAULT_RESULTS;
 
   const normalised = normaliseQuery(rawQ);
 
   // Step 2: KV search cache — include limit + filters in key so different combos don't collide.
-  const filterSuffix = [rawCat, rawDate, rawAuthor, rawMinCit, rawPaperType,
+  const filterSuffix = [rawCat, rawDate, rawAuthor, rawMinCit > 0 ? rawMinCit : '', rawPaperType,
     rawHasCode === '1' ? 'code' : '', rawOpenAccess === '1' ? 'oa' : ''].filter(Boolean).join(':');
   const cheapKey = `q:${encodeURIComponent(normalised).slice(0, 160)}:l${limit}${filterSuffix ? ':f:' + filterSuffix : ''}`;
   try {
@@ -334,7 +332,7 @@ async function handleMoreLikeThis(
   const bestScore = excludedSource[0]?.score ?? 0;
   const matches = excludedSource
     .filter(m => m.score >= bestScore * MIN_RELATIVE_SCORE)
-    .slice(0, MAX_RESULTS);
+    .slice(0, DEFAULT_RESULTS);
 
   // Fetch paper objects from D1
   const papers = (await Promise.allSettled(
@@ -407,7 +405,7 @@ async function handleAbstractSearch(
       r.status === 'fulfilled' && r.value !== null
     )
     .map(r => r.value)
-    .slice(0, MAX_RESULTS);
+    .slice(0, DEFAULT_RESULTS);
 
   const response = {
     papers,
