@@ -4,3 +4,5 @@
 export const CF_TOKEN = 'your-cloudflare-api-token-here';
 export const CF_ACCOUNT_ID = 'your-account-id-here';
 export const CF_D1_ID = 'your-d1-database-id-here';
+export const CF_KV_NAMESPACE_ID = 'your-kv-namespace-id-here';
+export const ADMIN_SECRET = 'your-admin-secret-here';

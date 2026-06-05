@@ -3,11 +3,12 @@
 
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useState, useEffect, type KeyboardEvent, Suspense } from 'react';
-import { Search, Rss } from 'lucide-react';
+import { useState, useEffect, useRef, type KeyboardEvent, Suspense } from 'react';
+import { Search, Rss, FileSearch } from 'lucide-react';
 import { loadBookmarks } from '@/lib/bookmarks';
 import { pushSearch } from '@/lib/searchHistory';
 import { SearchHistory } from './SearchHistory';
+import { AbstractSearch } from './AbstractSearch';
 
 function SearchInput() {
   const router = useRouter();
@@ -40,7 +41,7 @@ function SearchInput() {
         onFocus={() => setFocused(true)}
         onBlur={() => setTimeout(() => setFocused(false), 150)}
         placeholder="Search papers…"
-        className="search-input w-full pl-9 pr-3 py-2 text-xs h-[34px]"
+        className={`search-input w-full pl-9 pr-3 py-2 text-xs h-[34px] transition-all duration-300 ${focused ? 'search-input-focused' : ''}`}
         aria-label="Search papers"
       />
       <SearchHistory
@@ -54,6 +55,8 @@ function SearchInput() {
 
 export function Navbar() {
   const [bookmarkCount, setBookmarkCount] = useState(0);
+  const [abstractOpen, setAbstractOpen] = useState(false);
+  const abstractRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setBookmarkCount(loadBookmarks().bookmarks.length);
@@ -70,6 +73,18 @@ export function Navbar() {
       window.removeEventListener('storage', refresh);
     };
   }, []);
+
+  // Close abstract popover on outside click
+  useEffect(() => {
+    if (!abstractOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (abstractRef.current && !abstractRef.current.contains(e.target as Node)) {
+        setAbstractOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [abstractOpen]);
 
   return (
     <nav className="sticky top-0 z-50 w-full border-b border-neon-red/10
@@ -108,9 +123,41 @@ export function Navbar() {
 
         {/* Nav links */}
         <div className="flex items-center gap-3 text-xs font-mono text-neon-red/40">
-          <Link href="/abstract-search" className="hover:text-neon-red/70 transition-colors hidden lg:block" title="Abstract Search">
-            📄
-          </Link>
+
+          {/* Abstract Search popover */}
+          <div ref={abstractRef} className="relative hidden lg:block">
+            <button
+              onClick={() => setAbstractOpen(v => !v)}
+              className={`flex items-center gap-1.5 hover:text-neon-red/70 transition-colors ${abstractOpen ? 'text-neon-red/70' : ''}`}
+              aria-label="Abstract search"
+            >
+              <FileSearch size={14} />
+              <span className="hidden xl:inline">Abstract</span>
+            </button>
+
+            {abstractOpen && (
+              <div className="absolute right-0 top-full mt-2 w-[420px] z-50
+                bg-dark-bg border border-neon-red/20 rounded-lg shadow-xl shadow-black/60
+                p-1">
+                {/* Custom header */}
+                <div className="flex items-center justify-between px-3 py-2 border-b border-neon-red/10">
+                  <div className="flex items-center gap-2 text-neon-red/60 text-[10px] font-mono">
+                    <FileSearch size={12} />
+                    <span>Find similar papers from text</span>
+                  </div>
+                  <button
+                    onClick={() => setAbstractOpen(false)}
+                    className="text-neon-red/30 hover:text-neon-red/60 transition-colors text-[10px] font-mono"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div className="p-3">
+                  <AbstractSearch onSearch={() => setAbstractOpen(false)} />
+                </div>
+              </div>
+            )}
+          </div>
           <Link href="/bookmarks" className="hover:text-neon-red/70 transition-colors flex items-center gap-1.5">
             <span className="hidden sm:inline">{bookmarkCount > 0 ? '★' : '☆'}</span>
             <span className="sm:hidden">{bookmarkCount > 0 ? '★' : '☆'}</span>

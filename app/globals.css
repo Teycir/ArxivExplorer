@@ -53,7 +53,13 @@ body {
   left: 0;
   right: 0;
   height: 2px;
-  background: linear-gradient(90deg, var(--neon-red), rgba(255, 26, 26, 0.40));
+  background: linear-gradient(
+    90deg,
+    rgba(0,255,65,0.3) 0%,
+    #00ff41 50%,
+    rgba(0,255,65,0.3) 100%
+  );
+  box-shadow: 0 0 8px rgba(0, 255, 65, 0.6), 0 0 20px rgba(0, 255, 65, 0.2);
   transform-origin: left;
   z-index: 9999;
   pointer-events: none;
@@ -242,7 +248,95 @@ body {
   color: #66ff99;
 }
 
-/* ─── Achievement toast animation ─────────────────────────────────────────── */
+/* ─── Card scanlines ─────────────────────────────────────────────────────── */
+
+.card-scanlines::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 255, 65, 0.018) 2px,
+    rgba(0, 255, 65, 0.018) 4px
+  );
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+
+.card-scanlines:hover::after {
+  opacity: 1;
+}
+
+/* ─── Stagger list entrance ─────────────────────────────────────────────── */
+
+@keyframes card-enter {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.stagger-list > * {
+  animation: card-enter 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.stagger-list > *:nth-child(1)  { animation-delay: 0ms; }
+.stagger-list > *:nth-child(2)  { animation-delay: 55ms; }
+.stagger-list > *:nth-child(3)  { animation-delay: 110ms; }
+.stagger-list > *:nth-child(4)  { animation-delay: 165ms; }
+.stagger-list > *:nth-child(5)  { animation-delay: 220ms; }
+.stagger-list > *:nth-child(6)  { animation-delay: 275ms; }
+.stagger-list > *:nth-child(7)  { animation-delay: 330ms; }
+.stagger-list > *:nth-child(8)  { animation-delay: 385ms; }
+.stagger-list > *:nth-child(9)  { animation-delay: 440ms; }
+.stagger-list > *:nth-child(10) { animation-delay: 495ms; }
+.stagger-list > *:nth-child(n+11) { animation-delay: 550ms; }
+
+/* ─── Tab crossfade ─────────────────────────────────────────────────────── */
+
+@keyframes tab-fade {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.tab-content-enter {
+  animation: tab-fade 0.18s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ─── Shimmer sweep (keywords, badge hover) ──────────────────────────────── */
+
+@keyframes shimmer-sweep {
+  0%   { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+.shimmer-text {
+  background: linear-gradient(
+    90deg,
+    rgba(0,255,65,0.6) 0%,
+    rgba(0,255,65,1)   40%,
+    rgba(0,255,65,0.6) 100%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer-sweep 2.5s linear infinite;
+}
+
+/* ─── Input focus glow beam ─────────────────────────────────────────────── */
+
+.search-input-focused {
+  border-color: rgba(0, 255, 65, 0.60) !important;
+  box-shadow:
+    0 0 0 3px rgba(0, 255, 65, 0.08),
+    0 0 20px rgba(0, 255, 65, 0.18),
+    inset 0 0 12px rgba(0, 255, 65, 0.04) !important;
+}
+
 @keyframes slide-in-right {
   from { opacity: 0; transform: translateX(100%); }
   to   { opacity: 1; transform: translateX(0); }

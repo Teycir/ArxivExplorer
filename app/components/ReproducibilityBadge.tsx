@@ -22,17 +22,17 @@ export function ReproducibilityBadge({ paper, showBreakdown = false }: Reproduci
     <div className="inline-flex flex-col gap-1">
       <button
         onClick={() => showBreakdown && setExpanded(!expanded)}
-        className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-mono ${colorClass} bg-black/20 border border-current/20 hover:bg-black/40 transition-colors ${showBreakdown ? 'cursor-pointer' : 'cursor-default'}`}
+        className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-mono ${colorClass} border border-current/30 bg-current/10 hover:bg-current/20 transition-colors ${showBreakdown ? 'cursor-pointer' : 'cursor-default'}`}
         title="Reproducibility score based on code, benchmarks, open access, and community validation"
       >
-        <Icon size={12} />
+        <Icon size={10} />
         <span>Repro: {total}/100</span>
-        <span className="text-white/40">({label})</span>
+        <span className="opacity-50">({label})</span>
       </button>
 
       {showBreakdown && expanded && (
-        <div className="mt-1 p-2 bg-black/40 border border-neon-red/10 rounded text-[10px] font-mono space-y-1">
-          <div className="font-semibold text-neon-red/60 mb-1">Breakdown:</div>
+        <div className="mt-1 p-2 bg-black/40 border border-current/20 rounded text-[10px] font-mono space-y-1">
+          <div className={`font-semibold mb-1 opacity-60`}>Breakdown:</div>
           {breakdown.hasCode > 0 && <div className="text-green-500">✓ Has code: +{breakdown.hasCode}</div>}
           {breakdown.hasBenchmark > 0 && <div className="text-green-500">✓ Has benchmarks: +{breakdown.hasBenchmark}</div>}
           {breakdown.isOpenAccess > 0 && <div className="text-green-500">✓ Open access: +{breakdown.isOpenAccess}</div>}

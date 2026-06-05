@@ -101,7 +101,7 @@ export function PaperCard({ paper, showAbstract = false }: PaperCardProps) {
 
         {/* Title */}
         <h3 className="text-white/90 font-mono font-semibold text-sm leading-snug mb-2
-          group-hover:text-neon-red transition-colors duration-200">
+          group-hover:text-neon-red transition-colors duration-300">
           {paper.title}
         </h3>
 
@@ -127,7 +127,7 @@ export function PaperCard({ paper, showAbstract = false }: PaperCardProps) {
           <span className="flex items-center gap-2">
             <MoreLikeThisButton id={paper.id} />
             <BookmarkDot id={paper.id} />
-            <span className="text-xs text-neon-red/40 font-mono group-hover:text-neon-red/70 transition-colors">
+            <span className="text-xs text-neon-red/40 font-mono group-hover:text-neon-red transition-colors tracking-wider">
               View →
             </span>
           </span>

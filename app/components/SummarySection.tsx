@@ -218,7 +218,7 @@ export function SummarySection({ paper: initialPaper }: { paper: PaperWithSummar
       </div>
 
       {/* Tab content */}
-      <div className="min-h-[80px] animate-fade-in mb-6">
+      <div key={active} className="min-h-[80px] tab-content-enter mb-6">
         {tabContent[active]}
       </div>
 

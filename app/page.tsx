@@ -231,7 +231,7 @@ export default async function HomePage({ searchParams }: HomePageProps) {
           {trending.length === 0 ? (
             <p className="text-sm text-neon-red/30 text-center py-8 font-mono">No papers found</p>
           ) : (
-            <div className="grid grid-cols-1 gap-4">
+            <div className="grid grid-cols-1 gap-4 stagger-list">
               {trending.map(p => <PaperCard key={p.id} paper={p} />)}
             </div>
           )}

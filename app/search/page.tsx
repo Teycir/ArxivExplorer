@@ -103,7 +103,7 @@ async function SearchResults({ searchParams }: SearchPageProps) {
             <span className="ml-2 text-neon-red/25">· {result.total} result{result.total !== 1 ? 's' : ''}</span>
           </p>
         </div>
-        <div className="grid gap-4">
+        <div className="grid gap-4 stagger-list">
           {result.papers.map((paper) => (
             <PaperCard key={paper.id} paper={paper} />
           ))}
@@ -137,7 +137,7 @@ async function SearchResults({ searchParams }: SearchPageProps) {
             <span className="ml-2 text-neon-red/25">· {result.total} result{result.total !== 1 ? 's' : ''}</span>
           </p>
         </div>
-        <div className="grid gap-4">
+        <div className="grid gap-4 stagger-list">
           {result.papers.map((paper) => (
             <PaperCard key={paper.id} paper={paper} />
           ))}
@@ -236,7 +236,7 @@ async function SearchResults({ searchParams }: SearchPageProps) {
           CS papers only
         </span>
       </div>
-      <div className="grid gap-4">
+      <div className="grid gap-4 stagger-list">
         {result.papers.map((paper) => (
           <PaperCard key={paper.id} paper={paper} />
         ))}
