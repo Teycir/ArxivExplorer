@@ -39,26 +39,52 @@ _Scan the QR code or copy the wallet address above._
 
 ## Features
 
-- **Hybrid Search** — Combines keyword (BM25) and semantic (vector) search for accurate results
-- **Advanced Filtering** — Filter by author, citation count, category, and date range (day/week/month)
-- **RSS Feed** — Subscribe to recent papers with AI summaries at `/rss.xml` (1-hour cache, 20 papers)
-- **AI Summaries** — Pre-generated summaries with TL;DR, key contributions, methods, limitations, and enriched metadata
-- **Related Papers** — Discover similar papers through semantic similarity
-- **Topic Browsing** — Curated collections for popular research areas
-- **Citation Tracking** — Real-time citation counts from Semantic Scholar with automatic updates
-- **Paper Collections** — Organize bookmarks into playlists with JSON/BibTeX export
-- **Paper Comparison** — Side-by-side comparison of up to 6 papers with field selector and CSV/Markdown export
-- **Paper Revisions** — View revision history and version comparison for updated papers
-- **Achievements System** — Gamified badges for user engagement (explorer, researcher, curator, etc.)
-- **Claim Tracker** — Find papers that support or contradict specific scientific claims using AI classification
-- **Citation Velocity** — Track papers with highest citation momentum (30-day growth rate)
-- **Research Frontier** — Discover bleeding-edge papers pushing the boundaries of their fields
-- **Author Timeline** — Visualize researcher's intellectual journey showing topic evolution and focus shifts
-- **Speed Dating Mode** — Swipe-based taste profiling to build personalized paper recommendations
-- **Reading Path** — Find shortest learning path between papers via prerequisites and related papers
-- **CLI Tool** — Command-line interface for AI assistants (Claude, ChatGPT) to search and explore papers
-- **Zero Latency AI** — All summaries pre-computed, served from edge cache
-- **No Login Required** — Instant access to all features
+### Core Search & Discovery
+- **Hybrid Search** — Combines FTS5 keyword search and Vectorize semantic search for accurate results
+- **Advanced Filtering** — Filter by author (substring match), citation count, category, and date range
+- **Smart Caching** — KV-based caching with 2h TTL for search results, 24h for embeddings
+- **Related Papers** — Pre-computed top-8 semantically similar papers via Vectorize
+- **Topic Collections** — Curated topics with category mappings (stored in `topics` table)
+- **Author Pages** — Author statistics, timeline visualization, and all papers
+- **Full-Text Search** — SQLite FTS5 virtual table with automatic triggers
+
+### AI-Powered Features
+- **Pre-Generated Summaries** — TL;DR, key contributions, methods, limitations, beginner/technical explanations
+- **Entity Extraction** — Keywords, entities (models/datasets/benchmarks), paper type classification
+- **Claim Classification** — AI-powered support/contradiction analysis for scientific claims
+- **Smart Abstracts** — Enhanced paper metadata with prerequisites and follow-up questions
+
+### Paper Management
+- **Bookmarks & Playlists** — Client-side collections with 90-day TTL (100 bookmark soft cap)
+- **Export Options** — JSON and BibTeX export for collections
+- **Paper Comparison** — Side-by-side comparison view (up to 6 papers)
+- **Revision History** — Track paper updates and version differences
+- **Share & Copy** — Quick copy for arXiv ID and BibTeX entries
+
+### Enrichment & Metadata
+- **Citation Tracking** — Semantic Scholar integration with citation count + influential citations
+- **Citation Snapshots** — Historical citation data stored in `citation_snapshots` table
+- **CrossRef Integration** — Journal metadata, publisher, license, funders
+- **OpenAlex Data** — Concepts, affiliations, institutional data (ROR IDs)
+- **Papers With Code** — Code repositories, benchmarks, SOTA rankings (schema ready)
+
+### User Engagement
+- **Achievements System** — Gamified badges stored client-side with activity tracking
+- **Recent Searches** — Search history with suggestions
+- **Personalized Feed** — Recommendations based on bookmark history
+- **RSS Feed** — `/rss.xml` with 20 recent papers (1h cache)
+
+### Developer Tools
+- **CLI Interface** — `arxiv-cli` for AI assistants (search, trending, topics, authors)
+- **Admin API** — Vectorize bulk operations, maintenance endpoints, enrichment triggers
+- **Sitemap** — `/api/sitemap` for SEO
+- **LLM Integration** — `/ai.txt` and `/llms.txt` routes for AI agent discovery
+
+### Performance
+- **Edge Caching** — Cloudflare KV with intelligent TTL strategies
+- **ISR Rendering** — Next.js ISR with 10-minute revalidation
+- **Zero Login** — Instant access to all features
+- **Global CDN** — Cloudflare Workers edge deployment
 
 ## Architecture
 
@@ -208,15 +234,20 @@ npm run deploy:ingest   # Ingest worker
 │   ├── paper/[id]/            # Paper detail pages
 │   ├── topic/[slug]/          # Topic pages
 │   ├── author/[name]/         # Author pages
-│   ├── concept/[name]/        # Concept pages
-│   ├── institution/[slug]/    # Institution pages
 │   ├── compare/               # Paper comparison
 │   ├── diff/[id]/             # Paper revision history
 │   ├── bookmarks/             # Bookmark management
 │   ├── playlists/             # Playlist management
 │   ├── explore/               # Explore page
 │   ├── achievements/          # Achievement tracking
+│   ├── claim/                 # Claim classification
+│   ├── faq/                   # FAQ page
+│   ├── how-to-use/            # User guide
 │   ├── rss.xml/               # RSS feed route
+│   │   └── route.ts
+│   ├── ai.txt/                # LLM discovery route
+│   │   └── route.ts
+│   ├── llms.txt/              # LLM discovery route
 │   │   └── route.ts
 │   └── components/            # React components
 │       ├── SummarySection.tsx
@@ -224,22 +255,24 @@ npm run deploy:ingest   # Ingest worker
 │       ├── SearchFilters.tsx
 │       ├── BookmarkButton.tsx
 │       ├── CollectionManager.tsx
+│       ├── SearchBoxHome.tsx
+│       ├── Navbar.tsx
+│       ├── Footer.tsx
 │       └── ... (40+ components)
 ├── src/
 │   ├── api-worker/            # Cloudflare Workers API
 │   │   ├── index.ts           # Router
 │   │   └── routes/
-│   │       ├── search.ts      # Hybrid search (BM25 + semantic)
+│   │       ├── search.ts      # Hybrid search (FTS5 + semantic)
 │   │       ├── paper.ts       # Paper details
 │   │       ├── related.ts     # Related papers
 │   │       ├── trending.ts    # Trending papers
 │   │       ├── topic.ts       # Topic endpoints
+│   │       ├── topics.ts      # List topics
 │   │       ├── author.ts      # Author endpoints
-│   │       ├── citations.ts   # Citation data
+│   │       ├── authors.ts     # List authors
+│   │       ├── claim.ts       # Claim classification
 │   │       ├── admin.ts       # Admin endpoints (Vectorize, maintenance)
-│   │       ├── enrichment.ts  # Data enrichment endpoints
-│   │       ├── concept.ts     # Concept search
-│   │       ├── institution.ts # Institution search
 │   │       ├── stats.ts       # Database statistics
 │   │       └── sitemap.ts     # Sitemap generation
 │   ├── ingest-worker/         # Background processing (cron)
@@ -286,7 +319,7 @@ npm run deploy:ingest   # Ingest worker
 ## API Reference
 
 ```
-GET  /api/search?q=attention+mechanisms              # Hybrid BM25 + semantic search
+GET  /api/search?q=attention+mechanisms              # Hybrid FTS5 + semantic search
 GET  /api/search?q=...&author=Hinton                  # Filter by author (substring match)
 GET  /api/search?q=...&minCitations=10                # Filter by minimum citations
 GET  /api/search?q=...&category=cs.LG                 # Filter by arXiv category
@@ -294,21 +327,27 @@ GET  /api/search?q=...&date=week                      # Filter by date (day/week
 GET  /api/search?q=...&author=X&minCitations=Y&...    # Combine multiple filters
 GET  /api/paper/:id                                   # Paper detail + summary
 GET  /api/paper/:id/related                           # Semantically similar papers
-GET  /api/citations/:id                               # Citation count from Semantic Scholar
 GET  /api/trending                                    # Trending papers (KV cached)
 GET  /api/topic/:slug                                 # Topic paper collection
 GET  /api/topics                                      # List all topics
 GET  /api/author/:name                                # Author papers and statistics
-GET  /api/concept/:name                               # Papers by concept
-GET  /api/institution/:slug                           # Papers by institution
+GET  /api/authors                                     # List authors
 GET  /api/stats                                       # Database statistics
 GET  /api/sitemap                                     # Sitemap for SEO
 GET  /rss.xml                                         # RSS feed (20 recent papers, 1h cache)
 GET  /compare?ids=id1,id2,id3                         # Compare up to 6 papers side-by-side
 
-POST /admin/vectorize/upsert                          # Bulk embed upsert (x-admin-secret)
+POST /api/classify-claim                             # AI-powered claim classification
+
+# Admin endpoints (x-admin-secret required)
+POST /admin/vectorize/upsert                          # Bulk embed upsert
 POST /admin/retry-failed                              # Reset summary_ready=2 → 0
-POST /admin/enrichment/*                              # Enrichment endpoints (OpenAlex, CrossRef, etc.)
+POST /admin/backfill-related                          # Backfill related papers
+POST /admin/crossref-batch                            # CrossRef batch enrichment
+POST /admin/related/clear                             # Clear related papers
+POST /admin/related/bulk-insert                       # Bulk insert related papers
+POST /admin/kv/delete                                 # Delete KV cache entries
+GET  /admin/papers/all                                # Export all papers
 ```
 
 ## Configuration
@@ -418,10 +457,10 @@ ADMIN_SECRET=<secret> npx tsx scripts/push-local-to-remote.ts
 ## Key Features
 
 ### Citation Tracking
-- **Endpoint**: `GET /api/citations/:id`
-- **Source**: Semantic Scholar API
-- **Updates**: Automatic cron job (update-citations worker)
+- **Source**: Semantic Scholar API integration
+- **Updates**: Automatic cron job (part of ingest worker)
 - **Storage**: `citation_count` and `citations_updated_at` fields in papers table
+- **History**: Citation snapshots stored in `citation_snapshots` table
 - **Rate Limiting**: Respects Semantic Scholar rate limits
 
 ### Paper Collections
@@ -593,7 +632,7 @@ The deployment uses:
 1. Normalise query
 2. Check KV cache (2 h TTL)
 3. Parallel:
-   - D1 FTS keyword search (BM25, title boosted 10:1:5)
+   - D1 FTS5 keyword search (title boosted 10:1:5)
    - Vectorize semantic search (query embedding cached 24 h)
 4. Merge (25 % keyword · 75 % semantic), deduplicate
 5. Return top 10, write to KV
