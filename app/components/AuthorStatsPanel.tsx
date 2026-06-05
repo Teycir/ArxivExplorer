@@ -8,6 +8,7 @@
 import Link from 'next/link';
 import { Award, Code2, BookOpen, Clock, BarChart3, Users } from 'lucide-react';
 import { Tooltip } from './Tooltip';
+import { getCategoryShortLabel } from '@/lib/categories';
 
 interface AuthorStats {
   totalPapers: number;
@@ -24,13 +25,6 @@ interface AuthorStats {
 interface AuthorStatsPanelProps {
   stats: AuthorStats;
 }
-
-const CAT_LABELS: Record<string, string> = {
-  'cs.LG': 'ML', 'cs.CL': 'NLP', 'cs.CV': 'Vision', 'cs.AI': 'AI',
-  'cs.CR': 'Crypto', 'cs.RO': 'Robotics', 'cs.SE': 'Software',
-  'cs.DC': 'Distributed', 'cs.DS': 'Data Structures', 'cs.NE': 'Neural Computing',
-  'cs.GT': 'Game Theory', 'cs.IR': 'Info Retrieval', 'stat.ML': 'Stat.ML',
-};
 
 export function AuthorStatsPanel({ stats }: AuthorStatsPanelProps) {
   const maxTimelineCount = Math.max(...stats.timeline.map(t => t.count), 1);
@@ -109,7 +103,7 @@ export function AuthorStatsPanel({ stats }: AuthorStatsPanelProps) {
                       className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono rounded-full
                         border border-neon-red/20 bg-neon-red/5 text-neon-red/60 cursor-default"
                     >
-                      {CAT_LABELS[cat] ?? cat}
+                      {getCategoryShortLabel(cat)}
                       <span className="text-neon-red/35">×{count}</span>
                     </span>
                   </Tooltip>

@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Navbar } from '../components/Navbar';
 import { getStats, getTopics, getTrendingPapers } from '@/helper/api';
 import { TOPICS } from '@/lib/topics';
+import { getCategoryLabel } from '@/lib/categories';
 import Link from 'next/link';
 
 export const metadata: Metadata = {
@@ -10,29 +11,6 @@ export const metadata: Metadata = {
 };
 
 export const dynamic = 'force-dynamic';
-
-const CAT_LABELS: Record<string, string> = {
-  'cs.AI':   'Artificial Intelligence',
-  'cs.LG':   'Machine Learning',
-  'cs.CL':   'Computation & Language',
-  'cs.CV':   'Computer Vision',
-  'cs.CR':   'Cryptography & Security',
-  'cs.RO':   'Robotics',
-  'cs.SE':   'Software Engineering',
-  'cs.IR':   'Information Retrieval',
-  'cs.NE':   'Neural & Evolutionary',
-  'cs.AR':   'Computer Architecture',
-  'cs.DS':   'Data Structures',
-  'cs.DC':   'Distributed Computing',
-  'cs.NI':   'Networking',
-  'cs.PL':   'Programming Languages',
-  'cs.CC':   'Computational Complexity',
-  'cs.IT':   'Information Theory',
-  'cs.OS':   'Operating Systems',
-  'stat.ML': 'Statistics / ML',
-  'cs.HC':   'Human-Computer Interaction',
-  'cs.SY':   'Systems & Control',
-};
 
 // Group topics by domain for the topic grid
 const TOPIC_GROUPS = [
@@ -182,9 +160,9 @@ export default async function ExplorePage() {
                           style={{ width: `${(count / maxCount) * 100}%` }}
                         />
                       </div>
-                      <span className="text-white/35 text-[11px] w-48 shrink-0 truncate group-hover:text-white/60 transition-colors">
-                        {CAT_LABELS[category] ?? category}
-                        <span className="text-white/15 ml-1 text-[10px]">{category}</span>
+                      <span className="text-white/35 text-[10px] w-48 shrink-0 truncate group-hover:text-white/60 transition-colors">
+                        {getCategoryLabel(category)}
+                        <span className="text-white/15 ml-1 text-[9px]">{category}</span>
                       </span>
                       <span className="text-white/60 text-xs font-bold tabular-nums w-10 text-right shrink-0">
                         {count.toLocaleString()}

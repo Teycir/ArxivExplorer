@@ -5,20 +5,22 @@
 import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Filter, X, Code, BookOpen } from 'lucide-react';
+import { CATEGORY_LABELS } from '@/lib/categories';
 
+// Common categories for the filter UI
 const CATEGORIES = [
-  { id: 'cs.AI', label: 'Artificial Intelligence' },
-  { id: 'cs.LG', label: 'Machine Learning' },
-  { id: 'cs.CL', label: 'Natural Language' },
-  { id: 'cs.CV', label: 'Computer Vision' },
-  { id: 'cs.CR', label: 'Cryptography' },
-  { id: 'cs.DC', label: 'Distributed Systems' },
-  { id: 'cs.DS', label: 'Algorithms' },
-  { id: 'cs.SE', label: 'Software Engineering' },
-  { id: 'cs.RO', label: 'Robotics' },
-  { id: 'cs.DB', label: 'Databases' },
-  { id: 'cs.PL', label: 'Programming Languages' },
-  { id: 'cs.HC', label: 'Human-Computer Interaction' },
+  { id: 'cs.AI', label: CATEGORY_LABELS['cs.AI'] },
+  { id: 'cs.LG', label: CATEGORY_LABELS['cs.LG'] },
+  { id: 'cs.CL', label: CATEGORY_LABELS['cs.CL'] },
+  { id: 'cs.CV', label: CATEGORY_LABELS['cs.CV'] },
+  { id: 'cs.CR', label: CATEGORY_LABELS['cs.CR'] },
+  { id: 'cs.DC', label: CATEGORY_LABELS['cs.DC'] },
+  { id: 'cs.DS', label: CATEGORY_LABELS['cs.DS'] },
+  { id: 'cs.SE', label: CATEGORY_LABELS['cs.SE'] },
+  { id: 'cs.RO', label: CATEGORY_LABELS['cs.RO'] },
+  { id: 'cs.DB', label: CATEGORY_LABELS['cs.DB'] },
+  { id: 'cs.PL', label: CATEGORY_LABELS['cs.PL'] },
+  { id: 'cs.HC', label: CATEGORY_LABELS['cs.HC'] },
 ];
 
 const DATE_RANGES = [
