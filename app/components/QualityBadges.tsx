@@ -14,6 +14,7 @@
 
 import { Award, Database, Clock, Code2 } from 'lucide-react';
 import type { PaperWithSummary } from '@/src/shared/types';
+import { Tooltip } from './Tooltip';
 
 interface QualityBadgesProps {
   paper: PaperWithSummary;
@@ -29,30 +30,38 @@ export function QualityBadges({ paper, compact = false }: QualityBadgesProps) {
   // Influential: >= 50 influential citations
   if ((paper.influentialCitationCount ?? 0) >= 50) {
     badges.push(
-      <span
+      <Tooltip
         key="influential"
-        title={`${paper.influentialCitationCount} influential citations (Semantic Scholar)`}
-        className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono rounded-full
-          border border-amber-500/40 bg-amber-500/10 text-amber-400/90 cursor-default"
+        content={`${paper.influentialCitationCount} influential citations (Semantic Scholar)`}
+        position="top"
       >
-        <Award size={9} />
-        Influential
-      </span>
+        <span
+          className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono rounded-full
+            border border-amber-500/40 bg-amber-500/10 text-amber-400/90 cursor-default"
+        >
+          <Award size={9} />
+          Influential
+        </span>
+      </Tooltip>
     );
   }
 
   // Comprehensive: >= 100 references
   if ((paper.referenceCount ?? 0) >= 100) {
     badges.push(
-      <span
+      <Tooltip
         key="comprehensive"
-        title={`${paper.referenceCount} references — comprehensive literature coverage`}
-        className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono rounded-full
-          border border-teal-500/30 bg-teal-500/10 text-teal-400/80 cursor-default"
+        content={`${paper.referenceCount} references — comprehensive literature coverage`}
+        position="top"
       >
-        <Database size={9} />
-        Comprehensive
-      </span>
+        <span
+          className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono rounded-full
+            border border-teal-500/30 bg-teal-500/10 text-teal-400/80 cursor-default"
+        >
+          <Database size={9} />
+          Comprehensive
+        </span>
+      </Tooltip>
     );
   }
 
@@ -61,30 +70,38 @@ export function QualityBadges({ paper, compact = false }: QualityBadgesProps) {
   const isRecent = ageMs < SIX_MONTHS_MS && ageMs >= 48 * 60 * 60 * 1000; // 48h+ but <6mo
   if (isRecent) {
     badges.push(
-      <span
+      <Tooltip
         key="recent"
-        title="Published within the last 6 months"
-        className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono rounded-full
-          border border-green-500/30 bg-green-500/10 text-green-400/70 cursor-default"
+        content="Published within the last 6 months"
+        position="top"
       >
-        <Clock size={9} />
-        Recent
-      </span>
+        <span
+          className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono rounded-full
+            border border-green-500/30 bg-green-500/10 text-green-400/70 cursor-default"
+        >
+          <Clock size={9} />
+          Recent
+        </span>
+      </Tooltip>
     );
   }
 
   // Code available (only shown in non-compact mode to avoid dup with PaperCard's own badge)
   if (!compact && (paper.codeCount ?? 0) > 0) {
     badges.push(
-      <span
+      <Tooltip
         key="code"
-        title={`${paper.codeCount ?? 0} code repositor${(paper.codeCount ?? 1) !== 1 ? 'ies' : 'y'} linked`}
-        className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono rounded-full
-          border border-emerald-500/30 bg-emerald-500/10 text-emerald-400/80 cursor-default"
+        content={`${paper.codeCount ?? 0} code repositor${(paper.codeCount ?? 1) !== 1 ? 'ies' : 'y'} linked`}
+        position="top"
       >
-        <Code2 size={9} />
-        Code
-      </span>
+        <span
+          className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono rounded-full
+            border border-emerald-500/30 bg-emerald-500/10 text-emerald-400/80 cursor-default"
+        >
+          <Code2 size={9} />
+          Code
+        </span>
+      </Tooltip>
     );
   }
 

@@ -7,6 +7,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
+import { Tooltip } from './Tooltip';
 
 export function MoreLikeThisButton({ id }: { id: string }) {
   const router = useRouter();
@@ -18,14 +19,15 @@ export function MoreLikeThisButton({ id }: { id: string }) {
   }
 
   return (
-    <button
-      onClick={handleClick}
-      title="Find similar papers"
-      className="text-[10px] font-mono text-neon-red/30 hover:text-neon-red/70
-        border border-neon-red/10 hover:border-neon-red/30 rounded-lg px-1.5 py-0.5
-        transition-colors duration-150 whitespace-nowrap"
-    >
-      ~ more like this
-    </button>
+    <Tooltip content="Find semantically similar papers using AI" position="top">
+      <button
+        onClick={handleClick}
+        className="text-[10px] font-mono text-neon-red/30 hover:text-neon-red/70
+          border border-neon-red/10 hover:border-neon-red/30 rounded-lg px-1.5 py-0.5
+          transition-colors duration-150 whitespace-nowrap"
+      >
+        ~ more like this
+      </button>
+    </Tooltip>
   );
 }

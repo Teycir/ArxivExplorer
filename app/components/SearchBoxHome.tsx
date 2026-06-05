@@ -8,6 +8,7 @@ import { useRouter } from 'next/navigation';
 import { Search, SlidersHorizontal, X, Code, BookOpen } from 'lucide-react';
 import { pushSearch } from '@/lib/searchHistory';
 import { SearchHistory } from './SearchHistory';
+import { Tooltip } from './Tooltip';
 
 const CATEGORIES = [
   { id: 'cs.AI', label: 'AI' },
@@ -117,8 +118,24 @@ export function SearchBoxHome() {
         onSelect={q => { setQuery(q); setFocused(false); }}
       />
 
-      {/* Filter toggle */}
-      <div className="mt-2 flex justify-end">
+      {/* Search mode notice and filters */}
+      <div className="mt-2 flex items-center justify-between">
+        <p className="text-[10px] font-mono text-neon-red/30 flex items-center gap-1">
+          Hybrid search: keyword + semantic
+          <Tooltip
+            content={
+              <>
+                Finds papers by exact word matches <strong>and</strong> meaning similarity. 
+                Best for broad queries like &ldquo;transformers&rdquo; or specific terms like &ldquo;BERT&rdquo;.
+              </>
+            }
+            position="bottom"
+            maxWidth="max-w-64"
+          >
+            <span className="text-neon-red/40 hover:text-neon-red/70 cursor-help">ⓘ</span>
+          </Tooltip>
+          | <a href="/claim" className="text-neon-red/60 hover:text-neon-red/90 underline">Semantic-only search →</a>
+        </p>
         <button
           onClick={() => setShowFilters(!showFilters)}
           className="flex items-center gap-1.5 px-3 py-1 text-xs font-mono

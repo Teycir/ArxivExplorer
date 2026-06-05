@@ -13,6 +13,7 @@ import { FileText, Calendar, Users, Code, BookOpen, Sparkles } from 'lucide-reac
 import { BookmarkDot } from './BookmarkDot';
 import { MoreLikeThisButton } from './MoreLikeThisButton';
 import { AuthorLinks } from './AuthorLinks';
+import { Tooltip } from './Tooltip';
 import { CopyId } from './CopyId';
 import { QualityBadges } from './QualityBadges';
 
@@ -51,27 +52,33 @@ export function PaperCard({ paper, showAbstract = false }: PaperCardProps) {
           ))}
           {/* NEW badge */}
           {isNew && (
-            <span className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono rounded-full
-              border border-neon-red/50 bg-neon-red/10 text-neon-red font-bold animate-pulse">
-              <Sparkles size={9} />
-              NEW
-            </span>
+            <Tooltip content="Published within the last 48 hours" position="top">
+              <span className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono rounded-full
+                border border-neon-red/50 bg-neon-red/10 text-neon-red font-bold animate-pulse">
+                <Sparkles size={9} />
+                NEW
+              </span>
+            </Tooltip>
           )}
           {/* Research type pill */}
           {typeLabel && (
-            <span className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono rounded-full
-              border border-violet-500/30 bg-violet-500/10 text-violet-400/80">
-              <BookOpen size={9} />
-              {typeLabel}
-            </span>
+            <Tooltip content={`Research type: ${typeLabel}`} position="top">
+              <span className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono rounded-full
+                border border-violet-500/30 bg-violet-500/10 text-violet-400/80">
+                <BookOpen size={9} />
+                {typeLabel}
+              </span>
+            </Tooltip>
           )}
           {/* Code badge */}
           {(paper.codeCount ?? 0) > 0 && (
-            <span className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono rounded-full
-              border border-emerald-500/30 bg-emerald-500/10 text-emerald-400/80">
-              <Code size={9} />
-              {paper.codeCount} repo{(paper.codeCount ?? 1) !== 1 ? 's' : ''}
-            </span>
+            <Tooltip content="Code repositories available" position="top">
+              <span className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono rounded-full
+                border border-emerald-500/30 bg-emerald-500/10 text-emerald-400/80">
+                <Code size={9} />
+                {paper.codeCount} repo{(paper.codeCount ?? 1) !== 1 ? 's' : ''}
+              </span>
+            </Tooltip>
           )}
           {/* Quality badges: Influential, Benchmarked, Comprehensive, Recent */}
           <QualityBadges paper={paper} compact />

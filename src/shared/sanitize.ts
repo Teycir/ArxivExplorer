@@ -40,16 +40,22 @@ export function sanitizeCategory(input: string | null | undefined): string {
 }
 
 /**
- * Sanitize integer input with bounds
+ * Sanitize integer input with bounds.
+ * Returns null when the input is absent (null/undefined/empty string) so
+ * callers can distinguish "no value supplied" from "value supplied but == min".
+ * Returning min on absence was the original bug: sanitizeInt(null, 1, 50)
+ * returned 1, so `sanitizeInt(...) || DEFAULT_RESULTS` never fell through to
+ * DEFAULT_RESULTS — the search always ran with limit=1.
  */
 export function sanitizeInt(
   input: string | number | null | undefined,
   min: number = 0,
   max: number = Number.MAX_SAFE_INTEGER
-): number {
+): number | null {
+  if (input === null || input === undefined || input === '') return null;
   const num = typeof input === 'string' ? parseInt(input, 10) : input;
-  if (!num || isNaN(num)) return min;
-  return Math.max(min, Math.min(max, Math.floor(num)));
+  if (isNaN(num as number)) return null;
+  return Math.max(min, Math.min(max, Math.floor(num as number)));
 }
 
 /**

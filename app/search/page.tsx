@@ -14,6 +14,7 @@ import { PaperCard } from '../components/PaperCard';
 import { SearchFilters } from '../components/SearchFilters';
 import { CategoryScopeBar } from '../components/CategoryScopeBar';
 import { AbstractSearch } from '../components/AbstractSearch';
+import { Tooltip } from '../components/Tooltip';
 
 import type { SearchResult } from '@/src/shared/types';
 import { Search, AlertCircle, Loader2 } from 'lucide-react';
@@ -229,11 +230,33 @@ async function SearchResults({ searchParams }: SearchPageProps) {
           CS papers only
         </span>
       </div>
-      {/* Quality indicator */}
+      {/* Search mode indicator */}
       <div className="mb-6 px-4 py-3 rounded-lg bg-neon-red/5 border border-neon-red/10">
-        <p className="text-xs font-mono text-neon-red/50 leading-relaxed">
-          <span className="text-neon-red/70 font-semibold">Semantic search:</span> We find papers by meaning, not just keywords. 
-          Showing only the top 5 most similar matches — low-relevance results are filtered out for precision.
+        <p className="text-xs font-mono text-neon-red/50 leading-relaxed flex items-start gap-2">
+          <span>
+            <span className="text-neon-red/70 font-semibold">Hybrid search:</span> Combines keyword matching (FTS5) with semantic similarity. 
+            Results are ranked by combined score.
+          </span>
+          <Tooltip
+            content={
+              <div className="space-y-1">
+                <div className="font-semibold text-neon-red/80 mb-1">How hybrid search works:</div>
+                <div>• <strong>Keyword:</strong> Matches exact words in title/abstract</div>
+                <div>• <strong>Semantic:</strong> Finds papers with similar meaning</div>
+                <div>• Combines both scores to rank results</div>
+                <div className="text-neon-red/40 text-[10px] mt-2 pt-1 border-t border-neon-red/20">
+                  Example: &ldquo;transformer&rdquo; matches papers about the architecture, even if they say &ldquo;attention mechanism&rdquo; instead.
+                </div>
+              </div>
+            }
+            position="bottom"
+            maxWidth="max-w-72"
+          >
+            <span className="text-neon-red/50 hover:text-neon-red/80 cursor-help shrink-0">ⓘ</span>
+          </Tooltip>
+        </p>
+        <p className="text-xs font-mono text-neon-red/40 mt-2">
+          Want pure semantic search? <Link href="/claim" className="text-neon-red/70 hover:text-neon-red underline">Try claim verification →</Link>
         </p>
       </div>
       <div className="grid gap-4">

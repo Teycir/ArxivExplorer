@@ -27,9 +27,10 @@ import {
 
 const KEYWORD_WEIGHT = 0.25;
 const SEMANTIC_WEIGHT = 0.75;
-const DEFAULT_RESULTS = 10;  // Default for UI search
+const DEFAULT_RESULTS = 20;  // Increased from 10 to show more hybrid results
 const MIN_RESULTS = 1;
-const VECTORIZE_TOP_K = 20;
+const VECTORIZE_TOP_K = 30;  // Increased from 20 for better semantic coverage
+const FTS_TOP_K = 30;        // Fetch more FTS results for merging
 const MIN_RELATIVE_SCORE = 0.70;  // Quality gate: drop results below 70% of best score
 
 export async function handleSearch(
@@ -43,7 +44,7 @@ export async function handleSearch(
   const rawCat    = sanitizeCategory(url.searchParams.get('category'));
   const rawDate   = sanitizeDateFilter(url.searchParams.get('date'));
   const rawAuthor = sanitizeAuthor(url.searchParams.get('author'));
-  const rawMinCit = sanitizeInt(url.searchParams.get('minCitations'), 0, 100000);
+  const rawMinCit = sanitizeInt(url.searchParams.get('minCitations'), 0, 100000) ?? 0;
   const rawLike   = sanitizeArxivId(url.searchParams.get('like'));  // arXiv ID for "more like this"
   const rawEmbed  = sanitizeQuery(url.searchParams.get('embedText'));  // Full text for semantic-only search
   const rawPaperType  = sanitizeQuery(url.searchParams.get('paperType'));
@@ -78,7 +79,7 @@ export async function handleSearch(
   };
 
   // Optional limit param — clamped to [1, 50] for claim tracker bulk retrieval
-  const limit = sanitizeInt(url.searchParams.get('limit'), MIN_RESULTS, 50) || DEFAULT_RESULTS;
+  const limit = sanitizeInt(url.searchParams.get('limit'), MIN_RESULTS, 50) ?? DEFAULT_RESULTS;
 
   const normalised = normaliseQuery(rawQ);
 
@@ -151,7 +152,7 @@ async function runFtsSearch(
   query: string,
   filters: SearchFilters = {}
 ): Promise<Array<{ paper: PaperWithSummary; score: number }>> {
-  const rows = await ftsSearch(db, query, 20, filters);
+  const rows = await ftsSearch(db, query, FTS_TOP_K, filters);
   if (rows.length === 0) return [];
 
   // Normalise BM25 scores (BM25 returns negative values in SQLite FTS5)
