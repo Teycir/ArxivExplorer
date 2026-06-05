@@ -231,14 +231,9 @@ export default async function ExplorePage() {
             {/* Trending this week */}
             {trendingPapers.length > 0 && (
               <section>
-                <div className="flex items-baseline justify-between mb-4">
-                  <h2 className="text-neon-red/50 text-[10px] uppercase tracking-widest">
-                    Trending This Week
-                  </h2>
-                  <Link href="/search?q=*&date=week" className="text-[10px] text-neon-red/30 hover:text-neon-red/60 transition-colors">
-                    see all →
-                  </Link>
-                </div>
+                <h2 className="text-neon-red/50 text-[10px] uppercase tracking-widest mb-4">
+                  Trending This Week
+                </h2>
                 <div className="space-y-1">
                   {trendingPapers.map((paper, i) => (
                     <Link
@@ -286,19 +281,12 @@ export default async function ExplorePage() {
               </div>
             </section>
 
-            {/* New Features */}
+            {/* Discover */}
             <section>
               <h2 className="text-neon-red/50 text-[10px] uppercase tracking-widest mb-3">
                 Discover
               </h2>
               <div className="space-y-2">
-                <Link href="/speed-dating" className="block p-3 border border-neon-red/10 rounded-lg bg-neon-red/[0.02] hover:border-neon-red/30 hover:bg-neon-red/[0.05] transition-all">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-lg">💚</span>
-                    <span className="text-white/70 text-xs font-bold">Speed Dating</span>
-                  </div>
-                  <p className="text-white/30 text-[10px] leading-relaxed">Build taste profile by swiping papers</p>
-                </Link>
                 <Link href="/claim" className="block p-3 border border-neon-red/10 rounded-lg bg-neon-red/[0.02] hover:border-neon-red/30 hover:bg-neon-red/[0.05] transition-all">
                   <div className="flex items-center gap-2 mb-1">
                     <span className="text-lg">⚖️</span>
@@ -306,19 +294,12 @@ export default async function ExplorePage() {
                   </div>
                   <p className="text-white/30 text-[10px] leading-relaxed">Find papers that support or contradict claims</p>
                 </Link>
-                <Link href="/velocity" className="block p-3 border border-neon-red/10 rounded-lg bg-neon-red/[0.02] hover:border-neon-red/30 hover:bg-neon-red/[0.05] transition-all">
+                <Link href="/compare" className="block p-3 border border-neon-red/10 rounded-lg bg-neon-red/[0.02] hover:border-neon-red/30 hover:bg-neon-red/[0.05] transition-all">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-lg">📈</span>
-                    <span className="text-white/70 text-xs font-bold">Citation Velocity</span>
+                    <span className="text-lg">⚖️</span>
+                    <span className="text-white/70 text-xs font-bold">Compare Papers</span>
                   </div>
-                  <p className="text-white/30 text-[10px] leading-relaxed">Papers with highest momentum</p>
-                </Link>
-                <Link href="/frontier" className="block p-3 border border-neon-red/10 rounded-lg bg-neon-red/[0.02] hover:border-neon-red/30 hover:bg-neon-red/[0.05] transition-all">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-lg">🔬</span>
-                    <span className="text-white/70 text-xs font-bold">Research Front</span>
-                  </div>
-                  <p className="text-white/30 text-[10px] leading-relaxed">Bleeding-edge novel papers</p>
+                  <p className="text-white/30 text-[10px] leading-relaxed">Side-by-side diff of methods and claims</p>
                 </Link>
               </div>
             </section>

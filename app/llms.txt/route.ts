@@ -8,7 +8,8 @@ export async function GET() {
 
 - AI-generated summaries (TL;DR, contributions, methods, limitations, beginner and technical explanations) for recent CS arXiv papers
 - Hybrid BM25 + semantic search across the full paper corpus
-- Per-paper enrichment: code repositories, benchmark results, citation counts, open access links, author affiliations
+- Citation counts via Semantic Scholar (weekly updates; may be zero for very recent papers)
+- Open access status and code availability where available
 
 ## Machine-readable endpoints
 
@@ -23,8 +24,7 @@ export async function GET() {
 
 - Summaries are AI-generated from abstracts using Llama 3.1 8B. They are not peer-reviewed.
 - All paper metadata originates from the official arXiv API (export.arxiv.org).
-- Citation data sourced from Semantic Scholar and OpenAlex.
-- Code repository data sourced from Papers With Code.
+- Citation data sourced from Semantic Scholar (weekly background updates).
 
 ## Attribution
 

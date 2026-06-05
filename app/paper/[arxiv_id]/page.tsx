@@ -1,19 +1,16 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { getPaper, getRelatedPapers, getPaperCode, getPaperBenchmarks } from '@/helper/api';
+import { getPaper, getRelatedPapers } from '@/helper/api';
 import { Navbar } from '../../components/Navbar';
 import { CategoryBadge } from '../../components/CategoryBadge';
 import { Card } from '../../components/Card';
 import { SummarySection } from '../../components/SummarySection';
 import { RelatedPapersList } from '../../components/RelatedPapersList';
 import { PaperLabel } from '../../components/PaperLabel';
-import { CodeSection } from '../../components/CodeSection';
-import { BenchmarkSection } from '../../components/BenchmarkSection';
-import { ConceptBrowser } from '../../components/ConceptBrowser';
 import { formatDate } from '@/helper/format';
-import type { PaperWithSummary, RelatedPaper, PaperCode, PaperBenchmark } from '@/src/shared/types';
-import { ExternalLink, FileText, Users, Calendar, Lock, Building2, BookOpen, MapPin } from 'lucide-react';
+import type { PaperWithSummary, RelatedPaper } from '@/src/shared/types';
+import { ExternalLink, FileText, Users, Calendar, BookOpen } from 'lucide-react';
 import { BookmarkButton } from '../../components/BookmarkButton';
 import { ExportButton } from '../../components/ExportButton';
 import { CopyBibtex } from '../../components/CopyBibtex';
@@ -53,23 +50,17 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 async function fetchPaperData(arxivId: string): Promise<{
   paper: PaperWithSummary;
   related: RelatedPaper[];
-  repos: PaperCode[];
-  benchmarks: PaperBenchmark[];
 }> {
-  const [paper, related, repos, benchmarks] = await Promise.allSettled([
+  const [paper, related] = await Promise.allSettled([
     getPaper(arxivId),
     getRelatedPapers(arxivId),
-    getPaperCode(arxivId),
-    getPaperBenchmarks(arxivId),
   ]);
 
   if (paper.status === 'rejected') throw new Error('Paper not found');
 
   return {
     paper: paper.value,
-    related:    related.status    === 'fulfilled' ? related.value    : [],
-    repos:      repos.status      === 'fulfilled' ? repos.value      : [],
-    benchmarks: benchmarks.status === 'fulfilled' ? benchmarks.value : [],
+    related: related.status === 'fulfilled' ? related.value : [],
   };
 }
 
@@ -79,19 +70,11 @@ export default async function PaperPage({ params }: Props) {
 
   let paper: PaperWithSummary;
   let related: RelatedPaper[];
-  let repos: PaperCode[];
-  let benchmarks: PaperBenchmark[];
 
   try {
-    ({ paper, related, repos, benchmarks } = await fetchPaperData(arxivId));
+    ({ paper, related } = await fetchPaperData(arxivId));
   } catch {
     notFound();
-  }
-
-  // Build institution map: author name → institution
-  const affiliationMap = new Map<string, string>();
-  for (const a of paper.affiliations ?? []) {
-    if (a.author && a.institution) affiliationMap.set(a.author, a.institution);
   }
 
   // Paper type badge (matches PaperCard)
@@ -143,7 +126,6 @@ export default async function PaperPage({ params }: Props) {
       <ActivityTracker
         paperId={arxivId}
         hasCode={(paper.codeCount ?? 0) > 0}
-        hasBenchmark={paper.hasBenchmark ?? false}
         influentialCitationCount={paper.influentialCitationCount ?? 0}
       />
       <AchievementToast />
@@ -174,19 +156,6 @@ export default async function PaperPage({ params }: Props) {
                     {typeLabel}
                   </span>
                 )}
-                {/* Open access badge */}
-                {paper.isOpenAccess && (
-                  <a
-                    href={paper.oaUrl ?? undefined}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono rounded-full
-                      border border-sky-500/40 bg-sky-500/10 text-sky-400
-                      hover:border-sky-500/70 hover:text-sky-300 transition-colors"
-                  >
-                    <Lock size={9} /> Open Access
-                  </a>
-                )}
               </div>
 
               {/* Title */}
@@ -194,35 +163,21 @@ export default async function PaperPage({ params }: Props) {
                 {paper.title}
               </h1>
 
-              {/* Authors with affiliations */}
+              {/* Authors */}
               <div className="flex items-start gap-2 text-xs font-mono mb-3">
                 <Users size={13} className="flex-shrink-0 text-neon-red/50 mt-0.5" />
                 <div className="leading-relaxed">
-                  {paper.authors.map((author, i) => {
-                    const institution = affiliationMap.get(author);
-                    return (
-                      <span key={author} className="inline">
-                        <Link
-                          href={`/author/${encodeURIComponent(author)}`}
-                          className="text-neon-red/60 hover:text-neon-red transition-colors"
-                        >
-                          {author}
-                        </Link>
-                        {institution && (
-                          <span className="inline-flex items-center gap-0.5 ml-1 text-[10px] text-white/30">
-                            <Building2 size={9} />
-                            <Link
-                              href={`/institution/${encodeURIComponent(institution)}`}
-                              className="hover:text-white/60 transition-colors"
-                            >
-                              {institution}
-                            </Link>
-                          </span>
-                        )}
-                        {i < paper.authors.length - 1 && <span className="text-neon-red/20">, </span>}
-                      </span>
-                    );
-                  })}
+                  {paper.authors.map((author, i) => (
+                    <span key={author} className="inline">
+                      <Link
+                        href={`/author/${encodeURIComponent(author)}`}
+                        className="text-neon-red/60 hover:text-neon-red transition-colors"
+                      >
+                        {author}
+                      </Link>
+                      {i < paper.authors.length - 1 && <span className="text-neon-red/20">, </span>}
+                    </span>
+                  ))}
                 </div>
               </div>
 
@@ -278,12 +233,6 @@ export default async function PaperPage({ params }: Props) {
                     <FileText size={12} /> Revisions
                   </Link>
                 )}
-                <Link href={`/reading-path?from=${arxivId}`}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono font-bold uppercase
-                    border border-sky-500/30 text-sky-400/70 rounded-lg
-                    hover:border-sky-500/60 hover:text-sky-400 hover:bg-sky-500/5 transition-all">
-                  <MapPin size={12} /> Find Path
-                </Link>
               </div>
             </Card>
 
@@ -298,15 +247,6 @@ export default async function PaperPage({ params }: Props) {
                 paperTitle={paper.title}
               />
             )}
-
-            {/* Code repositories */}
-            {repos.length > 0 && <CodeSection repos={repos} />}
-
-            {/* Benchmark results */}
-            {benchmarks.length > 0 && <BenchmarkSection benchmarks={benchmarks} />}
-
-            {/* Concept browser */}
-            {paper.concepts && paper.concepts.length > 0 && <ConceptBrowser concepts={paper.concepts} />}
 
             {/* Abstract */}
             <Card title="Abstract">

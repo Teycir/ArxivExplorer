@@ -26,7 +26,7 @@
  * tldr exists are returned so every sidebar link is safe to follow.
  */
 
-import type { PaperRow, PaperWithSummary, Summary, RelatedPaper, Topic, PaperCode, PaperBenchmark } from './types';
+import type { PaperRow, PaperWithSummary, Summary, RelatedPaper, Topic } from './types';
 
 // ─── Completeness guards ────────────────────────────────────────────────────
 
@@ -444,198 +444,95 @@ export async function ftsSearch(
   }).slice(0, limit) as Array<PaperRow & { keyword_score: number }>;
 }
 
-// ─── Enrichment Queries ─────────────────────────────────────────────────────
+// ─── Author Leaderboard ─────────────────────────────────────────────────────
 
-/** Fetch code repos for a paper */
-export async function getPaperCode(db: D1Database, paperId: string): Promise<import('./types').PaperCode[]> {
-  const { results } = await db.prepare(`
-    SELECT paper_id, repo_url, stars, framework, is_official, fetched_at
-    FROM paper_code WHERE paper_id = ?
-    ORDER BY is_official DESC, stars DESC
-  `).bind(paperId).all<{
-    paper_id: string; repo_url: string; stars: number;
-    framework: string | null; is_official: number; fetched_at: string;
-  }>();
-  return results.map(r => ({
-    paperId: r.paper_id, repoUrl: r.repo_url, stars: r.stars,
-    framework: r.framework, isOfficial: r.is_official === 1, fetchedAt: r.fetched_at,
-  }));
+export interface AuthorSummaryRow {
+  name:                  string;
+  paperCount:            number;
+  totalCitations:        number;
+  totalInfluentialCites: number;
+  codeCount:             number;
+  topCategory:           string;
+  latestPaper:           string;  // ISO date
 }
-
-/** Fetch benchmark results for a paper */
-export async function getPaperBenchmarks(db: D1Database, paperId: string): Promise<import('./types').PaperBenchmark[]> {
-  const { results } = await db.prepare(`
-    SELECT paper_id, task, dataset, metric, value, sota_rank, fetched_at
-    FROM paper_benchmarks WHERE paper_id = ?
-    ORDER BY task, dataset
-  `).bind(paperId).all<{
-    paper_id: string; task: string; dataset: string; metric: string;
-    value: number; sota_rank: number | null; fetched_at: string;
-  }>();
-  return results.map(r => ({
-    paperId: r.paper_id, task: r.task, dataset: r.dataset, metric: r.metric,
-    value: r.value, sotaRank: r.sota_rank, fetchedAt: r.fetched_at,
-  }));
-}
-
-/** Papers by Wikidata concept slug (JOIN on JSON concepts array) */
-export async function getPapersByConceptName(
-  db: D1Database, conceptName: string, limit = 20
-): Promise<PaperWithSummary[]> {
-  const fetchLimit = limit * 2;
-  const { results } = await db.prepare(`
-    SELECT ${PAPER_SELECT}
-    FROM papers p
-    LEFT JOIN summaries s ON s.paper_id = p.id
-    WHERE p.summary_ready = 1
-      AND EXISTS (
-        SELECT 1 FROM json_each(p.concepts)
-        WHERE json_each.value ->> 'name' = ?
-      )
-    ORDER BY p.published_at DESC
-    LIMIT ?
-  `).bind(conceptName, fetchLimit).all<PaperRow>();
-  return results.map(rowToPaper).filter(isPaperComplete).slice(0, limit);
-}
-
-/** Papers by institution name (JOIN on JSON affiliations array) */
-export async function getPapersByInstitution(
-  db: D1Database, institutionName: string, limit = 20
-): Promise<PaperWithSummary[]> {
-  const fetchLimit = limit * 2;
-  const { results } = await db.prepare(`
-    SELECT ${PAPER_SELECT}
-    FROM papers p
-    LEFT JOIN summaries s ON s.paper_id = p.id
-    WHERE p.summary_ready = 1
-      AND EXISTS (
-        SELECT 1 FROM json_each(p.affiliations)
-        WHERE json_each.value ->> 'institution' = ?
-      )
-    ORDER BY p.published_at DESC
-    LIMIT ?
-  `).bind(institutionName, fetchLimit).all<PaperRow>();
-  return results.map(rowToPaper).filter(isPaperComplete).slice(0, limit);
-}
-
 
 /**
- * Compute citation velocity (30-day growth normalized by paper age).
- * Returns papers with highest recent citation momentum.
+ * Returns the top `limit` authors ranked by paper count, with aggregated
+ * stats derived from the papers table.  Uses a two-phase approach:
+ *   1. Sample a batch of complete papers (summary_ready=1) — up to `sample`
+ *      rows — to avoid scanning the whole table on every request.
+ *   2. Explode the JSON authors array, GROUP BY name, aggregate.
+ *
+ * D1/SQLite doesn't have json_table so we use json_each().  We group by the
+ * exact author string as stored (case-sensitive); callers can normalise if needed.
  */
-export async function getCitationVelocity(
+export async function getAllAuthors(
   db: D1Database,
-  limit = 20,
-  minAge = 90 // Minimum paper age in days to qualify
-): Promise<PaperWithSummary[]> {
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - 30); // 30-day window
-  const cutoffStr = cutoff.toISOString();
+  limit = 200,
+  search?: string
+): Promise<AuthorSummaryRow[]> {
+  // We sample up to 5 000 complete papers for performance (D1 free tier).
+  // A full table scan on authors JSON would be too slow at scale.
+  const sample = 5000;
 
-  const ageFilter = new Date();
-  ageFilter.setDate(ageFilter.getDate() - minAge);
-  const ageFilterStr = ageFilter.toISOString();
+  const searchClause = search
+    ? `AND (p.authors LIKE ? OR p.authors_normalized LIKE ?)`
+    : '';
+  const searchBinds: string[] = search
+    ? [`%${search}%`, `%${search.toLowerCase()}%`]
+    : [];
 
-  // For each paper, compare latest vs 30 days ago
-  const query = `
-    WITH latest AS (
-      SELECT 
-        p.id,
-        p.citation_count as current_count,
-        p.published_at,
-        julianday('now') - julianday(p.published_at) as age_days
-      FROM papers p
-      WHERE p.citation_count > 0
-        AND p.published_at < ?
-        AND p.summary_ready = 1
-    ),
-    baseline AS (
-      SELECT 
-        cs.paper_id,
-        cs.citation_count as baseline_count
-      FROM citation_snapshots cs
-      INNER JOIN (
-        SELECT paper_id, MIN(recorded_at) as first_snapshot
-        FROM citation_snapshots
-        WHERE recorded_at <= ?
-        GROUP BY paper_id
-      ) oldest ON cs.paper_id = oldest.paper_id 
-                AND cs.recorded_at = oldest.first_snapshot
+  const { results } = await db.prepare(`
+    WITH sampled AS (
+      SELECT
+        authors,
+        citation_count,
+        influential_citation_count,
+        code_count,
+        categories,
+        published_at
+      FROM papers
+      WHERE summary_ready = 1
+        ${searchClause}
+      ORDER BY published_at DESC
+      LIMIT ?
     )
-    SELECT 
-      ${PAPER_SELECT},
-      COALESCE(b.baseline_count, 0) as baseline_count,
-      (l.current_count - COALESCE(b.baseline_count, 0)) as absolute_growth,
-      CAST((l.current_count - COALESCE(b.baseline_count, 0)) AS FLOAT) / l.age_days as velocity
-    FROM latest l
-    LEFT JOIN baseline b ON l.id = b.paper_id
-    INNER JOIN papers p ON l.id = p.id
-    LEFT JOIN summaries s ON p.id = s.paper_id
-    WHERE absolute_growth > 0
-    ORDER BY velocity DESC
+    SELECT
+      json_each.value                            AS name,
+      COUNT(*)                                   AS paperCount,
+      SUM(s.citation_count)                      AS totalCitations,
+      SUM(s.influential_citation_count)          AS totalInfluentialCites,
+      SUM(CASE WHEN s.code_count > 0 THEN 1 ELSE 0 END) AS codeCount,
+      MAX(s.published_at)                        AS latestPaper,
+      (
+        SELECT json_each2.value
+        FROM json_each(s.categories) AS json_each2
+        GROUP BY json_each2.value
+        ORDER BY COUNT(*) DESC
+        LIMIT 1
+      )                                          AS topCategory
+    FROM sampled s, json_each(s.authors)
+    GROUP BY json_each.value
+    HAVING paperCount >= 1
+    ORDER BY paperCount DESC, totalCitations DESC
     LIMIT ?
-  `;
+  `).bind(...searchBinds, sample, limit).all<{
+    name: string;
+    paperCount: number;
+    totalCitations: number;
+    totalInfluentialCites: number;
+    codeCount: number;
+    latestPaper: string;
+    topCategory: string | null;
+  }>();
 
-  const rows = await db.prepare(query)
-    .bind(ageFilterStr, cutoffStr, limit * 2)
-    .all<PaperRow>();
-
-  return rows.results.map(rowToPaper).filter(isPaperComplete).slice(0, limit);
-}
-
-
-/**
- * Get papers pushing the research frontier (novelty indicators + recent).
- */
-export async function getResearchFrontPapers(
-  db: D1Database,
-  limit = 20,
-  days = 90
-): Promise<PaperWithSummary[]> {
-  const since = new Date();
-  since.setDate(since.getDate() - days);
-  const sinceStr = since.toISOString().slice(0, 10);
-
-  const { results } = await db.prepare(`
-    SELECT ${PAPER_SELECT}
-    FROM papers p
-    LEFT JOIN summaries s ON s.paper_id = p.id
-    WHERE p.summary_ready = 1
-      AND p.published_at >= ?
-      AND (
-        s.novelty LIKE '%first%'
-        OR s.novelty LIKE '%novel%'
-        OR s.novelty LIKE '%we introduce%'
-        OR s.novelty LIKE '%previously unknown%'
-        OR s.novelty LIKE '%no prior work%'
-        OR s.novelty LIKE '%unprecedented%'
-      )
-    ORDER BY p.published_at DESC
-    LIMIT ?
-  `).bind(sinceStr, limit * 2).all<PaperRow>();
-
-  return results.map(rowToPaper).filter(isPaperComplete).slice(0, limit);
-}
-
-
-/**
- * Search papers by problem statement (what the paper solves).
- */
-export async function searchByProblem(
-  db: D1Database,
-  query: string,
-  limit = 20
-): Promise<PaperWithSummary[]> {
-  const { results } = await db.prepare(`
-    SELECT ${PAPER_SELECT}, bm25(problems_fts) AS score
-    FROM problems_fts f
-    JOIN papers p ON p.id = f.paper_id
-    LEFT JOIN summaries s ON s.paper_id = p.id
-    WHERE problems_fts MATCH ?
-      AND p.summary_ready = 1
-    ORDER BY score
-    LIMIT ?
-  `).bind(query, limit * 2).all<PaperRow & { score: number }>();
-
-  return results.map(rowToPaper).filter(isPaperComplete).slice(0, limit);
+  return results.map(r => ({
+    name:                  r.name,
+    paperCount:            r.paperCount ?? 0,
+    totalCitations:        r.totalCitations ?? 0,
+    totalInfluentialCites: r.totalInfluentialCites ?? 0,
+    codeCount:             r.codeCount ?? 0,
+    topCategory:           r.topCategory ?? '',
+    latestPaper:           r.latestPaper ?? '',
+  }));
 }

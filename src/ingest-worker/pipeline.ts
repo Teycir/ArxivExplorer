@@ -17,10 +17,6 @@ import { runConcurrent, delay, resolveIngestPlan, ingestConcurrency, isInScope }
 import { fetchArxivBatch } from './fetch-arxiv';
 import { generateEmbedding, upsertToVectorize } from './generate-embedding';
 import { generateSummary } from './generate-summary';
-import { generateEntities } from './generate-entities';
-import { storeEntityDefinitions } from './generate-entity-definitions';
-import { fetchOpenAlex } from './fetch-openalex';
-import { fetchPwc } from './fetch-pwc';
 import { computeAndStoreRelated } from './compute-related';
 import { kvDelete } from '../api-worker/cache/kv';
 
@@ -33,22 +29,12 @@ export async function runIngestionPipeline(env: Env): Promise<IngestResult> {
   console.info(`[pipeline] Phase: ${phase} | categories: ${categories.join(', ')} | limit: ${maxPerCategory}/cat`);
 
   // ── Daily neuron quota check ─────────────────────────────────────────────
-  // Cloudflare Workers AI Free Tier (as of 2026-06-05):
-  //   - 10,000 neurons/day (resets at 00:00 UTC)
-  //   - Applies to both Free and Paid Workers plans
-  //
-  // Cost per paper (using @cf/meta/llama-3.1-8b-instruct + @cf/baai/bge-base-en-v1.5):
-  //   - Embedding: 6,058 neurons per 1M tokens → ~6 neurons per paper (1k tokens)
-  //   - Summary: 25,608 input + 75,147 output neurons per 1M tokens → ~38 neurons per paper
-  //   - Total: ~44 neurons/paper
-  //
-  // Conservative limit calculation:
-  //   - Budget: 10,000 neurons/day
-  //   - Reserved for tooltips/entity definitions: 50%
-  //   - Available for ingestion: 50% = 5,000 neurons/day
-  //   - Max papers: 5,000 / 44 = 113 papers/day
+  // Cloudflare Workers AI Free Tier: 10,000 neurons/day (resets at 00:00 UTC)
+  // Cost per paper (~cf/meta/llama-3.1-8b-instruct + @cf/baai/bge-base-en-v1.5):
+  //   - Embedding: ~6 neurons/paper, Summary: ~38 neurons/paper → ~44 total
+  // Max papers: 10,000 / 44 ≈ 227 papers/day (full budget, no tooltip overhead)
   const DAILY_NEURON_BUDGET = 10_000;
-  const INGESTION_ALLOCATION = 0.5; // 50% reserved for tooltip AI
+  const INGESTION_ALLOCATION = 1.0;
   const NEURONS_PER_PAPER = 44;
   const MAX_PAPERS_PER_DAY = Math.floor((DAILY_NEURON_BUDGET * INGESTION_ALLOCATION) / NEURONS_PER_PAPER);
 
@@ -237,33 +223,16 @@ async function processSinglePaper(entry: ArxivEntry, env: Env): Promise<void> {
     throw new Error(`Embedding failed for ${id}: ${String(err)}`);
   }
 
-  // 4c: summary + entity extraction (parallel, same wall-clock time)
+  // 4c: generate summary
   let summaryFields;
-  let entities: Array<{ name: string; type: 'model' | 'dataset' | 'benchmark' }> = [];
   try {
-    const [summaryResult, entitiesResult] = await Promise.allSettled([
-      generateSummary(abstract, env),
-      generateEntities(abstract, env),
-    ]);
-    if (summaryResult.status === 'rejected') throw summaryResult.reason;
-    summaryFields = summaryResult.value;
-    if (entitiesResult.status === 'fulfilled') {
-      entities = entitiesResult.value;
-      // Generate and store entity definitions (non-fatal)
-      try {
-        await storeEntityDefinitions(entities, env);
-      } catch (err) {
-        console.warn(`[pipeline] Entity definitions failed for ${id} (non-fatal):`, err);
-      }
-    } else {
-      console.warn(`[pipeline] Entity extraction failed for ${id} (non-fatal):`, entitiesResult.reason);
-    }
+    summaryFields = await generateSummary(abstract, env);
   } catch (err) {
     await markFailed(env.DB, id);
     throw new Error(`Summary failed for ${id}: ${String(err)}`);
   }
 
-  // Batch write summary (with enriched fields) + mark ready — single round trip
+  // Batch write summary + mark ready — single round trip
   try {
     await env.DB.batch([
       env.DB.prepare(`
@@ -283,7 +252,7 @@ async function processSinglePaper(entry: ArxivEntry, env: Env): Promise<void> {
         new Date().toISOString(),
         env.SUMMARY_MODEL ?? '@cf/meta/llama-3.1-8b-instruct',
         JSON.stringify(summaryFields.keywords),
-        JSON.stringify(entities),
+        JSON.stringify([]),
         summaryFields.paper_type,
         summaryFields.novelty,
         JSON.stringify(summaryFields.applications),
@@ -306,20 +275,6 @@ async function processSinglePaper(entry: ArxivEntry, env: Env): Promise<void> {
     console.warn(`[pipeline] compute-related failed for ${id} (non-fatal):`, err);
   }
 
-  // 4e: OpenAlex enrichment (best-effort, ~100 ms network I/O)
-  try {
-    await fetchOpenAlex(id, env);
-    await delay(100); // stay under 10 req/s
-  } catch (err) {
-    console.warn(`[pipeline] OpenAlex failed for ${id} (non-fatal):`, err);
-  }
-
-  // 4f: Papers With Code enrichment (best-effort, 2 serial calls)
-  try {
-    await fetchPwc(id, env);
-  } catch (err) {
-    console.warn(`[pipeline] PWC failed for ${id} (non-fatal):`, err);
-  }
 }
 
 // ─── D1 Helpers ────────────────────────────────────────────────────────────

@@ -4,7 +4,7 @@
 'use client';
 
 import { Card } from './Card';
-import { FileText, Lightbulb, Code, Target, Lock, BookOpen } from 'lucide-react';
+import { FileText, Lightbulb, Code, BookOpen } from 'lucide-react';
 import type { PaperWithSummary } from '@/src/shared/types';
 
 export function PaperLabel({ paper }: { paper: PaperWithSummary }) {
@@ -35,22 +35,6 @@ export function PaperLabel({ paper }: { paper: PaperWithSummary }) {
       label: 'Code',
       value: `✓ (${paper.codeCount} repo${paper.codeCount > 1 ? 's' : ''})`,
       icon: <Code size={11} className="text-green-400/40" />
-    });
-  }
-
-  if (paper.hasBenchmark) {
-    rows.push({
-      label: 'Benchmarked',
-      value: '✓',
-      icon: <Target size={11} className="text-sky-400/40" />
-    });
-  }
-
-  if (paper.isOpenAccess !== undefined) {
-    rows.push({
-      label: 'Open access',
-      value: paper.isOpenAccess ? '✓' : '✗',
-      icon: <Lock size={11} className={paper.isOpenAccess ? 'text-green-400/40' : 'text-red-400/40'} />
     });
   }
 

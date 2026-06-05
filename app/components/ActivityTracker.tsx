@@ -12,20 +12,18 @@ import { fireAchievementToast } from './AchievementToast';
 interface ActivityTrackerProps {
   paperId: string;
   hasCode: boolean;
-  hasBenchmark: boolean;
   influentialCitationCount?: number;
 }
 
 export function ActivityTracker({
   paperId,
   hasCode,
-  hasBenchmark,
   influentialCitationCount = 0,
 }: ActivityTrackerProps) {
   useEffect(() => {
     const newBadgeIds = recordPaperView(paperId, {
       hasCode,
-      hasBenchmark,
+      hasBenchmark: false,
       isInfluential: influentialCitationCount >= 50,
     });
 

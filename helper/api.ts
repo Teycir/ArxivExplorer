@@ -8,47 +8,27 @@
  * edge network.  On the client we use the public API URL.
  */
 
-import type { PaperWithSummary, SearchResult, RelatedPaper, Topic, PaperCode, PaperBenchmark } from '../src/shared/types';
+import type { PaperWithSummary, SearchResult, RelatedPaper, Topic } from '../src/shared/types';
 
 const PUBLIC_API = 'https://arxiv-api.arxivexplorer.workers.dev';
 
-/**
- * Low-level fetch wrapper.
- * Server-side: routes via the `API` service binding (env.API.fetch) so the
- * request never goes through the public internet / OpenNext proxy.
- * Client-side: routes via the public API_BASE URL.
- */
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
 
   if (typeof window === 'undefined') {
-    // ── Server-side: use Cloudflare service binding ───────────────────────
-    // Dynamic import keeps this out of the browser bundle entirely.
     try {
       const { getCloudflareContext } = await import('@opennextjs/cloudflare');
       const { env } = await getCloudflareContext({ async: true });
       const apiBinding = (env as Record<string, { fetch: typeof fetch }>)['API'];
       if (apiBinding?.fetch) {
-        res = await apiBinding.fetch(`https://api-internal${path}`, {
-          ...init,
-          cache: 'no-store',
-        });
+        res = await apiBinding.fetch(`https://api-internal${path}`, { ...init, cache: 'no-store' });
       } else {
-        // Binding not available (local dev without wrangler) — fall back to HTTP
-        res = await fetch(`${PUBLIC_API}${path}`, {
-          ...init,
-          cache: 'no-store',
-        });
+        res = await fetch(`${PUBLIC_API}${path}`, { ...init, cache: 'no-store' });
       }
     } catch {
-      // If getCloudflareContext throws (e.g. non-CF environment), fall back
-      res = await fetch(`${PUBLIC_API}${path}`, {
-        ...init,
-        cache: 'no-store',
-      });
+      res = await fetch(`${PUBLIC_API}${path}`, { ...init, cache: 'no-store' });
     }
   } else {
-    // ── Client-side: plain HTTP ───────────────────────────────────────────
     res = await fetch(`${PUBLIC_API}${path}`, {
       ...init,
       headers: { 'Content-Type': 'application/json', ...init?.headers },
@@ -89,13 +69,13 @@ export async function searchPapers(
   } else {
     params.set('q', query);
   }
-  if (opts.category) params.set('category', opts.category);
-  if (opts.date) params.set('date', opts.date);
-  if (opts.author) params.set('author', opts.author);
+  if (opts.category)    params.set('category',    opts.category);
+  if (opts.date)        params.set('date',         opts.date);
+  if (opts.author)      params.set('author',       opts.author);
   if (opts.minCitations) params.set('minCitations', opts.minCitations);
-  if (opts.paperType) params.set('paperType', opts.paperType);
-  if (opts.hasCode) params.set('hasCode', opts.hasCode);
-  if (opts.openAccess) params.set('openAccess', opts.openAccess);
+  if (opts.paperType)   params.set('paperType',    opts.paperType);
+  if (opts.hasCode)     params.set('hasCode',      opts.hasCode);
+  if (opts.openAccess)  params.set('openAccess',   opts.openAccess);
   return apiFetch<SearchResult>(`/api/search?${params.toString()}`);
 }
 
@@ -107,29 +87,11 @@ export async function getRelatedPapers(arxivId: string): Promise<RelatedPaper[]>
   return apiFetch<RelatedPaper[]>(`/api/paper/${encodeURIComponent(arxivId)}/related`);
 }
 
-export async function getPaperCode(arxivId: string): Promise<PaperCode[]> {
-  const r = await apiFetch<{ repos: PaperCode[] }>(`/api/paper/${encodeURIComponent(arxivId)}/code`);
-  return r.repos;
-}
-
-export async function getPaperBenchmarks(arxivId: string): Promise<PaperBenchmark[]> {
-  const r = await apiFetch<{ benchmarks: PaperBenchmark[] }>(`/api/paper/${encodeURIComponent(arxivId)}/benchmarks`);
-  return r.benchmarks;
-}
-
 export async function getTrendingPapers(
   window: 'day' | 'week' | 'month' = 'week'
 ): Promise<{ papers: PaperWithSummary[]; total: number; window: string }> {
   return apiFetch<{ papers: PaperWithSummary[]; total: number; window: string }>(
     `/api/trending?window=${window}`
-  );
-}
-
-export async function getVelocityPapers(
-  limit = 20
-): Promise<{ papers: PaperWithSummary[]; total: number; window: string }> {
-  return apiFetch<{ papers: PaperWithSummary[]; total: number; window: string }>(
-    `/api/velocity?limit=${limit}`
   );
 }
 
@@ -168,24 +130,28 @@ export async function getTopics(): Promise<{ topics: Array<{ slug: string; label
   return apiFetch('/api/topics');
 }
 
-export async function getConceptPapers(
-  name: string
-): Promise<{ concept: string; papers: PaperWithSummary[]; total: number }> {
-  return apiFetch(`/api/concept/${encodeURIComponent(name)}`);
-}
-
-export async function getInstitutionPapers(
-  name: string
-): Promise<{ institution: string; papers: PaperWithSummary[]; total: number }> {
-  return apiFetch(`/api/institution/${encodeURIComponent(name)}`);
-}
-
 export async function getStats(): Promise<{ totalPapers: number; categoryCounts: Array<{ category: string; count: number }> }> {
   return apiFetch('/api/stats');
 }
 
-export async function getReadingPath(fromId: string, toId: string): Promise<{ path: Array<{ id: string; title: string; tldr: string }> }> {
-  return apiFetch(`/api/reading-path?from=${encodeURIComponent(fromId)}&to=${encodeURIComponent(toId)}`);
+export interface AuthorSummary {
+  name:                  string;
+  paperCount:            number;
+  totalCitations:        number;
+  totalInfluentialCites: number;
+  codeCount:             number;
+  topCategory:           string;
+  latestPaper:           string;
+}
+
+export async function getAuthors(
+  opts: { limit?: number; search?: string } = {}
+): Promise<{ authors: AuthorSummary[]; total: number }> {
+  const params = new URLSearchParams();
+  if (opts.limit)  params.set('limit',  String(opts.limit));
+  if (opts.search) params.set('search', opts.search);
+  const qs = params.toString();
+  return apiFetch(`/api/authors${qs ? `?${qs}` : ''}`);
 }
 
 export async function searchByAbstract(text: string): Promise<SearchResult> {

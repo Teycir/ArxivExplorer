@@ -1,11 +1,10 @@
 'use client';
 // app/components/SearchFilters.tsx
-// Optional filters for search: category, date range, author, min citations,
-// paper type, has code, open access.
+// Optional filters for search: category, date range, author, paper type, has code, open access.
 
 import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Filter, X, Code, Lock, BookOpen } from 'lucide-react';
+import { Filter, X, Code, BookOpen } from 'lucide-react';
 
 const CATEGORIES = [
   { id: 'cs.AI', label: 'Artificial Intelligence' },
@@ -41,21 +40,18 @@ const PAPER_TYPES = [
 export function SearchFilters() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [showFilters, setShowFilters] = useState(true);
+  const [showFilters, setShowFilters] = useState(false);
   const [authorInput, setAuthorInput] = useState('');
-  const [citationsInput, setCitationsInput] = useState('');
 
-  const currentCategory    = searchParams.get('category')    || '';
-  const currentDate        = searchParams.get('date')        || '';
-  const currentAuthor      = searchParams.get('author')      || '';
-  const currentMinCitations = searchParams.get('minCitations') || '';
-  const currentPaperType   = searchParams.get('paperType')   || '';
-  const currentHasCode     = searchParams.get('hasCode')     === '1';
-  const currentOpenAccess  = searchParams.get('openAccess')  === '1';
+  const currentCategory   = searchParams.get('category')   || '';
+  const currentDate       = searchParams.get('date')       || '';
+  const currentAuthor     = searchParams.get('author')     || '';
+  const currentPaperType  = searchParams.get('paperType')  || '';
+  const currentHasCode    = searchParams.get('hasCode')    === '1';
   const query = searchParams.get('q') || '';
 
   function applyFilter(
-    type: 'category' | 'date' | 'author' | 'minCitations' | 'paperType',
+    type: 'category' | 'date' | 'author' | 'paperType',
     value: string
   ) {
     const params = new URLSearchParams(searchParams.toString());
@@ -63,27 +59,24 @@ export function SearchFilters() {
     router.push(`/search?${params.toString()}`);
   }
 
-  function applyToggle(type: 'hasCode' | 'openAccess', currentValue: boolean) {
+  function applyToggle(type: 'hasCode', currentValue: boolean) {
     const params = new URLSearchParams(searchParams.toString());
     if (!currentValue) { params.set(type, '1'); } else { params.delete(type); }
     router.push(`/search?${params.toString()}`);
   }
 
-  function applyAuthor()     { applyFilter('author', authorInput); }
-  function applyCitations()  { applyFilter('minCitations', citationsInput); }
+  function applyAuthor() { applyFilter('author', authorInput); }
 
   function clearFilters() {
     router.push(`/search?q=${encodeURIComponent(query)}`);
   }
 
   const activeCount =
-    (currentCategory     ? 1 : 0) +
-    (currentDate         ? 1 : 0) +
-    (currentAuthor       ? 1 : 0) +
-    (currentMinCitations ? 1 : 0) +
-    (currentPaperType    ? 1 : 0) +
-    (currentHasCode      ? 1 : 0) +
-    (currentOpenAccess   ? 1 : 0);
+    (currentCategory    ? 1 : 0) +
+    (currentDate        ? 1 : 0) +
+    (currentAuthor      ? 1 : 0) +
+    (currentPaperType   ? 1 : 0) +
+    (currentHasCode     ? 1 : 0);
   const hasFilters = activeCount > 0;
 
   return (
@@ -164,7 +157,7 @@ export function SearchFilters() {
               </div>
             </div>
 
-            {/* Toggles row: has code + open access */}
+            {/* Toggles row: has code */}
             <div className="flex flex-wrap gap-3">
               <button
                 onClick={() => applyToggle('hasCode', currentHasCode)}
@@ -175,16 +168,6 @@ export function SearchFilters() {
               >
                 <Code size={12} />
                 Has Code
-              </button>
-              <button
-                onClick={() => applyToggle('openAccess', currentOpenAccess)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-mono rounded-lg border transition-all ${
-                  currentOpenAccess
-                    ? 'border-sky-500/60 bg-sky-500/15 text-sky-400'
-                    : 'border-neon-red/20 text-neon-red/50 hover:border-sky-500/30 hover:text-sky-400/70'}`}
-              >
-                <Lock size={12} />
-                Open Access
               </button>
             </div>
 
@@ -214,36 +197,6 @@ export function SearchFilters() {
               {currentAuthor && (
                 <p className="mt-1 text-[10px] font-mono text-neon-red/40">
                   Filtering by: {currentAuthor}
-                </p>
-              )}
-            </div>
-
-            {/* Min citations */}
-            <div>
-              <label className="block text-xs font-mono text-neon-red/50 mb-2">Minimum Citations</label>
-              <div className="flex gap-2">
-                <input type="number" min="0" value={citationsInput}
-                  onChange={e => setCitationsInput(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && applyCitations()}
-                  placeholder="e.g., 10"
-                  className="w-24 px-2 py-1 text-xs font-mono bg-neutral-900 border border-neon-red/20
-                    rounded text-white placeholder-neutral-600 focus:outline-none focus:border-neon-red/50"
-                />
-                <button onClick={applyCitations}
-                  className="px-3 py-1 text-xs font-mono border border-neon-red/30 rounded
-                    hover:bg-neon-red/10 text-neon-red/70 hover:text-neon-red transition-colors">
-                  Apply
-                </button>
-                {currentMinCitations && (
-                  <button onClick={() => applyFilter('minCitations', '')}
-                    className="px-2 py-1 text-xs font-mono text-neutral-500 hover:text-red-400 transition-colors">
-                    Clear
-                  </button>
-                )}
-              </div>
-              {currentMinCitations && (
-                <p className="mt-1 text-[10px] font-mono text-neon-red/40">
-                  Min citations: {currentMinCitations}
                 </p>
               )}
             </div>

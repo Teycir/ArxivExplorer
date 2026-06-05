@@ -36,7 +36,6 @@ interface PaperWithSummary {
   summary: Summary | null;
   influentialCitationCount?: number;
   codeCount?: number;
-  hasBenchmark?: boolean;
 }
 
 interface PaperComparisonProps {
@@ -234,11 +233,6 @@ export function PaperComparison({ papers }: PaperComparisonProps) {
                 {(paper.codeCount ?? 0) > 0 && (
                   <span className="px-1.5 py-0.5 text-[9px] font-mono rounded border border-emerald-500/30 text-emerald-400/70 bg-emerald-500/10">
                     Code
-                  </span>
-                )}
-                {(paper.hasBenchmark ?? false) && (
-                  <span className="px-1.5 py-0.5 text-[9px] font-mono rounded border border-purple-500/30 text-purple-400/70 bg-purple-500/10">
-                    Benchmarked
                   </span>
                 )}
               </div>

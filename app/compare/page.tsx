@@ -11,6 +11,7 @@
 import { notFound } from 'next/navigation';
 import { Navbar } from '../components/Navbar';
 import { PaperComparison } from '../components/PaperComparison';
+import { CompareForm } from './CompareForm';
 import { getPaper } from '@/helper/api';
 import type { PaperWithSummary } from '@/src/shared/types';
 
@@ -26,13 +27,13 @@ export default async function ComparePage({
       <div className="min-h-screen flex flex-col">
         <Navbar />
         <main className="flex-1 container mx-auto px-4 py-12 max-w-6xl">
-          <div className="text-center space-y-4">
+          <div className="text-center space-y-2">
             <h1 className="text-2xl font-mono font-bold text-white">Compare Papers</h1>
             <p className="text-sm text-neutral-500 font-mono">
-              Add up to 6 paper IDs to the URL:{' '}
-              <code className="text-neon-red/60">/compare?ids=id1,id2,...,id6</code>
+              Enter arXiv paper IDs to compare them side-by-side
             </p>
           </div>
+          <CompareForm />
         </main>
       </div>
     );

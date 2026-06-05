@@ -16,7 +16,7 @@ import { CategoryScopeBar } from '../components/CategoryScopeBar';
 import { AbstractSearch } from '../components/AbstractSearch';
 
 import type { SearchResult } from '@/src/shared/types';
-import { Search, AlertCircle, ShieldX, Loader2 } from 'lucide-react';
+import { Search, AlertCircle, Loader2 } from 'lucide-react';
 
 // ISR: cache search pages for 2 minutes (matches KV TTL on the API side)
 export const revalidate = 120;
@@ -29,10 +29,8 @@ interface SearchPageProps {
     category?: string;
     date?: string;
     author?: string;
-    minCitations?: string;
     paperType?: string;
     hasCode?: string;
-    openAccess?: string;
   }>;
 }
 
@@ -58,10 +56,8 @@ async function fetchResults(
     category?: string;
     date?: string;
     author?: string;
-    minCitations?: string;
     paperType?: string;
     hasCode?: string;
-    openAccess?: string;
   }
 ): Promise<{ data: SearchResult | null; error: string | null }> {
   try {
@@ -73,7 +69,7 @@ async function fetchResults(
 }
 
 async function SearchResults({ searchParams }: SearchPageProps) {
-  const { q, like, embedText, category, date, author, minCitations, paperType, hasCode, openAccess } = await searchParams;
+  const { q, like, embedText, category, date, author, paperType, hasCode } = await searchParams;
 
   // ── "Abstract search" mode ────────────────────────────────────────────────
   if (embedText) {
@@ -84,19 +80,21 @@ async function SearchResults({ searchParams }: SearchPageProps) {
     }
     if (error || !result) {
       return (
-        <>
-          <AbstractSearch />
-          <div className="flex flex-col items-center justify-center py-32 gap-3 text-center">
-            <AlertCircle size={32} className="text-neon-red/50" />
-            <p className="text-neon-red/60 font-mono text-sm">Could not search by text</p>
-            <p className="text-white/30 font-mono text-xs max-w-md">{error ?? 'Unknown error'}</p>
-          </div>
-        </>
+        <div className="flex flex-col items-center justify-center py-32 gap-3 text-center">
+          <AlertCircle size={32} className="text-neon-red/50" />
+          <p className="text-neon-red/60 font-mono text-sm">Could not search by text</p>
+          <p className="text-white/30 font-mono text-xs max-w-md">{error ?? 'Unknown error'}</p>
+        </div>
       );
     }
     return (
       <>
         <AbstractSearch />
+        <div className="flex items-center gap-3 my-6">
+          <div className="flex-1 h-px bg-amber-500/10" />
+          <span className="text-[10px] font-mono text-amber-500/25 uppercase tracking-widest">results</span>
+          <div className="flex-1 h-px bg-amber-500/10" />
+        </div>
         <div className="flex items-baseline justify-between mb-5 flex-wrap gap-2">
           <p className="text-xs font-mono text-neon-red/40">
             <span className="text-neon-red/25">~ similar papers from text </span>
@@ -148,17 +146,17 @@ async function SearchResults({ searchParams }: SearchPageProps) {
 
   const query = q?.trim() ?? '';
 
-  // ── No query ──────────────────────────────────────────────────────────────
+  // ── No query — show abstract search as the main action ───────────────────
   if (!query) {
     return (
-      <>
+      <div className="max-w-2xl mx-auto mt-8">
         <AbstractSearch />
-        <div className="flex flex-col items-center justify-center py-32 text-center gap-4">
-          <Search size={40} className="text-neon-red/20" />
-          <p className="text-neon-red/40 font-mono text-sm">Type a query to search papers</p>
+        <div className="flex flex-col items-center justify-center py-12 text-center gap-4">
+          <Search size={36} className="text-neon-red/15" />
+          <p className="text-neon-red/35 font-mono text-sm">or type a keyword in the search bar above</p>
           <CategoryScopeBar />
         </div>
-      </>
+      </div>
     );
   }
 
@@ -169,10 +167,8 @@ async function SearchResults({ searchParams }: SearchPageProps) {
     ...(category && { category }),
     ...(date && { date }),
     ...(author && { author }),
-    ...(minCitations && { minCitations }),
     ...(paperType && { paperType }),
     ...(hasCode && { hasCode }),
-    ...(openAccess && { openAccess }),
   });
 
   // ── Error ─────────────────────────────────────────────────────────────────
@@ -210,16 +206,13 @@ async function SearchResults({ searchParams }: SearchPageProps) {
     category,
     date,
     author,
-    minCitations && `≥${minCitations} citations`,
     paperType,
     hasCode === '1' && 'has code',
-    openAccess === '1' && 'open access'
   ].filter(Boolean);
 
   // ── Results ───────────────────────────────────────────────────────────────
   return (
     <>
-      <AbstractSearch />
       <SearchFilters />
       <div className="flex items-baseline justify-between mb-5 flex-wrap gap-2">
         <p className="text-xs font-mono text-neon-red/40">
@@ -235,7 +228,8 @@ async function SearchResults({ searchParams }: SearchPageProps) {
         <span className="text-[10px] font-mono text-neon-red/25 uppercase tracking-wider">
           CS papers only
         </span>
-      </div>      <div className="grid gap-4">
+      </div>
+      <div className="grid gap-4">
         {result.papers.map((paper) => (
           <PaperCard key={paper.id} paper={paper} />
         ))}

@@ -1,16 +1,6 @@
 /**
  * src/api-worker/index.ts
  * API Worker entrypoint — routing only, no business logic here.
- *
- * Routes:
- *   GET /api/search?q=
- *   GET /api/paper/:id
- *   GET /api/paper/:id/related
- *   GET /api/topic/:slug
- *   GET /api/trending
- *   GET /api/author/:name
- *   GET /api/sitemap
- *   OPTIONS * (CORS preflight)
  */
 
 import type { Env } from '../shared/types';
@@ -18,28 +8,20 @@ import { corsHeaders } from '../shared/utils';
 import { handleSearch } from './routes/search';
 import { handlePaper } from './routes/paper';
 import { handleRelated } from './routes/related';
-import { handleReadingPath } from './routes/reading-path';
 import { handleTopic } from './routes/topic';
 import { handleTrending } from './routes/trending';
-import { handleVelocity } from './routes/velocity';
-import { handleResearchFront } from './routes/front';
 import { handleClassifyClaim } from './routes/claim';
-import { handleEntityDefinitions } from './routes/entity-definitions';
 import { handleAuthor } from './routes/author';
+import { handleAuthors } from './routes/authors';
 import { handleSitemap } from './routes/sitemap';
 import { handleVectorizeUpsert, handleRetryFailed, handleBackfillRelated, handleCrossRefBatch, handleGetAllPapers, handleClearRelated, handleBulkInsertRelated } from './routes/admin';
 import { handleTopics } from './routes/topics';
-import { handleCitations } from './routes/citations';
-import { handleConcept } from './routes/concept';
-import { handleInstitution } from './routes/institution';
-import { handlePaperCode, handlePaperBenchmarks } from './routes/enrichment';
 import { handleStats } from './routes/stats';
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const cors = corsHeaders(env);
 
-    // CORS preflight
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: cors });
     }
@@ -47,12 +29,10 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    // POST /api/classify-claim
     if (path === '/api/classify-claim' && request.method === 'POST') {
       return handleClassifyClaim(request, env);
     }
 
-    // Only GET allowed (except admin and classify routes)
     if (request.method !== 'GET' && !path.startsWith('/admin/')) {
       return new Response(JSON.stringify({ error: 'Method not allowed' }), {
         status: 405,
@@ -61,141 +41,34 @@ export default {
     }
 
     try {
-      // /api/topics
-      if (path === '/api/topics') {
-        return handleTopics(request, env, ctx);
-      }
+      if (path === '/api/topics')    return handleTopics(request, env, ctx);
+      if (path === '/api/stats')     return handleStats(request, env, ctx);
+      if (path === '/api/search')    return handleSearch(request, env, ctx);
+      if (path === '/api/trending')  return handleTrending(request, env, ctx);
+      if (path === '/api/sitemap')   return handleSitemap(request, env, ctx);
 
-      // /api/stats
-      if (path === '/api/stats') {
-        return handleStats(request, env, ctx);
-      }
-
-      // /api/search?q=
-      if (path === '/api/search') {
-        return handleSearch(request, env, ctx);
-      }
-
-      // /api/trending
-      if (path === '/api/trending') {
-        return handleTrending(request, env, ctx);
-      }
-
-      // /api/velocity — citation momentum
-      if (path === '/api/velocity') {
-        return handleVelocity(request, env, ctx);
-      }
-
-      // /api/front — research frontier
-      if (path === '/api/front') {
-        return handleResearchFront(request, env, ctx);
-      }
-
-      // /api/entity-definitions
-      if (path === '/api/entity-definitions') {
-        return handleEntityDefinitions(request, env);
-      }
-
-      // /api/sitemap
-      if (path === '/api/sitemap') {
-        return handleSitemap(request, env, ctx);
-      }
-
-      // /api/paper/:id/related
       const relatedMatch = path.match(/^\/api\/paper\/([^/]+)\/related$/);
-      if (relatedMatch) {
-        return handleRelated(request, env, ctx, relatedMatch[1]!);
-      }
+      if (relatedMatch) return handleRelated(request, env, ctx, relatedMatch[1]!);
 
-      // /api/paper/:id/citations
-      const citationsMatch = path.match(/^\/api\/paper\/([^/]+)\/citations$/);
-      if (citationsMatch) {
-        return handleCitations(request, env, ctx, citationsMatch[1]!);
-      }
-
-      // /api/paper/:id/code
-      const codeMatch = path.match(/^\/api\/paper\/([^/]+)\/code$/);
-      if (codeMatch) {
-        return handlePaperCode(request, env, ctx, codeMatch[1]!);
-      }
-
-      // /api/paper/:id/benchmarks
-      const benchmarksMatch = path.match(/^\/api\/paper\/([^/]+)\/benchmarks$/);
-      if (benchmarksMatch) {
-        return handlePaperBenchmarks(request, env, ctx, benchmarksMatch[1]!);
-      }
-
-      // /api/reading-path?from=X&to=Y
-      if (path === '/api/reading-path') {
-        return handleReadingPath(request, env);
-      }
-
-      // /api/paper/:id
       const paperMatch = path.match(/^\/api\/paper\/([^/]+)$/);
-      if (paperMatch) {
-        return handlePaper(request, env, ctx, paperMatch[1]!);
-      }
+      if (paperMatch) return handlePaper(request, env, ctx, paperMatch[1]!);
 
-      // /api/topic/:slug
       const topicMatch = path.match(/^\/api\/topic\/([^/]+)$/);
-      if (topicMatch) {
-        return handleTopic(request, env, ctx, topicMatch[1]!);
-      }
+      if (topicMatch) return handleTopic(request, env, ctx, topicMatch[1]!);
 
-      // /api/author/:name
+      if (path === '/api/authors') return handleAuthors(request, env, ctx);
+
       const authorMatch = path.match(/^\/api\/author\/(.+)$/);
-      if (authorMatch) {
-        return handleAuthor(request, env, ctx, authorMatch[1]!);
-      }
+      if (authorMatch) return handleAuthor(request, env, ctx, authorMatch[1]!);
 
-      // /api/concept/:name
-      const conceptMatch = path.match(/^\/api\/concept\/(.+)$/);
-      if (conceptMatch) {
-        return handleConcept(request, env, ctx, conceptMatch[1]!);
-      }
+      if (path === '/admin/vectorize/upsert' && request.method === 'POST') return handleVectorizeUpsert(request, env);
+      if (path === '/admin/retry-failed'     && request.method === 'POST') return handleRetryFailed(request, env);
+      if (path === '/admin/backfill-related' && request.method === 'POST') return handleBackfillRelated(request, env);
+      if (path === '/admin/crossref-batch'   && request.method === 'POST') return handleCrossRefBatch(request, env);
+      if (path === '/admin/papers/all'       && request.method === 'GET')  return handleGetAllPapers(request, env);
+      if (path === '/admin/related/clear'    && request.method === 'POST') return handleClearRelated(request, env);
+      if (path === '/admin/related/bulk-insert' && request.method === 'POST') return handleBulkInsertRelated(request, env);
 
-      // /api/institution/:name
-      const institutionMatch = path.match(/^\/api\/institution\/(.+)$/);
-      if (institutionMatch) {
-        return handleInstitution(request, env, ctx, institutionMatch[1]!);
-      }
-
-      // /admin/vectorize/upsert (POST)
-      if (path === '/admin/vectorize/upsert' && request.method === 'POST') {
-        return handleVectorizeUpsert(request, env);
-      }
-
-      // /admin/retry-failed (POST)
-      if (path === '/admin/retry-failed' && request.method === 'POST') {
-        return handleRetryFailed(request, env);
-      }
-
-      // /admin/backfill-related (POST)
-      if (path === '/admin/backfill-related' && request.method === 'POST') {
-        return handleBackfillRelated(request, env);
-      }
-
-      // /admin/crossref-batch (POST)
-      if (path === '/admin/crossref-batch' && request.method === 'POST') {
-        return handleCrossRefBatch(request, env);
-      }
-
-      // /admin/papers/all (GET)
-      if (path === '/admin/papers/all' && request.method === 'GET') {
-        return handleGetAllPapers(request, env);
-      }
-
-      // /admin/related/clear (POST)
-      if (path === '/admin/related/clear' && request.method === 'POST') {
-        return handleClearRelated(request, env);
-      }
-
-      // /admin/related/bulk-insert (POST)
-      if (path === '/admin/related/bulk-insert' && request.method === 'POST') {
-        return handleBulkInsertRelated(request, env);
-      }
-
-      // /admin/kv/delete (POST)
       if (path === '/admin/kv/delete' && request.method === 'POST') {
         const { handleKvDelete } = await import('./routes/admin');
         return handleKvDelete(request, env);

@@ -5,7 +5,7 @@
 
 import { useState, useRef, type KeyboardEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, SlidersHorizontal, X, Code, Lock, BookOpen } from 'lucide-react';
+import { Search, SlidersHorizontal, X, Code, BookOpen } from 'lucide-react';
 import { pushSearch } from '@/lib/searchHistory';
 import { SearchHistory } from './SearchHistory';
 
@@ -45,15 +45,13 @@ export function SearchBoxHome() {
   const [category, setCategory] = useState('');
   const [date, setDate] = useState('');
   const [author, setAuthor] = useState('');
-  const [minCitations, setMinCitations] = useState('');
   const [paperType, setPaperType] = useState('');
   const [hasCode, setHasCode] = useState(false);
-  const [openAccess, setOpenAccess] = useState(false);
   const wrapRef  = useRef<HTMLDivElement>(null);
 
   const activeCount = [
-    category, date, author, minCitations, paperType,
-    hasCode ? 'code' : '', openAccess ? 'oa' : ''
+    category, date, author, paperType,
+    hasCode ? 'code' : ''
   ].filter(Boolean).length;
 
   function submit(q?: string) {
@@ -64,10 +62,8 @@ export function SearchBoxHome() {
     if (category) params.set('category', category);
     if (date) params.set('date', date);
     if (author) params.set('author', author);
-    if (minCitations) params.set('minCitations', minCitations);
     if (paperType) params.set('paperType', paperType);
     if (hasCode) params.set('hasCode', '1');
-    if (openAccess) params.set('openAccess', '1');
     router.push(`/search?${params.toString()}`);
   }
 
@@ -77,8 +73,8 @@ export function SearchBoxHome() {
   }
 
   function clearFilters() {
-    setCategory(''); setDate(''); setAuthor(''); setMinCitations('');
-    setPaperType(''); setHasCode(false); setOpenAccess(false);
+    setCategory(''); setDate(''); setAuthor('');
+    setPaperType(''); setHasCode(false);
   }
 
   return (
@@ -196,7 +192,7 @@ export function SearchBoxHome() {
             </div>
           </div>
 
-          {/* Toggles: Has Code + Open Access */}
+          {/* Toggles: Has Code */}
           <div className="flex flex-wrap gap-2">
             <button
               onClick={() => setHasCode(!hasCode)}
@@ -208,34 +204,15 @@ export function SearchBoxHome() {
             >
               <Code size={11} /> Has Code
             </button>
-            <button
-              onClick={() => setOpenAccess(!openAccess)}
-              className={`flex items-center gap-1 px-2.5 py-1 text-[10px] font-mono rounded-lg border transition-all ${
-                openAccess
-                  ? 'border-sky-500/60 bg-sky-500/15 text-sky-400'
-                  : 'border-neon-red/20 text-neon-red/40 hover:border-sky-500/30 hover:text-sky-400/70'
-              }`}
-            >
-              <Lock size={11} /> Open Access
-            </button>
           </div>
 
-          {/* Author + Citations */}
-          <div className="flex gap-3 flex-wrap">
-            <div className="flex-1 min-w-[120px]">
-              <p className="text-[10px] font-mono text-neon-red/40 mb-1.5">AUTHOR</p>
-              <input type="text" value={author} onChange={e => setAuthor(e.target.value)}
-                placeholder="e.g. Hinton"
-                className="w-full px-2 py-1 text-xs font-mono bg-neutral-900 border border-neon-red/20 rounded text-white placeholder-neutral-600 focus:outline-none focus:border-neon-red/40"
-              />
-            </div>
-            <div className="w-28">
-              <p className="text-[10px] font-mono text-neon-red/40 mb-1.5">MIN CITATIONS</p>
-              <input type="number" min="0" value={minCitations} onChange={e => setMinCitations(e.target.value)}
-                placeholder="e.g. 10"
-                className="w-full px-2 py-1 text-xs font-mono bg-neutral-900 border border-neon-red/20 rounded text-white placeholder-neutral-600 focus:outline-none focus:border-neon-red/40"
-              />
-            </div>
+          {/* Author */}
+          <div>
+            <p className="text-[10px] font-mono text-neon-red/40 mb-1.5">AUTHOR</p>
+            <input type="text" value={author} onChange={e => setAuthor(e.target.value)}
+              placeholder="e.g. Hinton"
+              className="w-full px-2 py-1 text-xs font-mono bg-neutral-900 border border-neon-red/20 rounded text-white placeholder-neutral-600 focus:outline-none focus:border-neon-red/40"
+            />
           </div>
 
           {activeCount > 0 && (

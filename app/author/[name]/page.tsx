@@ -45,9 +45,9 @@ export default async function AuthorPage({ params }: Props) {
         <nav className="flex items-center gap-2 text-xs font-mono text-neon-red/30 mb-6">
           <Link href="/" className="hover:text-neon-red/60 transition-colors">Home</Link>
           <span>/</span>
-          <span className="text-neon-red/50">Author</span>
+          <Link href="/author" className="hover:text-neon-red/60 transition-colors">Authors</Link>
           <span>/</span>
-          <span className="text-neon-red/70">{author}</span>
+          <span className="text-neon-red/50">{author}</span>
         </nav>
 
         {/* Header */}

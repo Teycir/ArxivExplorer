@@ -5,7 +5,6 @@
  * Renders inline badge chips for:
  *   • Influential  — influentialCitationCount >= 50
  *   • Comprehensive — referenceCount >= 100
- *   • Benchmarked  — hasBenchmark === true
  *   • Recent       — published within last 6 months
  *   • Code Available — codeCount > 0 (already in PaperCard; re-exported here for unified API)
  *
@@ -13,7 +12,7 @@
  * without competing with the title.
  */
 
-import { Award, Database, BarChart3, Clock, Code2 } from 'lucide-react';
+import { Award, Database, Clock, Code2 } from 'lucide-react';
 import type { PaperWithSummary } from '@/src/shared/types';
 
 interface QualityBadgesProps {
@@ -38,21 +37,6 @@ export function QualityBadges({ paper, compact = false }: QualityBadgesProps) {
       >
         <Award size={9} />
         Influential
-      </span>
-    );
-  }
-
-  // Benchmarked: has benchmark results from Papers With Code
-  if (paper.hasBenchmark ?? false) {
-    badges.push(
-      <span
-        key="benchmarked"
-        title="Has benchmark results (Papers With Code)"
-        className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono rounded-full
-          border border-purple-500/40 bg-purple-500/10 text-purple-400/90 cursor-default"
-      >
-        <BarChart3 size={9} />
-        Benchmarked
       </span>
     );
   }

@@ -45,11 +45,14 @@ export default function ClaimTrackerPage() {
           });
           
           if (classRes.ok) {
-            const classification = await classRes.json();
+            const classification = await classRes.json() as {
+              result: 'support' | 'contradict' | 'neutral';
+              reasoning?: string;
+            };
             classified.push({
               ...paper,
               classification: classification.result,
-              reasoning: classification.reasoning,
+              ...(classification.reasoning !== undefined && { reasoning: classification.reasoning }),
             });
           } else {
             classified.push({ ...paper, classification: 'neutral' });

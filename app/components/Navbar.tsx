@@ -174,9 +174,6 @@ export function Navbar() {
           <Link href="/achievements" className="hover:text-neon-red/70 transition-colors hidden sm:block" title="Achievements">
             🏆
           </Link>
-          <Link href="/speed-dating" className="hover:text-neon-red/70 transition-colors hidden sm:block" title="Speed Dating">
-            💚
-          </Link>
           <Link href="/rss.xml" className="hover:text-neon-red/70 transition-colors" target="_blank">
             RSS
           </Link>

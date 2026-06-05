@@ -1,7 +1,9 @@
 'use client';
 // app/components/CategoryScopeBar.tsx
-// Shows the indexed arXiv CS categories as informational chips.
+// Shows the indexed arXiv CS categories as clickable chips that filter search.
 
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { Database } from 'lucide-react';
 
 export const INDEXED_CATEGORIES: { id: string; label: string; desc: string }[] = [
@@ -36,6 +38,9 @@ export const INDEXED_CATEGORIES: { id: string; label: string; desc: string }[] =
 export const VALID_CATEGORY_IDS = new Set(INDEXED_CATEGORIES.map(c => c.id));
 
 export function CategoryScopeBar() {
+  const searchParams = useSearchParams();
+  const q = searchParams.get('q') ?? '';
+
   return (
     <div className="flex flex-col items-center gap-3 mt-3 w-full">
       {/* Category chips */}
@@ -45,16 +50,18 @@ export function CategoryScopeBar() {
           Indexed
         </span>
         {INDEXED_CATEGORIES.map((cat) => (
-          <span
+          <Link
             key={cat.id}
+            href={q ? `/search?q=${encodeURIComponent(q)}&category=${cat.id}` : `/search?q=&category=${cat.id}`}
             title={cat.desc}
             className="inline-flex items-center gap-1 px-2 py-0.5 rounded
               border border-neon-red/15 bg-neon-red/5
               text-[10px] font-mono font-semibold text-neon-red/50 uppercase tracking-wider
-              select-none"
+              hover:border-neon-red/40 hover:bg-neon-red/10 hover:text-neon-red/80
+              transition-all cursor-pointer select-none"
           >
             {cat.label}
-          </span>
+          </Link>
         ))}
       </div>
     </div>

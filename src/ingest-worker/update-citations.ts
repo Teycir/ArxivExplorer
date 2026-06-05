@@ -89,13 +89,7 @@ export async function updateCitations(env: Env): Promise<{ updated: number; fail
             data.referenceCount ?? null,
             id,
           ).run();
-          
-          // Log snapshot for velocity tracking
-          await env.DB.prepare(`
-            INSERT INTO citation_snapshots (paper_id, citation_count, recorded_at)
-            VALUES (?, ?, datetime('now'))
-          `).bind(id, citationCount).run();
-          
+
           updated++;
         } else if (res.status === 404) {
           // Not indexed in Semantic Scholar — mark so we don't retry for 7 days

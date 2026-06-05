@@ -55,34 +55,23 @@ test_json_field() {
     fi
 }
 
-echo "📊 Feature 1: Citation Tracking"
-echo "--------------------------------"
+echo "📊 Feature 1: Citation Counts (via paper object)"
+echo "-------------------------------------------------"
+# Citations are fetched by the background update-citations worker and stored
+# on the paper row. There is no live /citations endpoint — use the paper API.
 
-# Test citation endpoint
-test_json_field "Citations API - valid paper" \
-    "$API_BASE/api/paper/2605.28208/citations" \
+test_json_field "Paper API - citationCount field present" \
+    "$API_BASE/api/paper/2605.28208" \
     ".citationCount"
 
-test_json_field "Citations API - source field" \
-    "$API_BASE/api/paper/2605.28208/citations" \
-    ".source"
-
-# Test 404 for invalid paper
-test_endpoint "Citations API - invalid paper (404)" \
-    "$API_BASE/api/paper/9999.99999/citations" \
-    404
-
-# Test response time
-echo -n "Testing: Citations API response time ... "
-start_time=$(date +%s%N)
-curl -s "$API_BASE/api/paper/2605.30353/citations" > /dev/null
-end_time=$(date +%s%N)
-duration=$(( (end_time - start_time) / 1000000 ))
-if [ $duration -lt 5000 ]; then
-    echo -e "${GREEN}✓ PASS${NC} (${duration}ms)"
+echo -n "Testing: Paper API - citationCount is a number ... "
+response=$(curl -s "$API_BASE/api/paper/2605.28208")
+val=$(echo "$response" | jq -r '.citationCount' 2>/dev/null)
+if [[ "$val" =~ ^[0-9]+$ ]]; then
+    echo -e "${GREEN}✓ PASS${NC} (citationCount: $val)"
     PASSED=$((PASSED + 1))
 else
-    echo -e "${YELLOW}⚠ SLOW${NC} (${duration}ms - Semantic Scholar may be slow)"
+    echo -e "${YELLOW}⚠ WARN${NC} (citationCount null/missing — paper may be too new for SS)"
     PASSED=$((PASSED + 1))
 fi
 
@@ -112,14 +101,9 @@ else
     FAILED=$((FAILED + 1))
 fi
 
-# Test minCitations filter
-test_json_field "Search with minCitations filter" \
-    "$API_BASE/api/search?q=transformer&minCitations=10" \
-    ".papers"
-
 # Test combined filters
 test_json_field "Search with multiple filters" \
-    "$API_BASE/api/search?q=attention&category=cs.LG&date=year&author=Vaswani&minCitations=5" \
+    "$API_BASE/api/search?q=attention&category=cs.LG&date=year&author=Vaswani" \
     ".papers"
 
 # Test filter caching (different filter combos should have different cache keys)

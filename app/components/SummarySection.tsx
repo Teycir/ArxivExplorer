@@ -2,7 +2,6 @@
 // Renders the AI-generated summary tabs: TL;DR, Contributions, Methods,
 // Limitations, Beginner, Technical.
 // Enriched panel below tabs: keywords, entities, novelty, apps, prereqs, follow-ups.
-// When the summary is still pending, polls /api/paper/:id every 10 s until ready.
 
 'use client';
 
@@ -13,7 +12,6 @@ import type { PaperWithSummary } from '@/src/shared/types';
 import { getPaper } from '@/helper/api';
 import { Sparkles, Info, Loader2, Copy, Check, Tag, Lightbulb,
          BookOpen, ChevronDown, ChevronUp, Layers } from 'lucide-react';
-import { EntityTooltip } from './EntityTooltip';
 
 type Tab = 'tldr' | 'contributions' | 'methods' | 'limitations' | 'explain';
 
@@ -264,11 +262,9 @@ export function SummarySection({ paper: initialPaper }: { paper: PaperWithSummar
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   {names.map((n) => (
-                    <EntityTooltip key={n} entity={n}>
-                      <span className={`px-2 py-0.5 text-[10px] font-mono rounded border ${ENTITY_TYPE_COLORS[type] ?? 'border-white/10 text-white/40'}`}>
-                        {n}
-                      </span>
-                    </EntityTooltip>
+                    <span key={n} className={`px-2 py-0.5 text-[10px] font-mono rounded border ${ENTITY_TYPE_COLORS[type] ?? 'border-white/10 text-white/40'}`}>
+                      {n}
+                    </span>
                   ))}
                 </div>
               </div>

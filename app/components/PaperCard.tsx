@@ -9,7 +9,7 @@ import { CategoryBadge } from './CategoryBadge';
 import { formatDate, truncate } from '@/helper/format';
 import type { PaperWithSummary } from '@/src/shared/types';
 import { isPaperComplete } from '@/lib/utils';
-import { FileText, Calendar, Users, Code, Lock, BookOpen, Sparkles } from 'lucide-react';
+import { FileText, Calendar, Users, Code, BookOpen, Sparkles } from 'lucide-react';
 import { BookmarkDot } from './BookmarkDot';
 import { MoreLikeThisButton } from './MoreLikeThisButton';
 import { AuthorLinks } from './AuthorLinks';
@@ -72,21 +72,6 @@ export function PaperCard({ paper, showAbstract = false }: PaperCardProps) {
               <Code size={9} />
               {paper.codeCount} repo{(paper.codeCount ?? 1) !== 1 ? 's' : ''}
             </span>
-          )}
-          {/* Open access badge */}
-          {paper.isOpenAccess && (
-            <a
-              href={paper.oaUrl ?? undefined}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono rounded-full
-                border border-sky-500/30 bg-sky-500/10 text-sky-400/80
-                hover:border-sky-500/60 hover:text-sky-300 transition-colors"
-            >
-              <Lock size={9} />
-              Open Access
-            </a>
           )}
           {/* Quality badges: Influential, Benchmarked, Comprehensive, Recent */}
           <QualityBadges paper={paper} compact />
