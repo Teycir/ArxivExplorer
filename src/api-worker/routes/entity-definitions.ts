@@ -22,6 +22,11 @@ export async function handleEntityDefinitions(
     return errorResponse('Too many names (max 20)', cors, 400);
   }
 
+  // Cap individual name length to prevent cache-key inflation and oversized DB queries
+  if (names.some(n => n.length > 200)) {
+    return errorResponse('Each name must be 200 characters or fewer', cors, 400);
+  }
+
   try {
     const placeholders = names.map(() => '?').join(',');
     const { results } = await env.DB.prepare(

@@ -166,6 +166,10 @@ export function corsHeaders(env: { ALLOWED_ORIGIN?: string }): Record<string, st
   if (!env.ALLOWED_ORIGIN) {
     throw new Error('ALLOWED_ORIGIN must be set in wrangler config');
   }
+  // Wildcard origin bypasses all CORS protection including for admin endpoints — disallow it.
+  if (env.ALLOWED_ORIGIN === '*') {
+    throw new Error('ALLOWED_ORIGIN must not be "*" — set an explicit origin');
+  }
   return {
     'Access-Control-Allow-Origin': env.ALLOWED_ORIGIN,
     'Access-Control-Allow-Methods': 'GET, OPTIONS',

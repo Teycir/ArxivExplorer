@@ -29,6 +29,11 @@ export async function handleCitations(
     // Normalize paper ID (remove arxiv: prefix if present)
     const normalizedId = paperId.replace(/^arxiv:/, '');
 
+    // Validate format before using in external URL — prevents URL manipulation
+    if (!/^[\d]{4}\.[\d]{4,5}(v\d+)?$/.test(normalizedId)) {
+      return errorResponse('Invalid arXiv ID format', cors, 400);
+    }
+
     // 1. KV cache (1h) — avoids hammering SS on popular papers
     const cacheKey = `kv:citations:${normalizedId}`;
     try {

@@ -54,7 +54,15 @@ export async function updateCitations(env: Env): Promise<{ updated: number; fail
       const start = Date.now();
       try {
         const arxivId = id.replace(/^arxiv:/, '');
-        const ssUrl = `https://api.semanticscholar.org/graph/v1/paper/arXiv:${arxivId}?fields=citationCount,paperId,tldr,influentialCitationCount,referenceCount`;
+
+        // Validate ID format before using in external URL — prevents SSRF via crafted DB values
+        if (!/^[\d]{4}\.[\d]{4,5}(v\d+)?$/.test(arxivId)) {
+          console.warn(`[citations] Skipping invalid arXiv ID: ${id}`);
+          failed++;
+          return;
+        }
+
+        const ssUrl = `https://api.semanticscholar.org/graph/v1/paper/arXiv:${encodeURIComponent(arxivId)}?fields=citationCount,paperId,tldr,influentialCitationCount,referenceCount`;
 
         const res = await fetch(ssUrl, {
           headers: { 'User-Agent': 'ArxivExplorer/1.0' },

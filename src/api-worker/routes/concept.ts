@@ -20,6 +20,9 @@ export async function handleConcept(
   if (!conceptName) {
     return errorResponse('Missing concept name', cors, 400);
   }
+  if (conceptName.length > 200) {
+    return errorResponse('Concept name too long (max 200 characters)', cors, 400);
+  }
 
   try {
     const papers = await getPapersByConceptName(env.DB, conceptName, 20);

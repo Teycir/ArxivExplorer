@@ -41,10 +41,28 @@ export async function handleClassifyClaim(
       return errorResponse('Missing claim or abstract', cors, 400);
     }
 
+    // Length limits to prevent prompt injection and LLM token exhaustion
+    if (body.claim.length > 500) {
+      return errorResponse('Claim too long (max 500 characters)', cors, 400);
+    }
+
+    // Strip characters commonly used in prompt injection (newlines that break
+    // the prompt structure, role-injection markers)
+    const sanitize = (s: string) => s
+      .replace(/[\r\n]+/g, ' ')                        // collapse newlines
+      .replace(/<\|.*?\|>/g, '')                        // strip <|role|> tokens
+      .replace(/\[(?:INST|SYS|SYSTEM)\]/gi, '')         // strip Llama/Mistral tags
+      .replace(/###\s*(?:System|User|Assistant):/gi, '') // strip markdown role markers
+      .trim();
+
+    const safeClaim    = sanitize(body.claim).slice(0, 500);
+    const safeAbstract = sanitize(body.abstract).slice(0, 1500);
+    const safeTldr     = sanitize(body.tldr ?? '').slice(0, 300);
+
     const prompt = USER_PROMPT
-      .replace('{claim}', body.claim)
-      .replace('{abstract}', body.abstract.slice(0, 1500))
-      .replace('{tldr}', body.tldr || '');
+      .replace('{claim}', safeClaim)
+      .replace('{abstract}', safeAbstract)
+      .replace('{tldr}', safeTldr);
 
     const response = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
       messages: [

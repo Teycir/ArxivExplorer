@@ -22,10 +22,15 @@ interface OpenAlexWork {
 }
 
 export async function fetchOpenAlex(arxivId: string, env: Env): Promise<void> {
+  // Validate ID format before using in URL — prevents SSRF via crafted DB values
+  if (!/^[\d]{4}\.[\d]{4,5}(v\d+)?$/.test(arxivId)) {
+    throw new Error(`fetchOpenAlex: invalid arXiv ID format: ${arxivId}`);
+  }
+
   const email = env.POLITE_EMAIL ?? '';
   const mailtoParam = email ? `&mailto=${encodeURIComponent(email)}` : '';
   const fields = 'id,open_access,authorships,concepts';
-  const url = `https://api.openalex.org/works/arxiv:${arxivId}?select=${fields}${mailtoParam}`;
+  const url = `https://api.openalex.org/works/arxiv:${encodeURIComponent(arxivId)}?select=${fields}${mailtoParam}`;
 
   const res = await fetch(url, {
     headers: { 'User-Agent': 'ArxivExplorer/1.0' },

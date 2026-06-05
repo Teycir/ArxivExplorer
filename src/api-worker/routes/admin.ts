@@ -11,6 +11,28 @@ const RATE_LIMIT_KEY = 'admin:ratelimit:';
 const MAX_ATTEMPTS = 3;
 const WINDOW_MS = 60_000;
 
+// Valid arXiv ID: YYMM.NNNNN with optional version suffix
+const ARXIV_ID_RE = /^[\d]{4}\.[\d]{4,5}(v\d+)?$/;
+// Sane limit on bulk-insert rows to prevent Worker OOM
+const MAX_BULK_ROWS = 5_000;
+
+/** Constant-time string comparison to prevent timing-oracle attacks on the admin secret. */
+function timingSafeEqual(a: string, b: string): boolean {
+  const enc = new TextEncoder();
+  const aBytes = enc.encode(a);
+  const bBytes = enc.encode(b);
+  
+  if (aBytes.length !== bBytes.length) {
+    return false;
+  }
+  
+  let result = 0;
+  for (let i = 0; i < aBytes.length; i++) {
+    result |= aBytes[i]! ^ bBytes[i]!;
+  }
+  return result === 0;
+}
+
 async function checkAuth(request: Request, env: Env): Promise<{ ok: boolean; status: number; message?: string }> {
   const adminSecret = env.ADMIN_SECRET;
   const provided = request.headers.get('x-admin-secret');
@@ -30,8 +52,9 @@ async function checkAuth(request: Request, env: Env): Promise<{ ok: boolean; sta
     }
   }
 
-  // Verify secret
-  if (provided !== adminSecret) {
+  // Constant-time secret comparison (prevents timing oracle)
+  const match = timingSafeEqual(provided, adminSecret);
+  if (!match) {
     const current = cached ? parseInt(cached, 10) : 0;
     await env.CACHE.put(key, String(current + 1), { expirationTtl: Math.floor(WINDOW_MS / 1000) });
     return { ok: false, status: 401, message: 'Unauthorized' };
@@ -249,6 +272,30 @@ export async function handleBulkInsertRelated(request: Request, env: Env): Promi
 
     if (!rows || !Array.isArray(rows)) {
       return new Response('Invalid rows array', { status: 400 });
+    }
+
+    // Cap to prevent Worker OOM / CPU exhaustion
+    if (rows.length > MAX_BULK_ROWS) {
+      return new Response(
+        JSON.stringify({ error: `Too many rows (max ${MAX_BULK_ROWS})` }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Validate each row's fields at runtime — TypeScript casts don't protect at runtime
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i]!;
+      if (
+        typeof r.paperId   !== 'string' || !ARXIV_ID_RE.test(r.paperId)   ||
+        typeof r.relatedId !== 'string' || !ARXIV_ID_RE.test(r.relatedId) ||
+        typeof r.score     !== 'number' || !isFinite(r.score)             ||
+        typeof r.rank      !== 'number' || !Number.isInteger(r.rank) || r.rank < 0
+      ) {
+        return new Response(
+          JSON.stringify({ error: `Invalid row at index ${i}` }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
     }
 
     const now = new Date().toISOString();

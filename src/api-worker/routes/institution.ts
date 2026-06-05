@@ -20,6 +20,9 @@ export async function handleInstitution(
   if (!institutionName) {
     return errorResponse('Missing institution name', cors, 400);
   }
+  if (institutionName.length > 200) {
+    return errorResponse('Institution name too long (max 200 characters)', cors, 400);
+  }
 
   try {
     const papers = await getPapersByInstitution(env.DB, institutionName, 20);
