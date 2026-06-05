@@ -2,9 +2,73 @@
 
 All notable changes to ArxivExplorer are documented in this file.
 
-**Version:** 1.1.0  
-**Development Period:** May 30 - June 4, 2026  
+**Version:** 1.2.0  
+**Development Period:** May 30 - June 5, 2026  
 **License:** BSL 1.1 (converts to MIT on 2029-06-01)
+
+---
+
+## [1.2.0] - 2026-06-05
+
+### Added - Discovery Features
+- **Claim Tracking System** - AI-powered claim classification
+  - Classify papers as supporting/contradicting/neutral to scientific claims
+  - Concurrent classification processing with progress tracking
+  - `/claim` route with semantic search integration
+  - POST `/api/classify-claim` endpoint using Llama 3.1
+- **Abstract Search** - Semantic-only search using pasted abstracts
+  - Navbar popover for easy access
+  - Direct text-to-embedding search (bypasses keyword search)
+  - 2000-character limit for embedding consistency
+- **Semantic Quality Gate** - Filter low-relevance search results
+  - 70% relative score threshold (drops results below 70% of best match)
+  - Top-5 result limit for focused relevance
+
+### Added - Ingestion & Data
+- **Neuron Quota Management** - Workers AI free tier optimization
+  - Daily quota tracking via KV (5,000 neurons/day)
+  - Automatic reset at 00:00 UTC
+  - 50% budget reserved for tooltips
+- **Minutely Cron Processing** - Granular ingestion pipeline
+  - Processes 1 paper per minute (max 113 papers/day)
+  - Single retry on failure
+  - Replaces hourly batch processing
+
+### Added - UI/UX
+- **Cyber-Green Theme** - Cohesive visual identity
+  - High-contrast neon-green palette
+  - Scanline and radial glow effects on paper cards
+  - Staggered entrance animations
+- **Enhanced Paper Cards** - Improved interactivity
+  - Hover effects with scanline animations
+  - Streamlined metadata display
+
+### Security
+- **Input Sanitization Module** - Centralized validation (`src/shared/sanitize.ts`)
+  - Remove control characters, enforce length limits
+  - Prevent injection attacks across all API endpoints
+  - Applied to search, claim, paper, author, topic routes
+- **Hardened API Endpoints**
+  - Constant-time admin secret comparison (timing oracle mitigation)
+  - SSRF protection with arXiv ID format validation
+  - OOM prevention with bulk insert row caps
+  - Strict CORS origin enforcement (no wildcards)
+  - Prompt injection protection in claim classification
+
+### Changed
+- **Streamlined UI** - Simplified paper metadata display
+  - Removed reproducibility badges
+  - Removed benchmark/code/concept sections
+  - Removed entity tooltips and definitions
+  - Cleaner, more focused paper cards
+- **Vector ID Normalization** - Standardized Vectorize identifiers
+  - Bare paper IDs instead of `paper-{id}` prefixes
+  - Hybrid format support in search/related routes
+- **Search Result Animations** - Removed stagger-list effect for performance
+
+### Removed
+- Deprecated enrichment scripts (non-essential entity extraction)
+- Secondary metadata badges from paper cards
 
 ---
 
