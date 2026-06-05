@@ -10,9 +10,9 @@
  */
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import Link from 'next/link';
-import { FileText, Users, Tag, ExternalLink, Download, Table, ChevronDown, ChevronUp, Check } from 'lucide-react';
+import { FileText, Users, Tag, ExternalLink, Download, Table, ChevronDown, ChevronUp, Check, TrendingUp } from 'lucide-react';
 import { formatAuthors } from '@/helper/format';
 
 interface Summary {
@@ -117,6 +117,13 @@ export function PaperComparison({ papers }: PaperComparisonProps) {
     new Set(['tldr', 'keyContributions', 'methods', 'limitations', 'technicalSummary'])
   );
   const [showFieldPicker, setShowFieldPicker] = useState(false);
+  const [stickyHeader, setStickyHeader] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => setStickyHeader(window.scrollY > 100);
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   const toggleField = useCallback((key: FieldKey) => {
     setActiveFields(prev => {
@@ -132,8 +139,10 @@ export function PaperComparison({ papers }: PaperComparisonProps) {
 
   if (papers.length === 0) {
     return (
-      <div className="text-center py-12">
-        <p className="text-neutral-500 font-mono text-sm">No papers to compare</p>
+      <div className="text-center py-20">
+        <FileText size={48} className="mx-auto mb-4 text-neon-red/20" />
+        <p className="text-neutral-500 font-mono text-sm mb-2">No papers to compare</p>
+        <p className="text-neutral-700 font-mono text-xs">Add at least 2 papers to start comparing</p>
       </div>
     );
   }
@@ -195,15 +204,22 @@ export function PaperComparison({ papers }: PaperComparisonProps) {
         </button>
       </div>
 
-      {/* ── Header row ───────────────────────────────────────────────── */}
-      <div className="grid gap-3" style={gridStyle}>
-        {papers.map(paper => (
-          <div key={paper.id} className="border border-neon-red/20 rounded-lg p-4 bg-dark-bg">
+      {/* ── Header row (sticky on scroll) ─────────────────────────────── */}
+      <div className={`grid gap-3 transition-all ${
+        stickyHeader ? 'sticky top-0 z-10 bg-dark-bg/95 backdrop-blur-sm border-b border-neon-red/10 py-3 -mx-4 px-4' : ''
+      }`} style={gridStyle}>
+        {papers.map((paper, idx) => (
+          <div key={paper.id} className="border border-neon-red/20 rounded-lg p-4 bg-dark-bg relative overflow-hidden">
+            {/* Paper rank badge */}
+            <div className="absolute top-2 right-2 w-6 h-6 rounded-full bg-neon-red/10 border border-neon-red/30 flex items-center justify-center">
+              <span className="text-[10px] font-mono font-bold text-neon-red/70">#{idx + 1}</span>
+            </div>
+            
             <Link
               href={`/paper/${encodeURIComponent(paper.id)}`}
               className="text-sm font-mono text-white hover:text-neon-red transition-colors block mb-3 leading-snug"
             >
-              {paper.title}
+              <span className="line-clamp-2">{paper.title}</span>
             </Link>
             <div className="space-y-1.5 text-xs font-mono">
               <div className="flex items-start gap-1 text-neon-red/40">
@@ -224,15 +240,15 @@ export function PaperComparison({ papers }: PaperComparisonProps) {
                 )}
               </div>
               {/* Quick quality signals */}
-              <div className="flex flex-wrap gap-1 pt-1">
+              <div className="flex flex-wrap gap-1.5 pt-2">
                 {(paper.influentialCitationCount ?? 0) >= 50 && (
-                  <span className="px-1.5 py-0.5 text-[9px] font-mono rounded border border-amber-500/30 text-amber-400/70 bg-amber-500/10">
-                    Influential
+                  <span className="px-2 py-1 text-[10px] font-mono rounded-md border border-amber-500/30 text-amber-400 bg-amber-500/10 flex items-center gap-1">
+                    <TrendingUp size={10} /> Influential
                   </span>
                 )}
                 {(paper.codeCount ?? 0) > 0 && (
-                  <span className="px-1.5 py-0.5 text-[9px] font-mono rounded border border-emerald-500/30 text-emerald-400/70 bg-emerald-500/10">
-                    Code
+                  <span className="px-2 py-1 text-[10px] font-mono rounded-md border border-emerald-500/30 text-emerald-400 bg-emerald-500/10">
+                    Has Code
                   </span>
                 )}
               </div>

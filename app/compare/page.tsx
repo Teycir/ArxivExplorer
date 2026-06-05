@@ -18,9 +18,10 @@ import type { PaperWithSummary } from '@/src/shared/types';
 export default async function ComparePage({
   searchParams,
 }: {
-  searchParams: { ids?: string };
+  searchParams: Promise<{ ids?: string }>;
 }) {
-  const idsParam = searchParams.ids;
+  const params = await searchParams;
+  const idsParam = params.ids;
 
   if (!idsParam) {
     return (
