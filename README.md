@@ -77,14 +77,32 @@ _Scan the QR code or copy the wallet address above._
 ### Developer Tools
 - **CLI Interface** — `arxiv-cli` for AI assistants (search, trending, topics, authors)
 - **Admin API** — Vectorize bulk operations, maintenance endpoints, enrichment triggers
-- **Sitemap** — `/api/sitemap` for SEO
-- **LLM Integration** — `/ai.txt` and `/llms.txt` routes for AI agent discovery
+
+### SEO & Discoverability
+- **Dynamic Meta Tags** — Open Graph and Twitter Card tags on all paper pages
+- **Sitemap.xml** — Auto-generated sitemap with all papers, topics, and authors
+- **Robots.txt** — Search engine crawler configuration
+- **Structured Data** — JSON-LD schema markup for papers and authors
+- **SSR Content** — Server-side rendered pages with full content for crawlers
+- **Canonical URLs** — Proper canonical tags to prevent duplicate content
+- **AI Agent Discovery** — `/ai.txt` and `/llms.txt` routes for LLM tool integration
 
 ### Performance
 - **Edge Caching** — Cloudflare KV with intelligent TTL strategies
 - **ISR Rendering** — Next.js ISR with 10-minute revalidation
 - **Zero Login** — Instant access to all features
 - **Global CDN** — Cloudflare Workers edge deployment
+
+### Security
+- **Rate Limiting** — Per-IP token bucket on all public endpoints (60-100 req/min) with lockout
+- **SQL Injection Protection** — 100% parameterized queries via D1 `.prepare().bind()`
+- **Input Sanitization** — Strict validation on all user inputs (control chars, length limits, allowlists)
+- **Timing-Safe Auth** — Admin endpoints use `crypto.timingSafeEqual` (no timing oracles)
+- **Strict CORS** — Explicit origin only (wildcard rejected at startup)
+- **AI Quota Protection** — Hard character limits + rate limiting on `/api/classify-claim`
+- **Error Sanitization** — Generic 500 messages (internal details logged server-side only)
+
+See [SECURITY.md](SECURITY.md) for full details.
 
 ## Architecture
 

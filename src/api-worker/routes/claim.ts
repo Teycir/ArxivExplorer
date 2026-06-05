@@ -6,6 +6,7 @@
 import type { Env } from '../../shared/types';
 import { corsHeaders, jsonResponse, errorResponse } from '../../shared/utils';
 import { sanitizeQuery } from '../../shared/sanitize';
+import { checkRateLimit, getClientIP } from '../middleware/rate-limit';
 
 const SYSTEM_PROMPT = 'You are a research paper classifier. Analyze if a paper supports, contradicts, or is neutral to a given claim. Think step-by-step before concluding. Return ONLY valid JSON.';
 
@@ -48,11 +49,41 @@ export async function handleClassifyClaim(
     return errorResponse('Method not allowed', cors, 405);
   }
 
+  // Rate limit: 10 requests per minute per IP
+  const ip = getClientIP(request);
+  const rateLimit = await checkRateLimit(env.CACHE, ip, {
+    maxRequests: 10,
+    windowSeconds: 60,
+    lockoutSeconds: 120,
+  });
+
+  if (!rateLimit.allowed) {
+    return new Response(
+      JSON.stringify({
+        error: 'Rate limit exceeded. Please try again later.',
+        retryAfter: rateLimit.resetIn,
+      }),
+      {
+        status: 429,
+        headers: {
+          ...cors,
+          'Content-Type': 'application/json',
+          'Retry-After': String(rateLimit.resetIn ?? 60),
+        },
+      }
+    );
+  }
+
   try {
     const body = await request.json() as { claim: string; abstract: string; tldr: string };
     
     if (!body.claim || !body.abstract) {
       return errorResponse('Missing claim or abstract', cors, 400);
+    }
+
+    // Hard max_chars check before prompt assembly
+    if (body.claim.length > 500 || body.abstract.length > 2000) {
+      return errorResponse('Input too long (claim: max 500, abstract: max 2000 characters)', cors, 413);
     }
 
     const safeClaim    = sanitizeQuery(body.claim);
@@ -93,8 +124,9 @@ export async function handleClassifyClaim(
 
     return jsonResponse(parsed, cors);
   } catch (err) {
-    const errStr = String(err);
     console.error('[classify-claim] Error:', err);
+    
+    const errStr = String(err);
     
     // Check for rate limit / token exhaustion
     if (errStr.includes('rate limit') || errStr.includes('quota') || errStr.includes('429')) {
@@ -108,6 +140,7 @@ export async function handleClassifyClaim(
       return errorResponse('Input too long. Try a shorter claim or abstract.', cors, 413);
     }
     
-    return errorResponse(`Classification error: ${errStr}`, cors, 500);
+    // Generic error - don't leak internal details
+    return errorResponse('Classification service temporarily unavailable', cors, 500);
   }
 }

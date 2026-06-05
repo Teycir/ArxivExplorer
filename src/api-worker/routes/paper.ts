@@ -13,6 +13,7 @@ import { kvGet, kvPutAsync } from '../cache/kv';
 import { kvPaperFull } from '../cache/keys';
 import { corsHeaders, jsonResponse, errorResponse } from '../../shared/utils';
 import { sanitizeArxivId } from '../../shared/sanitize';
+import { checkRateLimit, getClientIP } from '../middleware/rate-limit';
 
 export async function handlePaper(
   request: Request,
@@ -21,6 +22,31 @@ export async function handlePaper(
   arxivId: string
 ): Promise<Response> {
   const cors = corsHeaders(env);
+
+  // Rate limit: 100 requests per minute per IP (high because of KV caching)
+  const ip = getClientIP(request);
+  const rateLimit = await checkRateLimit(env.CACHE, ip, {
+    maxRequests: 100,
+    windowSeconds: 60,
+    lockoutSeconds: 120,
+  });
+
+  if (!rateLimit.allowed) {
+    return new Response(
+      JSON.stringify({
+        error: 'Rate limit exceeded. Please try again later.',
+        retryAfter: rateLimit.resetIn,
+      }),
+      {
+        status: 429,
+        headers: {
+          ...cors,
+          'Content-Type': 'application/json',
+          'Retry-After': String(rateLimit.resetIn ?? 60),
+        },
+      }
+    );
+  }
 
   arxivId = sanitizeArxivId(arxivId);
   if (!arxivId) {
