@@ -229,6 +229,13 @@ async function SearchResults({ searchParams }: SearchPageProps) {
           CS papers only
         </span>
       </div>
+      {/* Quality indicator */}
+      <div className="mb-6 px-4 py-3 rounded-lg bg-neon-red/5 border border-neon-red/10">
+        <p className="text-xs font-mono text-neon-red/50 leading-relaxed">
+          <span className="text-neon-red/70 font-semibold">Semantic search:</span> We find papers by meaning, not just keywords. 
+          Showing only the top 5 most similar matches — low-relevance results are filtered out for precision.
+        </p>
+      </div>
       <div className="grid gap-4">
         {result.papers.map((paper) => (
           <PaperCard key={paper.id} paper={paper} />

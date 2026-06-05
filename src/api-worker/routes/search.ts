@@ -23,9 +23,10 @@ import {
 
 const KEYWORD_WEIGHT = 0.25;
 const SEMANTIC_WEIGHT = 0.75;
-const MAX_RESULTS = 10;
+const MAX_RESULTS = 5;  // Show only top 5 highest quality matches
 const MIN_RESULTS = 1;
 const VECTORIZE_TOP_K = 20;
+const MIN_RELATIVE_SCORE = 0.70;  // Quality gate: drop results below 70% of best score
 
 export async function handleSearch(
   request: Request,
@@ -325,8 +326,14 @@ async function handleMoreLikeThis(
   });
 
   // Exclude the source paper itself
-  const matches = results.matches
-    .filter(m => (m.metadata?.paper_id as string) !== paperId)
+  const excludedSource = results.matches.filter(
+    m => (m.metadata?.paper_id as string) !== paperId
+  );
+
+  // Drop results where score falls off relative to best (quality gate)
+  const bestScore = excludedSource[0]?.score ?? 0;
+  const matches = excludedSource
+    .filter(m => m.score >= bestScore * MIN_RELATIVE_SCORE)
     .slice(0, MAX_RESULTS);
 
   // Fetch paper objects from D1
@@ -386,9 +393,15 @@ async function handleAbstractSearch(
     returnMetadata: true,
   });
 
+  // Drop results where score falls off relative to best (quality gate)
+  const bestScore = results.matches[0]?.score ?? 0;
+  const qualityFiltered = results.matches.filter(
+    m => m.score >= bestScore * MIN_RELATIVE_SCORE
+  );
+
   // Fetch paper objects from D1
   const papers = (await Promise.allSettled(
-    results.matches.map(m => getPaperById(env.DB, m.metadata?.paper_id as string))
+    qualityFiltered.map(m => getPaperById(env.DB, m.metadata?.paper_id as string))
   ))
     .filter((r): r is PromiseFulfilledResult<PaperWithSummary> =>
       r.status === 'fulfilled' && r.value !== null
