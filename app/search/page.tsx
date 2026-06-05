@@ -235,8 +235,7 @@ async function SearchResults({ searchParams }: SearchPageProps) {
         <span className="text-[10px] font-mono text-neon-red/25 uppercase tracking-wider">
           CS papers only
         </span>
-      </div>
-      <div className="grid gap-4 stagger-list">
+      </div>      <div className="grid gap-4">
         {result.papers.map((paper) => (
           <PaperCard key={paper.id} paper={paper} />
         ))}
