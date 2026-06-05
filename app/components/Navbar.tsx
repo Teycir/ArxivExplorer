@@ -9,6 +9,7 @@ import { loadBookmarks } from '@/lib/bookmarks';
 import { pushSearch } from '@/lib/searchHistory';
 import { SearchHistory } from './SearchHistory';
 import { AbstractSearch } from './AbstractSearch';
+import { Tooltip } from './Tooltip';
 
 function SearchInput() {
   const router = useRouter();
@@ -91,11 +92,12 @@ export function Navbar() {
       bg-dark-bg/80 backdrop-blur-md">
       <div className="max-w-5xl mx-auto px-4 h-14 flex items-center gap-4">
         {/* RSS Icon */}
-        <Link href="/rss.xml" target="_blank"
-          className="flex-shrink-0 text-neon-red/40 hover:text-neon-red transition-colors"
-          title="RSS Feed">
-          <Rss size={18} />
-        </Link>
+        <Tooltip content="RSS feed" position="bottom">
+          <Link href="/rss.xml" target="_blank"
+            className="flex-shrink-0 text-neon-red/40 hover:text-neon-red transition-colors">
+            <Rss size={18} />
+          </Link>
+        </Tooltip>
 
         {/* Logo */}
         <Link href="/" className="flex-shrink-0 flex items-center gap-1 sm:gap-1.5 group">
@@ -171,9 +173,11 @@ export function Navbar() {
               </span>
             )}
           </Link>
-          <Link href="/achievements" className="hover:text-neon-red/70 transition-colors hidden sm:block" title="Achievements">
-            🏆
-          </Link>
+          <Tooltip content="Achievements" position="bottom">
+            <Link href="/achievements" className="hover:text-neon-red/70 transition-colors hidden sm:block">
+              🏆
+            </Link>
+          </Tooltip>
           <Link href="/rss.xml" className="hover:text-neon-red/70 transition-colors" target="_blank">
             RSS
           </Link>

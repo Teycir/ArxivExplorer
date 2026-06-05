@@ -7,6 +7,7 @@
 
 import Link from 'next/link';
 import { Award, Code2, BookOpen, Clock, BarChart3, Users } from 'lucide-react';
+import { Tooltip } from './Tooltip';
 
 interface AuthorStats {
   totalPapers: number;
@@ -82,7 +83,6 @@ export function AuthorStatsPanel({ stats }: AuthorStatsPanelProps) {
                     <div
                       className="w-full rounded-sm bg-neon-red/30 hover:bg-neon-red/50 transition-colors cursor-default"
                       style={{ height: `${Math.max(heightPct, 8)}%` }}
-                      title={`${year}: ${count} paper${count !== 1 ? 's' : ''}`}
                     />
                     <span className="text-[8px] font-mono text-neon-red/30 truncate w-full text-center">
                       {year.slice(2)}
@@ -104,15 +104,15 @@ export function AuthorStatsPanel({ stats }: AuthorStatsPanelProps) {
               </p>
               <div className="flex flex-wrap gap-1.5">
                 {stats.topCategories.map(({ cat, count }) => (
-                  <span
-                    key={cat}
-                    className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono rounded-full
-                      border border-neon-red/20 bg-neon-red/5 text-neon-red/60 cursor-default"
-                    title={`${cat} — ${count} paper${count !== 1 ? 's' : ''}`}
-                  >
-                    {CAT_LABELS[cat] ?? cat}
-                    <span className="text-neon-red/35">×{count}</span>
-                  </span>
+                  <Tooltip key={cat} content={`${cat} — ${count} paper${count !== 1 ? 's' : ''}`} position="top">
+                    <span
+                      className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono rounded-full
+                        border border-neon-red/20 bg-neon-red/5 text-neon-red/60 cursor-default"
+                    >
+                      {CAT_LABELS[cat] ?? cat}
+                      <span className="text-neon-red/35">×{count}</span>
+                    </span>
+                  </Tooltip>
                 ))}
               </div>
             </div>

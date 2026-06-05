@@ -8,6 +8,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus, X, ArrowRight, FileText } from 'lucide-react';
+import { Tooltip } from '../components/Tooltip';
 
 const MAX_PAPERS = 6;
 
@@ -85,13 +86,14 @@ export function CompareForm() {
               />
             </div>
             {ids.length > 2 && (
-              <button
-                onClick={() => removeRow(index)}
-                className="flex-shrink-0 p-1 text-neon-red/25 hover:text-neon-red/60 transition-colors"
-                title="Remove"
-              >
-                <X size={14} />
-              </button>
+              <Tooltip content="Remove" position="top">
+                <button
+                  onClick={() => removeRow(index)}
+                  className="flex-shrink-0 p-1 text-neon-red/25 hover:text-neon-red/60 transition-colors"
+                >
+                  <X size={14} />
+                </button>
+              </Tooltip>
             )}
           </div>
         ))}

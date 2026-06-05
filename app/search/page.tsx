@@ -234,23 +234,11 @@ async function SearchResults({ searchParams }: SearchPageProps) {
       <div className="mb-6 px-4 py-3 rounded-lg bg-neon-red/5 border border-neon-red/10">
         <p className="text-xs font-mono text-neon-red/50 leading-relaxed flex items-start gap-2">
           <span>
-            <span className="text-neon-red/70 font-semibold">Hybrid search:</span> Combines keyword matching (FTS5) with semantic similarity. 
-            Results are ranked by combined score.
+            <span className="text-neon-red/70 font-semibold">Hybrid search:</span> Keyword + semantic, ranked by combined score.
           </span>
           <Tooltip
-            content={
-              <div className="space-y-1">
-                <div className="font-semibold text-neon-red/80 mb-1">How hybrid search works:</div>
-                <div>• <strong>Keyword:</strong> Matches exact words in title/abstract</div>
-                <div>• <strong>Semantic:</strong> Finds papers with similar meaning</div>
-                <div>• Combines both scores to rank results</div>
-                <div className="text-neon-red/40 text-[10px] mt-2 pt-1 border-t border-neon-red/20">
-                  Example: &ldquo;transformer&rdquo; matches papers about the architecture, even if they say &ldquo;attention mechanism&rdquo; instead.
-                </div>
-              </div>
-            }
+            content="Keyword matches exact words; semantic finds related meaning. Both scores are combined."
             position="bottom"
-            maxWidth="max-w-72"
           >
             <span className="text-neon-red/50 hover:text-neon-red/80 cursor-help shrink-0">ⓘ</span>
           </Tooltip>

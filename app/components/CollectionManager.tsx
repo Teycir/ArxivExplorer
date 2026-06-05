@@ -12,6 +12,7 @@ import {
   loadBookmarks,
   type Bookmark,
 } from '@/lib/bookmarks';
+import { Tooltip } from './Tooltip';
 
 interface CollectionManagerProps {
   bookmarkId: string;
@@ -44,14 +45,15 @@ export function CollectionManager({ bookmarkId, currentCollection, onUpdate }: C
 
   return (
     <div className="relative">
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-1 text-[10px] font-mono text-neutral-600 hover:text-neon-red transition-colors"
-        title="Manage collection"
-      >
-        <FolderOpen size={10} />
-        {currentCollection || 'uncategorized'}
-      </button>
+      <Tooltip content="Move to collection" position="top">
+        <button
+          onClick={() => setIsOpen(!isOpen)}
+          className="flex items-center gap-1 text-[10px] font-mono text-neutral-600 hover:text-neon-red transition-colors"
+        >
+          <FolderOpen size={10} />
+          {currentCollection || 'uncategorized'}
+        </button>
+      </Tooltip>
 
       {isOpen && (
         <>

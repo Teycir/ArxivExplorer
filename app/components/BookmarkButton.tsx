@@ -54,7 +54,7 @@ export function BookmarkButton({ id, title, authors, categories }: BookmarkButto
 
   return (
     <Tooltip
-      content={isActive ? "Remove from bookmarks" : "Save to bookmarks (stored locally)"}
+      content={isActive ? "Remove bookmark" : "Save locally"}
       position="top"
     >
       <button

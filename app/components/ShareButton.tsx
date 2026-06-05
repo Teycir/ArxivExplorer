@@ -52,7 +52,7 @@ export function ShareButton({ id, title, tldr }: ShareButtonProps) {
   const isCopied = state === 'copied';
 
   return (
-    <Tooltip content="Share this paper or copy link" position="top">
+    <Tooltip content="Share or copy link" position="top">
       <button
         onClick={share}
         aria-label="Share this paper"

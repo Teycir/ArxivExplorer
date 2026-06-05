@@ -123,14 +123,8 @@ export function SearchBoxHome() {
         <p className="text-[10px] font-mono text-neon-red/30 flex items-center gap-1">
           Hybrid search: keyword + semantic
           <Tooltip
-            content={
-              <>
-                Finds papers by exact word matches <strong>and</strong> meaning similarity. 
-                Best for broad queries like &ldquo;transformers&rdquo; or specific terms like &ldquo;BERT&rdquo;.
-              </>
-            }
+            content="Keyword + semantic similarity. Works for broad topics and specific terms."
             position="bottom"
-            maxWidth="max-w-64"
           >
             <span className="text-neon-red/40 hover:text-neon-red/70 cursor-help">ⓘ</span>
           </Tooltip>

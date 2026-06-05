@@ -11,15 +11,13 @@
 
 import { useState, useEffect } from 'react';
 import { isBookmarked } from '@/lib/bookmarks';
+import { Tooltip } from './Tooltip';
 
 export function BookmarkDot({ id }: { id: string }) {
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    // Sync on mount
     setSaved(isBookmarked(id));
-
-    // Re-sync whenever bookmarks change in this tab or another tab
     function sync() { setSaved(isBookmarked(id)); }
     window.addEventListener('arxiv:bookmarks-changed', sync);
     window.addEventListener('storage', sync);
@@ -32,12 +30,13 @@ export function BookmarkDot({ id }: { id: string }) {
   if (!saved) return null;
 
   return (
-    <span
-      className="text-amber-400 text-[11px] font-mono leading-none"
-      title="Bookmarked"
-      aria-label="Bookmarked"
-    >
-      ★
-    </span>
+    <Tooltip content="Bookmarked" position="top">
+      <span
+        className="text-amber-400 text-[11px] font-mono leading-none"
+        aria-label="Bookmarked"
+      >
+        ★
+      </span>
+    </Tooltip>
   );
 }

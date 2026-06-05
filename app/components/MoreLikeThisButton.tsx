@@ -19,7 +19,7 @@ export function MoreLikeThisButton({ id }: { id: string }) {
   }
 
   return (
-    <Tooltip content="Find semantically similar papers using AI" position="top">
+    <Tooltip content="Find similar papers by meaning" position="top">
       <button
         onClick={handleClick}
         className="text-[10px] font-mono text-neon-red/30 hover:text-neon-red/70

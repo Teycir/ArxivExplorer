@@ -52,7 +52,7 @@ export function PaperCard({ paper, showAbstract = false }: PaperCardProps) {
           ))}
           {/* NEW badge */}
           {isNew && (
-            <Tooltip content="Published within the last 48 hours" position="top">
+            <Tooltip content="Published in the last 48h" position="top">
               <span className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono rounded-full
                 border border-neon-red/50 bg-neon-red/10 text-neon-red font-bold animate-pulse">
                 <Sparkles size={9} />

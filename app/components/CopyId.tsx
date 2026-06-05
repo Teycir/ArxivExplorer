@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Copy, Check } from 'lucide-react';
+import { Tooltip } from './Tooltip';
 
 export function CopyId({ id }: { id: string }) {
   const [copied, setCopied] = useState(false);
@@ -22,18 +23,17 @@ export function CopyId({ id }: { id: string }) {
   }
 
   return (
-    <button
-      onClick={copy}
-      title="Copy arXiv ID"
-      className={[
-        'inline-flex items-center gap-1 text-xs font-mono transition-all duration-150',
-        copied
-          ? 'text-green-400'
-          : 'text-neon-red/30 hover:text-neon-red/70',
-      ].join(' ')}
-    >
-      {copied ? <Check size={11} /> : <Copy size={11} />}
-      {id}
-    </button>
+    <Tooltip content={copied ? 'Copied!' : 'Copy arXiv ID'} position="top">
+      <button
+        onClick={copy}
+        className={[
+          'inline-flex items-center gap-1 text-xs font-mono transition-all duration-150',
+          copied ? 'text-green-400' : 'text-neon-red/30 hover:text-neon-red/70',
+        ].join(' ')}
+      >
+        {copied ? <Check size={11} /> : <Copy size={11} />}
+        {id}
+      </button>
+    </Tooltip>
   );
 }

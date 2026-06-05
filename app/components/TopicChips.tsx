@@ -16,6 +16,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { Tooltip } from './Tooltip';
 
 const VISIT_KEY  = 'arxiv_topic_visits';
 const NEW_WINDOW = 48 * 60 * 60 * 1000; // 48 h in ms
@@ -84,11 +85,12 @@ export function TopicChips({ topics }: { topics: TopicChip[] }) {
               transition-all duration-200"
           >
             {isNew && (
-              <span
-                className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-neon-red
-                  ring-2 ring-dark-bg animate-pulse"
-                title="New papers added"
-              />
+              <Tooltip content="New papers added" position="top">
+                <span
+                  className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-neon-red
+                    ring-2 ring-dark-bg animate-pulse"
+                />
+              </Tooltip>
             )}
             {t.label}
             {t.paperCount != null && t.paperCount > 0 && (

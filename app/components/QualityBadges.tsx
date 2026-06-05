@@ -51,7 +51,7 @@ export function QualityBadges({ paper, compact = false }: QualityBadgesProps) {
     badges.push(
       <Tooltip
         key="comprehensive"
-        content={`${paper.referenceCount} references — comprehensive literature coverage`}
+        content={`${paper.referenceCount} references`}
         position="top"
       >
         <span
@@ -91,7 +91,7 @@ export function QualityBadges({ paper, compact = false }: QualityBadgesProps) {
     badges.push(
       <Tooltip
         key="code"
-        content={`${paper.codeCount ?? 0} code repositor${(paper.codeCount ?? 1) !== 1 ? 'ies' : 'y'} linked`}
+        content={`${paper.codeCount ?? 0} code repo${(paper.codeCount ?? 1) !== 1 ? 's' : ''} linked`}
         position="top"
       >
         <span

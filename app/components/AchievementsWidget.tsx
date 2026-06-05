@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { Award, BookOpen, Flame, Star, ChevronRight } from 'lucide-react';
 import { getAchievements, getActivityStats } from '@/lib/achievements';
 import type { AchievementEntry } from '@/lib/achievements';
+import { Tooltip } from './Tooltip';
 
 // thresholds in ascending order for "next badge" logic
 const PAPER_MILESTONES = [1, 10, 50, 100];
@@ -121,15 +122,15 @@ export function AchievementsWidget() {
           </p>
           <div className="flex flex-wrap gap-2">
             {unlocked.slice(0, 7).map(a => (
-              <span
-                key={a.id}
-                title={`${a.label} — ${a.description}`}
-                className="text-lg leading-none cursor-default select-none"
-                role="img"
-                aria-label={a.label}
-              >
-                {a.icon}
-              </span>
+              <Tooltip key={a.id} content={`${a.label} — ${a.description}`} position="top">
+                <span
+                  className="text-lg leading-none cursor-default select-none"
+                  role="img"
+                  aria-label={a.label}
+                >
+                  {a.icon}
+                </span>
+              </Tooltip>
             ))}
             {unlocked.length > 7 && (
               <span className="text-[10px] font-mono text-neon-red/30 self-center">

@@ -5,6 +5,7 @@
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Database } from 'lucide-react';
+import { Tooltip } from './Tooltip';
 
 export const INDEXED_CATEGORIES: { id: string; label: string; desc: string }[] = [
   // Core ML / AI
@@ -50,18 +51,18 @@ export function CategoryScopeBar() {
           Indexed
         </span>
         {INDEXED_CATEGORIES.map((cat) => (
-          <Link
-            key={cat.id}
-            href={q ? `/search?q=${encodeURIComponent(q)}&category=${cat.id}` : `/search?q=&category=${cat.id}`}
-            title={cat.desc}
-            className="inline-flex items-center gap-1 px-2 py-0.5 rounded
-              border border-neon-red/15 bg-neon-red/5
-              text-[10px] font-mono font-semibold text-neon-red/50 uppercase tracking-wider
-              hover:border-neon-red/40 hover:bg-neon-red/10 hover:text-neon-red/80
-              transition-all cursor-pointer select-none"
-          >
-            {cat.label}
-          </Link>
+          <Tooltip key={cat.id} content={cat.desc} position="top">
+            <Link
+              href={q ? `/search?q=${encodeURIComponent(q)}&category=${cat.id}` : `/search?q=&category=${cat.id}`}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded
+                border border-neon-red/15 bg-neon-red/5
+                text-[10px] font-mono font-semibold text-neon-red/50 uppercase tracking-wider
+                hover:border-neon-red/40 hover:bg-neon-red/10 hover:text-neon-red/80
+                transition-all cursor-pointer select-none"
+            >
+              {cat.label}
+            </Link>
+          </Tooltip>
         ))}
       </div>
     </div>
