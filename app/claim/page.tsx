@@ -1,112 +1,184 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { Navbar } from '../components/Navbar';
 import { PaperCard } from '../components/PaperCard';
 import { Scale, Loader2, CheckCircle, XCircle, MinusCircle, AlertCircle } from 'lucide-react';
 import type { PaperWithSummary, SearchResult } from '@/src/shared/types';
+
+// ─── Types ──────────────────────────────────────────────────────────────────
 
 interface ClassifiedPaper extends PaperWithSummary {
   classification: 'support' | 'contradict' | 'neutral';
   reasoning?: string;
 }
 
-export default function ClaimTrackerPage() {
-  const [claim, setClaim] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [results, setResults] = useState<ClassifiedPaper[]>([]);
-  const [error, setError] = useState('');
+type Status = 'idle' | 'searching' | 'classifying' | 'done';
 
-  const handleSearch = async () => {
-    if (!claim.trim()) return;
-    
-    setLoading(true);
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+/**
+ * Run tasks with a maximum concurrency cap.
+ * Fires up to `limit` tasks at once; starts a new one each time one settles.
+ * Results are returned in the original order.
+ */
+async function pMap<T, R>(
+  items: T[],
+  fn: (item: T, index: number) => Promise<R>,
+  concurrency: number
+): Promise<PromiseSettledResult<R>[]> {
+  const results: PromiseSettledResult<R>[] = new Array(items.length);
+  let nextIdx = 0;
+
+  async function worker() {
+    while (nextIdx < items.length) {
+      const idx = nextIdx++;
+      try {
+        results[idx] = { status: 'fulfilled', value: await fn(items[idx]!, idx) };
+      } catch (reason) {
+        results[idx] = { status: 'rejected', reason };
+      }
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, worker);
+  await Promise.all(workers);
+  return results;
+}
+
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
+
+async function classifyOne(
+  claim: string,
+  paper: PaperWithSummary
+): Promise<ClassifiedPaper> {
+  const res = await fetch(`${API_BASE}/api/classify-claim`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      claim,
+      abstract: paper.abstract,
+      tldr: paper.summary?.tldr ?? '',
+    }),
+  });
+
+  if (!res.ok) return { ...paper, classification: 'neutral' };
+
+  const json = await res.json() as { result: 'support' | 'contradict' | 'neutral'; reasoning?: string };
+  const valid = ['support', 'contradict', 'neutral'];
+  return {
+    ...paper,
+    classification: valid.includes(json.result) ? json.result : 'neutral',
+    ...(json.reasoning ? { reasoning: json.reasoning } : {}),
+  };
+}
+
+// ─── Component ───────────────────────────────────────────────────────────────
+
+export default function ClaimTrackerPage() {
+  const [claim, setClaim]     = useState('');
+  const [status, setStatus]   = useState<Status>('idle');
+  const [results, setResults] = useState<ClassifiedPaper[]>([]);
+  const [classified, setClassified] = useState(0);
+  const [total, setTotal]     = useState(0);
+  const [error, setError]     = useState('');
+
+  const handleSearch = useCallback(async () => {
+    const trimmed = claim.trim();
+    if (!trimmed) return;
+
+    setStatus('searching');
     setError('');
     setResults([]);
+    setClassified(0);
+    setTotal(0);
 
+    // ── Step 1: fetch relevant papers ──────────────────────────────────────
+    let papers: PaperWithSummary[];
     try {
-      // Step 1: Regular search for relevant papers
-      const searchRes = await fetch(`/api/search?q=${encodeURIComponent(claim)}`);
-      if (!searchRes.ok) throw new Error('Search failed');
-      const searchData: SearchResult = await searchRes.json();
-
-      // Step 2: Classify each paper
-      const classified: ClassifiedPaper[] = [];
-      for (const paper of searchData.papers.slice(0, 10)) {
-        try {
-          const classRes = await fetch('/api/classify-claim', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              claim: claim.trim(),
-              abstract: paper.abstract,
-              tldr: paper.summary?.tldr || '',
-            }),
-          });
-          
-          if (classRes.ok) {
-            const classification = await classRes.json() as {
-              result: 'support' | 'contradict' | 'neutral';
-              reasoning?: string;
-            };
-            classified.push({
-              ...paper,
-              classification: classification.result,
-              ...(classification.reasoning !== undefined && { reasoning: classification.reasoning }),
-            });
-          } else {
-            classified.push({ ...paper, classification: 'neutral' });
-          }
-        } catch {
-          classified.push({ ...paper, classification: 'neutral' });
-        }
-      }
-
-      setResults(classified);
+      const searchRes = await fetch(
+        `${API_BASE}/api/search?q=${encodeURIComponent(trimmed)}&limit=10`,
+        { headers: { 'Content-Type': 'application/json' } }
+      );
+      if (!searchRes.ok) throw new Error(`Search failed (${searchRes.status})`);
+      const data: SearchResult = await searchRes.json();
+      papers = data.papers;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Search failed');
-    } finally {
-      setLoading(false);
+      setStatus('idle');
+      return;
     }
-  };
 
-  const supports = results.filter(p => p.classification === 'support');
+    if (papers.length === 0) {
+      setStatus('done');
+      return;
+    }
+
+    // ── Step 2: classify in parallel (concurrency = 3) ─────────────────────
+    setTotal(papers.length);
+    setStatus('classifying');
+
+    // We want progressive reveal: append each result as soon as it arrives,
+    // not wait for all. We do this by wrapping classifyOne to update state on
+    // each settlement rather than collecting at the end.
+    const settled: ClassifiedPaper[] = [];
+
+    await pMap(papers, async (paper) => {
+      const result = await classifyOne(trimmed, paper);
+      // Append to results immediately so the UI can render it
+      setResults(prev => [...prev, result]);
+      setClassified(prev => prev + 1);
+      settled.push(result);
+    }, 3);
+
+    setStatus('done');
+  }, [claim]);
+
+  // ── Derived buckets (computed from progressive results) ───────────────────
+  const supports    = results.filter(p => p.classification === 'support');
   const contradicts = results.filter(p => p.classification === 'contradict');
-  const neutral = results.filter(p => p.classification === 'neutral');
+  const neutral     = results.filter(p => p.classification === 'neutral');
+
+  const isLoading   = status === 'searching' || status === 'classifying';
+  const progress    = total > 0 ? Math.round((classified / total) * 100) : 0;
 
   return (
     <>
       <Navbar />
       <main className="max-w-7xl mx-auto w-full px-4 py-8">
+
+        {/* Header */}
         <div className="mb-8">
           <div className="flex items-center gap-3 mb-2">
             <Scale size={28} className="text-neon-red" />
             <h1 className="text-2xl font-mono text-white">Claim Tracker</h1>
           </div>
           <p className="text-sm font-mono text-neon-red/50 max-w-3xl mb-6">
-            Enter a scientific claim to find papers that support or contradict it. AI classifies each result.
+            Enter a scientific claim — papers are retrieved then classified in parallel.
           </p>
 
           <div className="flex gap-3">
             <input
               type="text"
               value={claim}
-              onChange={(e) => setClaim(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-              placeholder='e.g., "transformers outperform RNNs on long sequences"'
+              onChange={e => setClaim(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && !isLoading && handleSearch()}
+              placeholder='e.g. "transformers outperform RNNs on long sequences"'
               className="flex-1 px-4 py-3 bg-black/40 border border-neon-red/20 rounded text-sm font-mono text-white placeholder:text-white/30 focus:border-neon-red/40 focus:outline-none"
               maxLength={200}
+              disabled={isLoading}
             />
             <button
               onClick={handleSearch}
-              disabled={!claim.trim() || loading}
+              disabled={!claim.trim() || isLoading}
               className="px-6 py-3 bg-neon-red/10 hover:bg-neon-red/20 disabled:bg-neon-red/5 border border-neon-red/30 disabled:border-neon-red/10 rounded text-sm font-mono text-neon-red disabled:text-neon-red/30 transition-colors disabled:cursor-not-allowed"
             >
-              {loading ? 'Analyzing...' : 'Search'}
+              {isLoading ? 'Analyzing…' : 'Search'}
             </button>
           </div>
         </div>
 
+        {/* Error */}
         {error && (
           <div className="flex items-center gap-2 p-4 bg-red-500/10 border border-red-500/30 rounded mb-6">
             <AlertCircle size={16} className="text-red-500" />
@@ -114,81 +186,109 @@ export default function ClaimTrackerPage() {
           </div>
         )}
 
-        {loading && (
-          <div className="flex items-center justify-center py-32">
-            <Loader2 size={28} className="text-neon-red/50 animate-spin" />
+        {/* Progress bar — visible during classification */}
+        {status === 'searching' && (
+          <div className="flex items-center justify-center gap-3 py-16 text-neon-red/40 font-mono text-sm">
+            <Loader2 size={18} className="animate-spin" />
+            <span>Finding relevant papers…</span>
           </div>
         )}
 
-        {!loading && results.length > 0 && (
+        {status === 'classifying' && (
+          <div className="mb-8">
+            <div className="flex justify-between text-[10px] font-mono text-neon-red/40 mb-1.5">
+              <span>Classifying papers</span>
+              <span>{classified} / {total}</span>
+            </div>
+            <div className="h-px w-full bg-neon-red/10 rounded overflow-hidden">
+              <div
+                className="h-full bg-neon-red/50 transition-all duration-300 ease-out"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Results — render as they arrive */}
+        {results.length > 0 && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Support column */}
+
+            {/* Support */}
             <div>
               <div className="flex items-center gap-2 mb-4 pb-2 border-b border-green-500/20">
-                <CheckCircle size={20} className="text-green-500" />
-                <h2 className="text-lg font-mono text-green-500">
+                <CheckCircle size={18} className="text-green-500" />
+                <h2 className="text-base font-mono text-green-500">
                   Support ({supports.length})
                 </h2>
               </div>
               <div className="space-y-4">
-                {supports.map((paper) => (
-                  <div key={paper.id} className="relative">
+                {supports.map(paper => (
+                  <div key={paper.id}>
                     <PaperCard paper={paper} />
                     {paper.reasoning && (
-                      <p className="mt-2 text-xs font-mono text-green-400/60 italic">
+                      <p className="mt-1.5 text-[11px] font-mono text-green-400/55 italic leading-relaxed">
                         {paper.reasoning}
                       </p>
                     )}
                   </div>
                 ))}
-                {supports.length === 0 && (
-                  <p className="text-sm font-mono text-white/30 italic">No supporting papers found</p>
+                {supports.length === 0 && status === 'done' && (
+                  <p className="text-sm font-mono text-white/25 italic">No supporting papers found</p>
                 )}
               </div>
             </div>
 
-            {/* Contradict column */}
+            {/* Contradict */}
             <div>
               <div className="flex items-center gap-2 mb-4 pb-2 border-b border-red-500/20">
-                <XCircle size={20} className="text-red-500" />
-                <h2 className="text-lg font-mono text-red-500">
+                <XCircle size={18} className="text-red-500" />
+                <h2 className="text-base font-mono text-red-500">
                   Contradict ({contradicts.length})
                 </h2>
               </div>
               <div className="space-y-4">
-                {contradicts.map((paper) => (
-                  <div key={paper.id} className="relative">
+                {contradicts.map(paper => (
+                  <div key={paper.id}>
                     <PaperCard paper={paper} />
                     {paper.reasoning && (
-                      <p className="mt-2 text-xs font-mono text-red-400/60 italic">
+                      <p className="mt-1.5 text-[11px] font-mono text-red-400/55 italic leading-relaxed">
                         {paper.reasoning}
                       </p>
                     )}
                   </div>
                 ))}
-                {contradicts.length === 0 && (
-                  <p className="text-sm font-mono text-white/30 italic">No contradicting papers found</p>
+                {contradicts.length === 0 && status === 'done' && (
+                  <p className="text-sm font-mono text-white/25 italic">No contradicting papers found</p>
                 )}
               </div>
             </div>
           </div>
         )}
 
-        {!loading && neutral.length > 0 && (
+        {/* Neutral — below the fold */}
+        {neutral.length > 0 && (
           <div className="mt-8">
-            <div className="flex items-center gap-2 mb-4 pb-2 border-b border-neon-red/20">
-              <MinusCircle size={20} className="text-neon-red/40" />
-              <h2 className="text-lg font-mono text-neon-red/40">
+            <div className="flex items-center gap-2 mb-4 pb-2 border-b border-neon-red/15">
+              <MinusCircle size={18} className="text-neon-red/35" />
+              <h2 className="text-base font-mono text-neon-red/35">
                 Neutral / Unclear ({neutral.length})
               </h2>
             </div>
             <div className="grid gap-4">
-              {neutral.map((paper) => (
+              {neutral.map(paper => (
                 <PaperCard key={paper.id} paper={paper} />
               ))}
             </div>
           </div>
         )}
+
+        {/* Empty state after done */}
+        {status === 'done' && results.length === 0 && (
+          <div className="text-center py-24 font-mono text-white/25 text-sm">
+            No papers found for this claim.
+          </div>
+        )}
+
       </main>
     </>
   );

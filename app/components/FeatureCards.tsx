@@ -10,7 +10,6 @@ interface FeatureItem {
   description: string;
   href: string;
   external?: boolean;
-  tag?: 'new' | 'core' | 'beta';
 }
 
 const FEATURES: FeatureItem[] = [
@@ -19,7 +18,6 @@ const FEATURES: FeatureItem[] = [
     label: 'Abstract Search',
     description: 'Paste any paper text to find semantically similar work instantly',
     href: '/search',
-    tag: 'core',
   },
   {
     icon: '⚖️',
@@ -46,19 +44,12 @@ const FEATURES: FeatureItem[] = [
     href: '/bookmarks',
   },
   {
-    icon: '📡',
-    label: 'RSS Feed',
-    description: 'Subscribe to the live paper stream with AI summaries',
-    href: '/rss.xml',
-    external: true,
+    icon: '🔬',
+    label: 'Claim Tracker',
+    description: 'Type any claim — see which papers support or contradict it',
+    href: '/claim',
   },
 ];
-
-const TAG_STYLES: Record<string, string> = {
-  core: 'text-amber-400/80 border-amber-500/30 bg-amber-500/10',
-  new:  'text-neon-red/70 border-neon-red/30 bg-neon-red/10',
-  beta: 'text-blue-400/80 border-blue-500/30 bg-blue-500/10',
-};
 
 export function FeatureCards() {
   return (
@@ -90,13 +81,7 @@ export function FeatureCards() {
           >
             <div className="flex items-start justify-between gap-1">
               <span className="text-xl leading-none select-none">{feature.icon}</span>
-              {feature.tag && (
-                <span className={`flex-shrink-0 text-[9px] font-mono font-bold uppercase tracking-wider
-                  px-1.5 py-0.5 rounded border ${TAG_STYLES[feature.tag]}`}>
-                  {feature.tag}
-                </span>
-              )}
-              {feature.external && !feature.tag && (
+              {feature.external && (
                 <span className="text-[11px] text-neon-red/20 group-hover:text-neon-red/50 transition-colors">↗</span>
               )}
             </div>
