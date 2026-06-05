@@ -29,6 +29,7 @@ export async function handlePaper(
     maxRequests: 100,
     windowSeconds: 60,
     lockoutSeconds: 120,
+    namespace: 'paper',
   });
 
   if (!rateLimit.allowed) {

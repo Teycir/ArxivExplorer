@@ -81,7 +81,7 @@ export default {
     } catch (err) {
       console.error('[api-worker] Unhandled error:', err);
       return new Response(
-        JSON.stringify({ error: 'Internal server error', detail: String(err) }),
+        JSON.stringify({ error: 'Internal server error' }),
         { status: 500, headers: { 'Content-Type': 'application/json', ...cors } }
       );
     }

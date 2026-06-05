@@ -55,6 +55,7 @@ export async function handleClassifyClaim(
     maxRequests: 10,
     windowSeconds: 60,
     lockoutSeconds: 120,
+    namespace: 'claim',
   });
 
   if (!rateLimit.allowed) {

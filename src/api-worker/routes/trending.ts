@@ -37,6 +37,7 @@ export async function handleTrending(
     maxRequests: 100,
     windowSeconds: 60,
     lockoutSeconds: 120,
+    namespace: 'trending',
   });
 
   if (!rateLimit.allowed) {

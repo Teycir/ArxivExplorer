@@ -10,6 +10,8 @@ export interface RateLimitConfig {
   windowSeconds: number;
   /** Lockout duration on rate limit (seconds) */
   lockoutSeconds?: number;
+  /** Optional namespace for the rate limit key (e.g., 'search', 'claim') */
+  namespace?: string;
 }
 
 export interface RateLimitResult {
@@ -30,7 +32,8 @@ export async function checkRateLimit(
   ip: string,
   config: RateLimitConfig
 ): Promise<RateLimitResult> {
-  const key = `ratelimit:${ip}`;
+  const namespace = config.namespace ? `${config.namespace}:` : '';
+  const key = `ratelimit:${namespace}${ip}`;
   const now = Date.now();
 
   try {
@@ -92,7 +95,13 @@ export async function checkRateLimit(
 /**
  * Get client IP from request headers.
  * Cloudflare Workers populate CF-Connecting-IP.
+ * For requests forwarded through Next.js proxy, prefer X-Real-IP if present.
  */
 export function getClientIP(request: Request): string {
+  // Prefer X-Real-IP from our Next.js proxy (trusted source)
+  const realIP = request.headers.get('x-real-ip');
+  if (realIP) return realIP;
+  
+  // Fallback to Cloudflare's header
   return request.headers.get('cf-connecting-ip') ?? '0.0.0.0';
 }

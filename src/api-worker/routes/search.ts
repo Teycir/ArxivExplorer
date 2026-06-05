@@ -47,6 +47,7 @@ export async function handleSearch(
     maxRequests: 60,
     windowSeconds: 60,
     lockoutSeconds: 120,
+    namespace: 'search',
   });
 
   if (!rateLimit.allowed) {
