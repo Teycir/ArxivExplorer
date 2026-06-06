@@ -89,6 +89,12 @@ CREATE TABLE IF NOT EXISTS topics (
   updated_at    TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS arxiv_categories (
+  code   TEXT PRIMARY KEY,   -- e.g. "cs.LG"
+  label  TEXT NOT NULL,      -- e.g. "Machine Learning"
+  domain TEXT NOT NULL       -- e.g. "Computer Science"
+);
+
 CREATE TABLE IF NOT EXISTS paper_code (
   paper_id    TEXT NOT NULL REFERENCES papers(id),
   repo_url    TEXT NOT NULL,

@@ -7,10 +7,10 @@ import type { Env } from '../../shared/types';
 import { kvGet, kvPutAsync } from '../cache/kv';
 import { corsHeaders, jsonResponse, errorResponse } from '../../shared/utils';
 
-const KV_STATS = 'kv:stats:v2';  // bumped — now includes categoryCounts
+const KV_STATS = 'kv:stats:v3';  // bumped — now includes category labels from DB
 const TTL_STATS = 3600;           // 1 h
 
-interface CategoryCount { category: string; count: number; }
+interface CategoryCount { category: string; label: string; domain: string; count: number; }
 
 export async function handleStats(
   _request: Request,
@@ -31,9 +31,13 @@ export async function handleStats(
       ).first<{ total: number }>(),
 
       env.DB.prepare(`
-        SELECT pc.category, COUNT(*) AS count
+        SELECT pc.category,
+               COALESCE(ac.label, pc.category) AS label,
+               COALESCE(ac.domain, 'Other')    AS domain,
+               COUNT(*) AS count
         FROM paper_categories pc
         JOIN papers p ON p.id = pc.paper_id
+        LEFT JOIN arxiv_categories ac ON ac.code = pc.category
         WHERE p.summary_ready = 1
         GROUP BY pc.category
         ORDER BY count DESC

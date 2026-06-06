@@ -126,11 +126,23 @@ export async function getAuthorPapers(
   return apiFetch(`/api/author/${encodeURIComponent(name)}`);
 }
 
-export async function getTopics(): Promise<{ topics: Array<{ slug: string; label: string; paperCount: number }>; total: number }> {
+export async function getTopics(): Promise<{
+  topics: Array<{
+    slug: string;
+    label: string;
+    paperCount: number;
+    categoryTags: string[];
+    categoryDetails: Array<{ code: string; label: string; domain: string }>;
+  }>;
+  total: number;
+}> {
   return apiFetch('/api/topics');
 }
 
-export async function getStats(): Promise<{ totalPapers: number; categoryCounts: Array<{ category: string; count: number }> }> {
+export async function getStats(): Promise<{
+  totalPapers: number;
+  categoryCounts: Array<{ category: string; label: string; domain: string; count: number }>;
+}> {
   return apiFetch('/api/stats');
 }
 

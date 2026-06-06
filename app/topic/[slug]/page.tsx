@@ -92,7 +92,7 @@ export default async function TopicPage({ params }: Props) {
           </div>
         </div>
 
-        {/* Scope notice — dynamically reflects this topic's actual category tags */}
+        {/* Scope notice — shows code + full English label from DB */}
         <div className="flex items-start gap-2.5 px-3 py-2.5 mb-6 rounded-lg
           border border-neon-red/15 bg-neon-red/5">
           <Database size={13} className="text-neon-red/40 mt-0.5 flex-shrink-0" />
@@ -101,6 +101,9 @@ export default async function TopicPage({ params }: Props) {
             {topic.categoryTags.map((tag, i) => (
               <span key={tag}>
                 <span className="text-neon-red/70 font-semibold">{tag}</span>
+                {topic.categoryDetails?.[i] && (
+                  <span className="text-neon-red/40"> · {topic.categoryDetails[i].label}</span>
+                )}
                 {i < topic.categoryTags.length - 1 && <span className="text-neon-red/30">{' · '}</span>}
               </span>
             ))}{' '}

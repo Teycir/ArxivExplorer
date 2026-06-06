@@ -1,8 +1,6 @@
 import type { Metadata } from 'next';
 import { Navbar } from '../components/Navbar';
 import { getStats, getTopics, getTrendingPapers } from '@/helper/api';
-import { TOPICS } from '@/lib/topics';
-import { getCategoryLabel } from '@/lib/categories';
 import Link from 'next/link';
 
 export const metadata: Metadata = {
@@ -12,34 +10,17 @@ export const metadata: Metadata = {
 
 export const dynamic = 'force-dynamic';
 
-// Group topics by domain for the topic grid
-const TOPIC_GROUPS = [
-  {
-    label: 'ML / AI',
-    slugs: ['large-language-models','reinforcement-learning','agents-planning','diffusion-models',
-            'efficient-ml','alignment-safety','multimodal','rag-retrieval','neural-architectures',
-            'computer-vision','speech-audio'],
-  },
-  {
-    label: 'Security',
-    slugs: ['cryptography','zero-knowledge-proofs','adversarial-ml','privacy','blockchain'],
-  },
-  {
-    label: 'Systems',
-    slugs: ['distributed-systems','computer-architecture','networking','operating-systems'],
-  },
-  {
-    label: 'Theory',
-    slugs: ['algorithms','complexity-theory','information-theory'],
-  },
-  {
-    label: 'Software',
-    slugs: ['program-synthesis','software-testing'],
-  },
-  {
-    label: 'Robotics & HCI',
-    slugs: ['robotics'],
-  },
+// Domain display order
+const DOMAIN_ORDER = [
+  'Computer Science',
+  'Mathematics',
+  'Statistics',
+  'Electrical Engineering',
+  'Physics',
+  'Quantitative Biology',
+  'Economics',
+  'Quantitative Finance',
+  'Other',
 ];
 
 export default async function ExplorePage() {
@@ -49,106 +30,103 @@ export default async function ExplorePage() {
     getTrendingPapers('week'),
   ]);
 
-  const totalPapers   = stats.status === 'fulfilled' ? (stats.value.totalPapers ?? 0) : 0;
+  const totalPapers    = stats.status === 'fulfilled' ? (stats.value.totalPapers ?? 0) : 0;
   const categoryCounts = stats.status === 'fulfilled' ? (stats.value.categoryCounts ?? []) : [];
-  const maxCount      = categoryCounts[0]?.count ?? 1;
+  const maxCount       = categoryCounts[0]?.count ?? 1;
 
-  // Build a paperCount lookup from live API topics
-  const topicCountMap = new Map<string, number>();
-  if (topicsData.status === 'fulfilled') {
-    for (const t of topicsData.value.topics) {
-      topicCountMap.set(t.slug, t.paperCount);
-    }
-  }
+  const allTopics = topicsData.status === 'fulfilled' ? topicsData.value.topics : [];
 
   const trendingPapers = trending.status === 'fulfilled'
     ? trending.value.papers.slice(0, 8)
     : [];
 
-  // Top 5 topics by paper count
-  const topTopics = [...topicCountMap.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
-    .map(([slug, count]) => ({
-      slug,
-      label: TOPICS.find(t => t.slug === slug)?.label ?? slug,
-      count,
-    }));
+  // ── Group topics by domain derived from their primary category tag ─────────
+  // Each topic now carries categoryDetails from the DB join, so we use the
+  // domain of the first category tag. Falls back to 'Other' if unknown.
+  const domainMap = new Map<string, typeof allTopics>();
+  for (const t of allTopics) {
+    const domain = t.categoryDetails?.[0]?.domain ?? 'Other';
+    if (!domainMap.has(domain)) domainMap.set(domain, []);
+    domainMap.get(domain)!.push(t);
+  }
+
+  const topicGroups = DOMAIN_ORDER
+    .filter(d => domainMap.has(d))
+    .map(d => ({ domain: d, topics: domainMap.get(d)! }));
+
+  // Top 5 topics by paper count for the sidebar
+  const topTopics = [...allTopics]
+    .sort((a, b) => b.paperCount - a.paperCount)
+    .slice(0, 5);
 
   return (
     <>
       <Navbar />
       <main className="max-w-5xl mx-auto px-4 py-10 font-mono">
 
-        {/* ── Header ──────────────────────────────────────────────────── */}
+        {/* ── Header ──────────────────────────────────────────────────────── */}
         <div className="mb-10 border-b border-neon-red/10 pb-6">
           <p className="text-neon-red/40 text-[10px] uppercase tracking-widest mb-1">/ explore</p>
           <h1 className="text-white/90 text-2xl font-bold tracking-tight">
             Discover CS Research
           </h1>
           <p className="text-white/30 text-xs mt-1">
-            {totalPapers.toLocaleString()} papers indexed across {categoryCounts.length || 20} categories
+            {totalPapers.toLocaleString()} papers indexed across {categoryCounts.length} categories
           </p>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
 
-          {/* ── Left column: topics + categories ────────────────────── */}
+          {/* ── Left: topic groups + category breakdown ──────────────────── */}
           <div className="lg:col-span-2 space-y-10">
 
-            {/* Topic groups */}
+            {/* Topic groups — fully DB-driven */}
             <section>
               <h2 className="text-neon-red/50 text-[10px] uppercase tracking-widest mb-5">
                 Browse by Topic
               </h2>
-              <div className="space-y-5">
-                {TOPIC_GROUPS.map(group => {
-                  const groupTopics = group.slugs
-                    .map(slug => TOPICS.find(t => t.slug === slug))
-                    .filter(Boolean) as typeof TOPICS;
-                  return (
-                    <div key={group.label}>
+              {topicGroups.length === 0 ? (
+                <p className="text-white/20 text-xs">No topics indexed yet.</p>
+              ) : (
+                <div className="space-y-6">
+                  {topicGroups.map(({ domain, topics }) => (
+                    <div key={domain}>
                       <p className="text-white/20 text-[9px] uppercase tracking-widest mb-2">
-                        {group.label}
+                        {domain}
                       </p>
                       <div className="flex flex-wrap gap-2">
-                        {groupTopics.map(t => {
-                          const count = topicCountMap.get(t.slug);
-                          return (
-                            <Link
-                              key={t.slug}
-                              href={`/topic/${t.slug}`}
-                              className="group flex items-center gap-2 px-3 py-1.5 rounded-lg
-                                border border-neon-red/15 bg-neon-red/[0.02]
-                                hover:border-neon-red/40 hover:bg-neon-red/[0.06]
-                                transition-all duration-150"
-                            >
-                              <span className="text-neon-red/70 text-xs group-hover:text-neon-red/100 transition-colors">
-                                {t.label}
-                              </span>
-                              {count !== undefined && (
-                                <span className="text-white/20 text-[10px] tabular-nums group-hover:text-white/40 transition-colors">
-                                  {count.toLocaleString()}
-                                </span>
-                              )}
-                            </Link>
-                          );
-                        })}
+                        {topics.map(t => (
+                          <Link
+                            key={t.slug}
+                            href={`/topic/${t.slug}`}
+                            className="group flex items-center gap-2 px-3 py-1.5 rounded-lg
+                              border border-neon-red/15 bg-neon-red/[0.02]
+                              hover:border-neon-red/40 hover:bg-neon-red/[0.06]
+                              transition-all duration-150"
+                          >
+                            <span className="text-neon-red/70 text-xs group-hover:text-neon-red transition-colors">
+                              {t.label}
+                            </span>
+                            <span className="text-white/20 text-[10px] tabular-nums group-hover:text-white/40 transition-colors">
+                              {t.paperCount.toLocaleString()}
+                            </span>
+                          </Link>
+                        ))}
                       </div>
                     </div>
-                  );
-                })}
-              </div>
+                  ))}
+                </div>
+              )}
             </section>
 
-            {/* Category breakdown */}
+            {/* Category breakdown — label + code from DB */}
             {categoryCounts.length > 0 && (
               <section>
                 <h2 className="text-neon-red/50 text-[10px] uppercase tracking-widest mb-4">
                   Papers by Category
                 </h2>
                 <div className="space-y-2">
-                  {categoryCounts.map(({ category, count }) => (
+                  {categoryCounts.map(({ category, label, count }) => (
                     <Link
                       key={category}
                       href={`/search?q=*&category=${category}`}
@@ -160,9 +138,9 @@ export default async function ExplorePage() {
                           style={{ width: `${(count / maxCount) * 100}%` }}
                         />
                       </div>
-                      <span className="text-white/35 text-[10px] w-48 shrink-0 truncate group-hover:text-white/60 transition-colors">
-                        {getCategoryLabel(category)}
-                        <span className="text-white/15 ml-1 text-[9px]">{category}</span>
+                      <span className="text-white/35 text-[10px] w-52 shrink-0 truncate group-hover:text-white/60 transition-colors">
+                        {label}
+                        <span className="text-white/15 ml-1.5 text-[9px]">{category}</span>
                       </span>
                       <span className="text-white/60 text-xs font-bold tabular-nums w-10 text-right shrink-0">
                         {count.toLocaleString()}
@@ -174,7 +152,7 @@ export default async function ExplorePage() {
             )}
           </div>
 
-          {/* ── Right column: trending + top topics ─────────────────── */}
+          {/* ── Right: trending + top topics + stats ────────────────────── */}
           <div className="space-y-8">
 
             {/* Top topics by volume */}
@@ -198,7 +176,7 @@ export default async function ExplorePage() {
                         {t.label}
                       </span>
                       <span className="text-neon-red/40 text-[10px] tabular-nums shrink-0">
-                        {t.count.toLocaleString()}
+                        {t.paperCount.toLocaleString()}
                       </span>
                     </Link>
                   ))}
@@ -247,9 +225,9 @@ export default async function ExplorePage() {
               </h2>
               <div className="space-y-2">
                 {[
-                  { label: 'Papers', value: totalPapers.toLocaleString() },
-                  { label: 'Topics', value: (topicCountMap.size || TOPICS.length).toString() },
-                  { label: 'Categories', value: (categoryCounts.length || 20).toString() },
+                  { label: 'Papers',     value: totalPapers.toLocaleString() },
+                  { label: 'Topics',     value: allTopics.length.toString() },
+                  { label: 'Categories', value: categoryCounts.length.toString() },
                 ].map(({ label, value }) => (
                   <div key={label} className="flex justify-between items-baseline">
                     <span className="text-white/25 text-[10px] uppercase tracking-widest">{label}</span>
@@ -259,25 +237,31 @@ export default async function ExplorePage() {
               </div>
             </section>
 
-            {/* Discover */}
+            {/* Discover tools */}
             <section>
               <h2 className="text-neon-red/50 text-[10px] uppercase tracking-widest mb-3">
                 Discover
               </h2>
               <div className="space-y-2">
-                <Link href="/claim" className="block p-3 border border-neon-red/10 rounded-lg bg-neon-red/[0.02] hover:border-neon-red/30 hover:bg-neon-red/[0.05] transition-all">
+                <Link href="/claim" className="block p-3 border border-neon-red/10 rounded-lg
+                  bg-neon-red/[0.02] hover:border-neon-red/30 hover:bg-neon-red/[0.05] transition-all">
                   <div className="flex items-center gap-2 mb-1">
                     <span className="text-lg">⚖️</span>
                     <span className="text-white/70 text-xs font-bold">Claim Tracker</span>
                   </div>
-                  <p className="text-white/30 text-[10px] leading-relaxed">Find papers that support or contradict claims</p>
+                  <p className="text-white/30 text-[10px] leading-relaxed">
+                    Find papers that support or contradict claims
+                  </p>
                 </Link>
-                <Link href="/compare" className="block p-3 border border-neon-red/10 rounded-lg bg-neon-red/[0.02] hover:border-neon-red/30 hover:bg-neon-red/[0.05] transition-all">
+                <Link href="/compare" className="block p-3 border border-neon-red/10 rounded-lg
+                  bg-neon-red/[0.02] hover:border-neon-red/30 hover:bg-neon-red/[0.05] transition-all">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-lg">⚖️</span>
+                    <span className="text-lg">📊</span>
                     <span className="text-white/70 text-xs font-bold">Compare Papers</span>
                   </div>
-                  <p className="text-white/30 text-[10px] leading-relaxed">Side-by-side diff of methods and claims</p>
+                  <p className="text-white/30 text-[10px] leading-relaxed">
+                    Side-by-side diff of methods and claims
+                  </p>
                 </Link>
               </div>
             </section>

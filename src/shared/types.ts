@@ -75,6 +75,7 @@ export interface Topic {
   label: string;
   description?: string;
   categoryTags: string[];
+  categoryDetails?: Array<{ code: string; label: string; domain: string }>;
   updatedAt: string;
 }
 

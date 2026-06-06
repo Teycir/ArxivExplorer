@@ -290,10 +290,30 @@ export async function getTopicBySlug(db: D1Database, slug: string): Promise<Topi
   ).bind(slug).first<{ slug: string; label: string; description?: string; category_tags: string; updated_at: string }>();
 
   if (!row) return null;
+
+  const tags = safeJsonParse<string[]>(row.category_tags, []);
+
+  // Enrich with labels from arxiv_categories in one query
+  let categoryDetails: Array<{ code: string; label: string; domain: string }> = [];
+  if (tags.length > 0) {
+    const placeholders = tags.map(() => '?').join(',');
+    const { results } = await db.prepare(
+      `SELECT code, COALESCE(label, code) AS label, COALESCE(domain, 'Other') AS domain
+       FROM arxiv_categories WHERE code IN (${placeholders})`
+    ).bind(...tags).all<{ code: string; label: string; domain: string }>();
+    const catMap = new Map(results.map(r => [r.code, r]));
+    categoryDetails = tags.map(code => ({
+      code,
+      label: catMap.get(code)?.label ?? code,
+      domain: catMap.get(code)?.domain ?? 'Other',
+    }));
+  }
+
   const topic: Topic = {
     slug: row.slug,
     label: row.label,
-    categoryTags: safeJsonParse<string[]>(row.category_tags, []),
+    categoryTags: tags,
+    categoryDetails,
     updatedAt: row.updated_at,
   };
   if (row.description) topic.description = row.description;
@@ -317,8 +337,14 @@ export async function getAllTopics(db: D1Database): Promise<Topic[]> {
   });
 }
 
-export async function getTopicsWithPapers(db: D1Database): Promise<Array<Topic & { paperCount: number }>> {
-  const { results } = await db.prepare(`
+export interface TopicWithCategories extends Topic {
+  paperCount: number;
+  categoryDetails: Array<{ code: string; label: string; domain: string }>;
+}
+
+export async function getTopicsWithPapers(db: D1Database): Promise<Array<TopicWithCategories>> {
+  // Step 1: topics with paper counts
+  const { results: topicRows } = await db.prepare(`
     SELECT
       t.slug, t.label, t.description, t.category_tags, t.updated_at,
       COUNT(DISTINCT pc.paper_id) AS paper_count
@@ -329,16 +355,47 @@ export async function getTopicsWithPapers(db: D1Database): Promise<Array<Topic &
     GROUP BY t.slug
     HAVING paper_count > 0
     ORDER BY paper_count DESC
-  `).all<{ slug: string; label: string; description?: string; category_tags: string; updated_at: string; paper_count: number }>();
+  `).all<{
+    slug: string; label: string; description?: string;
+    category_tags: string; updated_at: string; paper_count: number;
+  }>();
 
-  return results.map(r => ({
-    slug: r.slug,
-    label: r.label,
-    categoryTags: safeJsonParse<string[]>(r.category_tags, []),
-    updatedAt: r.updated_at,
-    paperCount: r.paper_count,
-    ...(r.description ? { description: r.description } : {}),
-  }));
+  if (topicRows.length === 0) return [];
+
+  // Step 2: look up all unique category codes across all topics in one query
+  const allCodes = new Set<string>();
+  for (const row of topicRows) {
+    for (const code of safeJsonParse<string[]>(row.category_tags, [])) {
+      allCodes.add(code);
+    }
+  }
+  const codeList = [...allCodes];
+  const placeholders = codeList.map(() => '?').join(',');
+  const { results: catRows } = await db.prepare(
+    `SELECT code, COALESCE(label, code) AS label, COALESCE(domain, 'Other') AS domain
+     FROM arxiv_categories WHERE code IN (${placeholders})`
+  ).bind(...codeList).all<{ code: string; label: string; domain: string }>();
+
+  const catMap = new Map(catRows.map(r => [r.code, r]));
+
+  return topicRows.map(r => {
+    const tags = safeJsonParse<string[]>(r.category_tags, []);
+    const categoryDetails = tags.map(code => ({
+      code,
+      label: catMap.get(code)?.label ?? code,
+      domain: catMap.get(code)?.domain ?? 'Other',
+    }));
+    const topic: TopicWithCategories = {
+      slug: r.slug,
+      label: r.label,
+      categoryTags: tags,
+      updatedAt: r.updated_at,
+      paperCount: r.paper_count,
+      categoryDetails,
+    };
+    if (r.description) topic.description = r.description;
+    return topic;
+  });
 }
 
 /**
