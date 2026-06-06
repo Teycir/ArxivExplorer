@@ -34,6 +34,7 @@ export function BookmarkDot({ id }: { id: string }) {
       <span
         className="text-amber-400 text-[11px] font-mono leading-none"
         aria-label="Bookmarked"
+        onClick={(e) => e.stopPropagation()}
       >
         ★
       </span>

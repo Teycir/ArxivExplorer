@@ -4,8 +4,10 @@
  * Never build keys inline; always use these functions.
  */
 
-/** Full paper + joined summary (permanent, no TTL). */
-export const kvPaperFull = (arxivId: string) => `kv:paper:${arxivId}:full`;
+/** Full paper + joined summary (permanent, no TTL).
+ * v2: bumped after citationCount was added to PAPER_SELECT (2026-06-06).
+ * Old v1 keys (kv:paper:<id>:full) are now orphaned and will expire in 7d. */
+export const kvPaperFull = (arxivId: string) => `kv:paper:${arxivId}:full:v2`;
 
 /** Pre-computed related papers (permanent, no TTL). */
 export const kvPaperRelated = (arxivId: string) => `kv:paper:${arxivId}:related`;

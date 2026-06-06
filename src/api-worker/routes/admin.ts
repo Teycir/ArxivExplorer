@@ -99,7 +99,9 @@ export async function handleVectorizeUpsert(request: Request, env: Env): Promise
 
 /**
  * POST /admin/kv/delete
- * Deletes a KV cache key. Body: { "key": "kv:topic:slug" }
+ * Delete a single KV key or all keys matching a prefix.
+ * Body: { key?: string; prefix?: string } — exactly one required.
+ * prefix mode paginates KV list (1 000 keys per page) until complete.
  */
 export async function handleKvDelete(request: Request, env: Env): Promise<Response> {
   const auth = await checkAuth(request, env);
@@ -111,17 +113,35 @@ export async function handleKvDelete(request: Request, env: Env): Promise<Respon
   }
 
   try {
-    const { key } = await request.json() as { key: string };
-    if (!key) {
-      return new Response(JSON.stringify({ error: 'Missing key' }), {
+    const body = await request.json() as { key?: string; prefix?: string };
+    const { key, prefix } = body;
+
+    if (!key && !prefix) {
+      return new Response(JSON.stringify({ error: 'Missing key or prefix' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
       });
     }
 
-    await env.CACHE.delete(key);
+    if (key) {
+      await env.CACHE.delete(key);
+      return new Response(JSON.stringify({ success: true, deleted: 1, key }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
 
-    return new Response(JSON.stringify({ success: true, key }), {
+    // prefix mode — paginate through all matching keys and delete
+    let deleted = 0;
+    let cursor: string | undefined;
+    do {
+      const listed = await env.CACHE.list({ prefix, limit: 1000, cursor });
+      await Promise.all(listed.keys.map(k => env.CACHE.delete(k.name)));
+      deleted += listed.keys.length;
+      cursor = listed.list_complete ? undefined : listed.cursor;
+    } while (cursor);
+
+    console.log(`[admin/kv/delete] deleted ${deleted} keys with prefix: ${prefix}`);
+    return new Response(JSON.stringify({ success: true, deleted, prefix }), {
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (err) {
@@ -472,3 +492,5 @@ export async function handleCrossRefBatch(request: Request, env: Env): Promise<R
     });
   }
 }
+
+

@@ -56,11 +56,20 @@ export async function handlePaper(
 
   // 1. KV cache (permanent — papers are immutable).
   // KV errors surface as 503, not as silent cache misses.
+  // Staleness guard: if a cached blob is missing `citationCount` it was written
+  // before the c28d229 fix and must be busted so D1 is re-queried with the
+  // corrected PAPER_SELECT.  Once all pre-fix entries have been replaced this
+  // check costs only a single property lookup on an already-parsed object.
   const cacheKey = kvPaperFull(arxivId);
   try {
-    const cached = await kvGet<unknown>(env.CACHE, cacheKey);
+    const cached = await kvGet<{ citationCount?: number } & Record<string, unknown>>(env.CACHE, cacheKey);
     if (cached !== null) {
-      return jsonResponse(cached, cors);
+      if ('citationCount' in cached) {
+        return jsonResponse(cached, cors);
+      }
+      // Stale blob — evict and fall through to D1
+      console.warn(`[paper] KV stale (no citationCount) for ${arxivId}, busting`);
+      ctx.waitUntil(env.CACHE.delete(cacheKey));
     }
   } catch (err) {
     console.error(`[paper] KV read error for ${arxivId}:`, err);

@@ -71,8 +71,8 @@ export function RelatedPapersList({ related }: { related: RelatedPaper[] }) {
               </p>
             </Link>
 
-            {/* Bookmark button */}
-            <div className="absolute top-0 right-0" onClick={(e) => e.stopPropagation()}>
+            {/* Bookmark button — BookmarkDot is 'use client' and handles stopPropagation internally */}
+            <div className="absolute top-0 right-0">
               <BookmarkDot id={r.id} />
             </div>
 
