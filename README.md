@@ -47,10 +47,10 @@ _Scan the QR code or copy the wallet address above._
 ### Advanced Search Filters
 <img src="public/snapshots/filters.png" alt="Advanced search filters" width="800" />
 
-### AI-Powered Paper Summaries
+### Search papers similar to abstracts
 <img src="public/snapshots/abstract.png" alt="Paper abstract and AI summary" width="800" />
 
-### Claim Classification
+### Claim Assessment
 <img src="public/snapshots/claims.png" alt="Claim classification tool" width="800" />
 
 ### Author Pages
