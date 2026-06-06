@@ -36,7 +36,10 @@ const ENTITY_TYPE_COLORS: Record<string, string> = {
 
 export function SummarySection({ paper: initialPaper }: { paper: PaperWithSummary }) {
   const [active, setActive] = useState<Tab>('tldr');
-  const [expertise, setExpertise] = useState(0.5); // 0 = beginner, 1 = technical
+  const [expertise, setExpertise] = useState(() => {
+    if (typeof window === 'undefined') return 0.5;
+    return parseFloat(localStorage.getItem('expertise') ?? '0.5');
+  });
   const [paper, setPaper] = useState(initialPaper);
   const [copied, setCopied] = useState(false);
   const [showFollowUp, setShowFollowUp] = useState(false);
@@ -150,7 +153,11 @@ export function SummarySection({ paper: initialPaper }: { paper: PaperWithSummar
             max="1"
             step="0.01"
             value={expertise}
-            onChange={(e) => setExpertise(parseFloat(e.target.value))}
+            onChange={(e) => {
+              const v = parseFloat(e.target.value);
+              setExpertise(v);
+              localStorage.setItem('expertise', String(v));
+            }}
             className="flex-1 h-1 bg-neon-red/10 rounded-lg appearance-none cursor-pointer
               [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3
               [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-neon-red
@@ -319,8 +326,13 @@ export function SummarySection({ paper: initialPaper }: { paper: PaperWithSummar
           {showFollowUp && (
             <ul className="space-y-2 mt-1">
               {(s.followUpQuestions ?? []).map((q, i) => (
-                <li key={i} className="flex gap-2 text-xs text-white/50 leading-relaxed">
-                  <span className="text-neon-red/30 flex-shrink-0 font-mono">{i + 1}.</span>{q}
+                <li key={i}>
+                  <Link
+                    href={`/search?q=${encodeURIComponent(q)}`}
+                    className="flex gap-2 text-xs text-white/50 hover:text-neon-red/80 transition-colors leading-relaxed"
+                  >
+                    <span className="text-neon-red/30 flex-shrink-0 font-mono">{i + 1}.</span>{q}
+                  </Link>
                 </li>
               ))}
             </ul>

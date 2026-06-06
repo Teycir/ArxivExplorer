@@ -222,9 +222,6 @@ async function SearchResults({ searchParams }: SearchPageProps) {
           {activeFilters.length > 0 && (
             <span className="ml-2 text-neon-red/35">· {activeFilters.join(', ')}</span>
           )}
-          {result.cached && (
-            <span className="ml-2 text-neon-red/25">(cached)</span>
-          )}
         </p>
         <span className="text-[10px] font-mono text-neon-red/25 uppercase tracking-wider">
           CS papers only
