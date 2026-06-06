@@ -58,9 +58,16 @@ export async function handleTopic(
     return errorResponse(`Database error: ${String(err)}`, cors, 500);
   }
 
+  // A topic with no complete papers is treated as not-found — same guard as
+  // getTopicsWithPapers (HAVING paper_count > 0). Never cache this state so
+  // the page re-checks the DB on the next request once papers are ingested.
+  if (papers.length === 0) {
+    return errorResponse(`Topic not found: ${slug}`, cors, 404);
+  }
+
   const response = { topic, papers, total: papers.length };
 
-  // 3. Lazy KV write (TTL 12h)
+  // 3. Lazy KV write (TTL 12h) — only for non-empty results
   kvPutAsync(ctx, env.CACHE, cacheKey, response, TTL_TOPIC);
 
   return jsonResponse(response, cors);

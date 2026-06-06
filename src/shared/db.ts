@@ -233,87 +233,63 @@ export async function getPapersByTopic(
   slug: string,
   limit = 20
 ): Promise<PaperWithSummary[]> {
-  const topic = await db.prepare(
-    'SELECT category_tags FROM topics WHERE slug = ?'
-  ).bind(slug).first<{ category_tags: string }>();
+  // Pull category codes from the normalized join table.
+  const { results: catRows } = await db.prepare(
+    'SELECT category_code FROM topic_categories WHERE topic_slug = ? ORDER BY display_order ASC'
+  ).bind(slug).all<{ category_code: string }>();
 
-  if (!topic) return [];
+  if (catRows.length === 0) return [];
+  const tags = catRows.map(r => r.category_code);
 
-  const tags = safeJsonParse<string[]>(topic.category_tags, []);
-  if (tags.length === 0) return [];
-
-  // For single category, use simple query
-  if (tags.length === 1) {
-    const fetchLimit = limit * 2;
-    const { results } = await db.prepare(`
-      SELECT ${PAPER_SELECT}
-      FROM paper_categories pc
-      JOIN papers p ON p.id = pc.paper_id
-      LEFT JOIN summaries s ON s.paper_id = p.id
-      WHERE pc.category = ? AND p.summary_ready = 1
-      ORDER BY p.published_at DESC
-      LIMIT ?
-    `).bind(tags[0], fetchLimit).all<PaperRow>();
-    
-    return results.map(rowToPaper).filter(isPaperComplete).slice(0, limit);
-  }
-
-  // For multiple categories, use UNION ALL
-  const unions = tags.map(() => `
-    SELECT ${PAPER_SELECT}
-    FROM paper_categories pc
-    JOIN papers p ON p.id = pc.paper_id
-    LEFT JOIN summaries s ON s.paper_id = p.id
-    WHERE pc.category = ? AND p.summary_ready = 1
-  `).join(' UNION ALL ');
+  // Single query using INNER JOIN on summaries + the same completeness predicates
+  // as getTopicsWithPapers — guarantees the paper count on the explore page and
+  // the papers returned here are always consistent.
+  const placeholders = tags.map(() => '?').join(', ');
 
   const { results } = await db.prepare(`
-    SELECT * FROM (${unions})
-    ORDER BY published_at DESC
+    SELECT DISTINCT ${PAPER_SELECT}
+    FROM paper_categories pc
+    JOIN papers p     ON p.id = pc.paper_id
+    INNER JOIN summaries s ON s.paper_id = p.id
+    WHERE pc.category IN (${placeholders})
+      AND p.summary_ready = 1
+      AND p.title    != ''
+      AND p.abstract != ''
+      AND s.tldr     != ''
+      AND s.beginner_explain  != ''
+      AND s.technical_summary != ''
+      AND json_array_length(s.key_contributions) > 0
+    ORDER BY p.published_at DESC
     LIMIT ?
-  `).bind(...tags, limit * 2).all<PaperRow>();
+  `).bind(...tags, limit).all<PaperRow>();
 
-  // Deduplicate by ID (papers may appear in multiple categories)
-  const seen = new Set<string>();
-  const unique = results.filter(r => {
-    if (seen.has(r.id)) return false;
-    seen.add(r.id);
-    return true;
-  });
-
-  return unique.map(rowToPaper).filter(isPaperComplete).slice(0, limit);
+  // Secondary JS guard catches any edge cases the SQL predicates miss (e.g. whitespace-only fields).
+  return results.map(rowToPaper).filter(isPaperComplete);
 }
 
 export async function getTopicBySlug(db: D1Database, slug: string): Promise<Topic | null> {
   const row = await db.prepare(
-    'SELECT slug, label, description, category_tags, updated_at FROM topics WHERE slug = ?'
-  ).bind(slug).first<{ slug: string; label: string; description?: string; category_tags: string; updated_at: string }>();
+    'SELECT slug, label, description, updated_at FROM topics WHERE slug = ?'
+  ).bind(slug).first<{ slug: string; label: string; description?: string; updated_at: string }>();
 
   if (!row) return null;
 
-  const tags = safeJsonParse<string[]>(row.category_tags, []);
-
-  // Enrich with labels from arxiv_categories in one query
-  let categoryDetails: Array<{ code: string; label: string; domain: string }> = [];
-  if (tags.length > 0) {
-    const placeholders = tags.map(() => '?').join(',');
-    const { results } = await db.prepare(
-      `SELECT code, COALESCE(label, code) AS label, COALESCE(domain, 'Other') AS domain
-       FROM arxiv_categories WHERE code IN (${placeholders})`
-    ).bind(...tags).all<{ code: string; label: string; domain: string }>();
-    const catMap = new Map(results.map(r => [r.code, r]));
-    categoryDetails = tags.map(code => ({
-      code,
-      label: catMap.get(code)?.label ?? code,
-      domain: catMap.get(code)?.domain ?? 'Other',
-    }));
-  }
+  // Fetch category details from the normalized join table
+  const { results: catRows } = await db.prepare(`
+    SELECT tc.category_code AS code,
+           COALESCE(ac.label, tc.category_code) AS label,
+           COALESCE(ac.domain, 'Other') AS domain
+    FROM topic_categories tc
+    LEFT JOIN arxiv_categories ac ON ac.code = tc.category_code
+    WHERE tc.topic_slug = ?
+    ORDER BY tc.display_order ASC
+  `).bind(slug).all<{ code: string; label: string; domain: string }>();
 
   const topic: Topic = {
     slug: row.slug,
     label: row.label,
-    categoryTags: tags,
-    categoryDetails,
+    categoryTags: catRows.map(r => r.code),
+    categoryDetails: catRows,
     updatedAt: row.updated_at,
   };
   if (row.description) topic.description = row.description;
@@ -321,15 +297,19 @@ export async function getTopicBySlug(db: D1Database, slug: string): Promise<Topi
 }
 
 export async function getAllTopics(db: D1Database): Promise<Topic[]> {
-  const { results } = await db.prepare(
-    'SELECT slug, label, description, category_tags, updated_at FROM topics ORDER BY label ASC'
-  ).all<{ slug: string; label: string; description?: string; category_tags: string; updated_at: string }>();
+  // Return every topic that has at least one category mapping
+  const { results } = await db.prepare(`
+    SELECT DISTINCT t.slug, t.label, t.description, t.updated_at
+    FROM topics t
+    JOIN topic_categories tc ON tc.topic_slug = t.slug
+    ORDER BY t.label ASC
+  `).all<{ slug: string; label: string; description?: string; updated_at: string }>();
 
   return results.map(r => {
     const topic: Topic = {
       slug: r.slug,
       label: r.label,
-      categoryTags: safeJsonParse<string[]>(r.category_tags, []),
+      categoryTags: [],   // not needed for sitemap — populated on demand by getTopicBySlug
       updatedAt: r.updated_at,
     };
     if (r.description) topic.description = r.description;
@@ -343,52 +323,63 @@ export interface TopicWithCategories extends Topic {
 }
 
 export async function getTopicsWithPapers(db: D1Database): Promise<Array<TopicWithCategories>> {
-  // Step 1: topics with paper counts
+  // Count only COMPLETE papers (summary_ready=1 + all key fields non-empty).
+  // Counts across ALL mapped categories for each topic (same breadth as the
+  // topic page itself — a paper tagged cs.AI+cs.LG appears in every topic
+  // that maps to either). This matches what the user sees when clicking the topic.
   const { results: topicRows } = await db.prepare(`
     SELECT
-      t.slug, t.label, t.description, t.category_tags, t.updated_at,
+      t.slug, t.label, t.description, t.updated_at,
       COUNT(DISTINCT pc.paper_id) AS paper_count
     FROM topics t
-    JOIN paper_categories pc ON pc.category IN (
-      SELECT json_each.value FROM json_each(t.category_tags)
-    )
+    JOIN topic_categories tc ON tc.topic_slug = t.slug
+    JOIN paper_categories pc ON pc.category = tc.category_code
+    JOIN papers p            ON p.id = pc.paper_id
+    JOIN summaries s         ON s.paper_id = p.id
+    WHERE p.summary_ready = 1
+      AND p.title   != ''
+      AND p.abstract != ''
+      AND s.tldr    != ''
+      AND s.beginner_explain  != ''
+      AND s.technical_summary != ''
+      AND json_array_length(s.key_contributions) > 0
     GROUP BY t.slug
     HAVING paper_count > 0
     ORDER BY paper_count DESC
   `).all<{
     slug: string; label: string; description?: string;
-    category_tags: string; updated_at: string; paper_count: number;
+    updated_at: string; paper_count: number;
   }>();
 
   if (topicRows.length === 0) return [];
 
-  // Step 2: look up all unique category codes across all topics in one query
-  const allCodes = new Set<string>();
-  for (const row of topicRows) {
-    for (const code of safeJsonParse<string[]>(row.category_tags, [])) {
-      allCodes.add(code);
-    }
-  }
-  const codeList = [...allCodes];
-  const placeholders = codeList.map(() => '?').join(',');
-  const { results: catRows } = await db.prepare(
-    `SELECT code, COALESCE(label, code) AS label, COALESCE(domain, 'Other') AS domain
-     FROM arxiv_categories WHERE code IN (${placeholders})`
-  ).bind(...codeList).all<{ code: string; label: string; domain: string }>();
+  // Fetch all category mappings for the returned topics in one query
+  const slugs = topicRows.map(r => r.slug);
+  const placeholders = slugs.map(() => '?').join(',');
+  const { results: catRows } = await db.prepare(`
+    SELECT tc.topic_slug,
+           tc.category_code AS code,
+           COALESCE(ac.label, tc.category_code) AS label,
+           COALESCE(ac.domain, 'Other') AS domain
+    FROM topic_categories tc
+    LEFT JOIN arxiv_categories ac ON ac.code = tc.category_code
+    WHERE tc.topic_slug IN (${placeholders})
+    ORDER BY tc.topic_slug, tc.display_order ASC
+  `).bind(...slugs).all<{ topic_slug: string; code: string; label: string; domain: string }>();
 
-  const catMap = new Map(catRows.map(r => [r.code, r]));
+  // Group categories by topic
+  const catsByTopic = new Map<string, Array<{ code: string; label: string; domain: string }>>();
+  for (const row of catRows) {
+    if (!catsByTopic.has(row.topic_slug)) catsByTopic.set(row.topic_slug, []);
+    catsByTopic.get(row.topic_slug)!.push({ code: row.code, label: row.label, domain: row.domain });
+  }
 
   return topicRows.map(r => {
-    const tags = safeJsonParse<string[]>(r.category_tags, []);
-    const categoryDetails = tags.map(code => ({
-      code,
-      label: catMap.get(code)?.label ?? code,
-      domain: catMap.get(code)?.domain ?? 'Other',
-    }));
+    const categoryDetails = catsByTopic.get(r.slug) ?? [];
     const topic: TopicWithCategories = {
       slug: r.slug,
       label: r.label,
-      categoryTags: tags,
+      categoryTags: categoryDetails.map(c => c.code),
       updatedAt: r.updated_at,
       paperCount: r.paper_count,
       categoryDetails,

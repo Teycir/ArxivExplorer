@@ -74,8 +74,7 @@ export interface Topic {
   slug: string;
   label: string;
   description?: string;
-  categoryTags: string[];
-  categoryDetails?: Array<{ code: string; label: string; domain: string }>;
+  keywords?: string;   // space-separated FTS terms used to match papers
   updatedAt: string;
 }
 
