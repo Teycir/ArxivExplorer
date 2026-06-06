@@ -9,6 +9,7 @@ import { similarityLabel, truncate } from '@/helper/format';
 import type { RelatedPaper } from '@/src/shared/types';
 import { isRelatedPaperComplete } from '@/lib/utils';
 import { GitBranch } from 'lucide-react';
+import { BookmarkDot } from './BookmarkDot';
 
 export function RelatedPapersList({ related }: { related: RelatedPaper[] }) {
   const complete = related.filter(isRelatedPaperComplete);
@@ -40,7 +41,7 @@ export function RelatedPapersList({ related }: { related: RelatedPaper[] }) {
 
       <ul className="flex flex-col gap-4">
         {complete.map((r, i) => (
-          <li key={r.id}>
+          <li key={r.id} className="relative">
             <Link
               href={`/paper/${encodeURIComponent(r.id)}`}
               className="group block"
@@ -60,7 +61,7 @@ export function RelatedPapersList({ related }: { related: RelatedPaper[] }) {
 
               {/* Title */}
               <p className="text-xs text-white/70 leading-snug font-mono
-                group-hover:text-neon-red/80 transition-colors duration-150">
+                group-hover:text-neon-red/80 transition-colors duration-150 pr-6">
                 {truncate(r.title, 100)}
               </p>
 
@@ -69,6 +70,11 @@ export function RelatedPapersList({ related }: { related: RelatedPaper[] }) {
                 {truncate(r.tldr, 80)}
               </p>
             </Link>
+
+            {/* Bookmark button */}
+            <div className="absolute top-0 right-0" onClick={(e) => e.stopPropagation()}>
+              <BookmarkDot id={r.id} />
+            </div>
 
             {i < complete.length - 1 && (
               <div className="mt-4 border-b border-neon-red/8" />

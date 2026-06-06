@@ -10,7 +10,7 @@ import { RelatedPapersList } from '../../components/RelatedPapersList';
 import { PaperLabel } from '../../components/PaperLabel';
 import { formatDate } from '@/helper/format';
 import type { PaperWithSummary, RelatedPaper } from '@/src/shared/types';
-import { ExternalLink, FileText, Users, Calendar, BookOpen } from 'lucide-react';
+import { ExternalLink, FileText, Users, Calendar, BookOpen, GitCompare } from 'lucide-react';
 import { BookmarkButton } from '../../components/BookmarkButton';
 import { ExportButton } from '../../components/ExportButton';
 import { CopyBibtex } from '../../components/CopyBibtex';
@@ -20,6 +20,8 @@ import { AuthorLinks } from '../../components/AuthorLinks';
 import { SkillLadder } from '../../components/SkillLadder';
 import { ActivityTracker } from '../../components/ActivityTracker';
 import { AchievementToast } from '../../components/AchievementToast';
+import { CompareWith } from '../../components/CompareWith';
+import { CopyAbstract } from '../../components/CopyAbstract';
 
 interface Props {
   params: Promise<{ arxiv_id: string }>;
@@ -202,7 +204,7 @@ export default async function PaperPage({ params }: Props) {
               </div>
 
               {/* Action buttons */}
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-2 mb-3">
                 <BookmarkButton id={arxivId} title={paper.title} authors={paper.authors} categories={paper.categories} />
                 <ShareButton id={arxivId} title={paper.title} tldr={paper.summary?.tldr} />
                 <CopyBibtex id={arxivId} title={paper.title} authors={paper.authors}
@@ -234,6 +236,9 @@ export default async function PaperPage({ params }: Props) {
                   </Link>
                 )}
               </div>
+
+              {/* Quick compare */}
+              <CompareWith currentId={arxivId} />
             </Card>
 
             {/* AI Summary + enriched panels */}
@@ -249,8 +254,39 @@ export default async function PaperPage({ params }: Props) {
             )}
 
             {/* Abstract */}
-            <Card title="Abstract">
+            <Card>
+              <div className="flex items-center justify-between mb-4 pb-2 border-b border-neon-red/20">
+                <h3 className="text-neon-red font-mono font-bold uppercase tracking-wider flex items-center gap-2">
+                  Abstract
+                  <CopyAbstract text={paper.abstract} />
+                </h3>
+                <Link
+                  href={`/search?like=${arxivId}`}
+                  className="flex items-center gap-1.5 px-2 py-1 text-[10px] font-mono
+                    border border-neon-red/20 text-neon-red/50 rounded
+                    hover:border-neon-red/50 hover:text-neon-red transition-all"
+                >
+                  <GitCompare size={10} />
+                  More Like This
+                </Link>
+              </div>
               <p className="text-xs text-white/60 leading-relaxed">{paper.abstract}</p>
+              
+              {/* Citation context link */}
+              {paper.citationCount != null && paper.citationCount > 0 && (
+                <div className="mt-4 pt-3 border-t border-neon-red/10">
+                  <a
+                    href={`https://www.semanticscholar.org/paper/${arxivId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 text-[10px] font-mono text-neon-red/40
+                      hover:text-neon-red/70 transition-colors"
+                  >
+                    <ExternalLink size={9} />
+                    View {paper.citationCount} citation{paper.citationCount !== 1 ? 's' : ''} on Semantic Scholar
+                  </a>
+                </div>
+              )}
             </Card>
           </div>
 

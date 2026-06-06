@@ -18,13 +18,13 @@ export const metadata: Metadata = {
 export const revalidate = 600;
 
 export default async function HomePage() {
-  const [dayPapers, stats] = await Promise.all([
-    getTrendingPapers('day').then(d => d.papers ?? [] as PaperWithSummary[]).catch(() => [] as PaperWithSummary[]),
+  const [weekPapers, stats] = await Promise.all([
+    getTrendingPapers('week').then(d => d.papers ?? [] as PaperWithSummary[]).catch(() => [] as PaperWithSummary[]),
     getStats().catch(() => ({ totalPapers: 0 })),
   ]);
 
   const totalPapers = stats.totalPapers;
-  const rssPapers = dayPapers.slice(0, 4);
+  const rssPapers = weekPapers.slice(0, 4);
 
   return (
     <main className="flex-1 flex flex-col">
