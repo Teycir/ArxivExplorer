@@ -98,15 +98,18 @@ export default async function TopicPage({ params }: Props) {
           <Database size={13} className="text-neon-red/40 mt-0.5 flex-shrink-0" />
           <p className="text-[11px] font-mono text-neon-red/45 leading-relaxed">
             Papers sourced from{' '}
-            {topic.categoryTags.map((tag, i) => (
-              <span key={tag}>
-                <span className="text-neon-red/70 font-semibold">{tag}</span>
-                {topic.categoryDetails?.[i] && (
-                  <span className="text-neon-red/40"> · {topic.categoryDetails[i].label}</span>
-                )}
-                {i < topic.categoryTags.length - 1 && <span className="text-neon-red/30">{' · '}</span>}
-              </span>
-            ))}{' '}
+            {topic.categoryTags.map((tag, i) => {
+              const detail = topic.categoryDetails?.[i];
+              return (
+                <span key={tag}>
+                  <span className="text-neon-red/70 font-semibold">{tag}</span>
+                  {detail && (
+                    <span className="text-neon-red/40"> · {detail.label}</span>
+                  )}
+                  {i < topic.categoryTags.length - 1 && <span className="text-neon-red/30">{' · '}</span>}
+                </span>
+              );
+            })}{' '}
             on arXiv. Results are filtered to{' '}
             {topic.categoryTags.length === 1 ? 'this category' : 'these categories'} only.
           </p>
