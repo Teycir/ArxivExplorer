@@ -1,5 +1,6 @@
 // app/components/Footer.tsx
 import { Heart, BookOpen } from 'lucide-react';
+import { VelocityTracker } from './VelocityTracker';
 
 const SITE_URL = 'https://arxivexplorer.arxivexplorer.workers.dev';
 
@@ -43,6 +44,8 @@ export function Footer() {
             >
               arXiv.org
             </a>
+            <span className="hidden sm:inline">•</span>
+            <VelocityTracker />
           </div>
         </div>
         <div className="flex gap-3 items-center">
