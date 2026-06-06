@@ -29,7 +29,7 @@ export function ExploreClient({ totalPapers, allTopics, sortedTopics, trendingPa
   return (
     <main className="max-w-5xl mx-auto px-4 py-8 font-mono">
 
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      {/* ── Header ───────────────────────────────────────────────────────── */}
       <div className="flex items-baseline justify-between mb-6 border-b border-neon-red/10 pb-4">
         <div>
           <p className="text-neon-red/40 text-[10px] uppercase tracking-[0.25em] mb-1 flex items-center gap-2">
@@ -55,17 +55,17 @@ export function ExploreClient({ totalPapers, allTopics, sortedTopics, trendingPa
         </div>
       </div>
 
-      {/* ── Main grid ──────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_260px] gap-6">
+      {/* ── Main grid ────────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_260px] gap-8">
 
-        {/* ── LEFT: topic bar chart ─────────────────────────────────────── */}
+        {/* ── LEFT: full-width bar chart ──────────────────────────────── */}
         <section>
-          <p className="text-neon-red/40 text-[10px] uppercase tracking-widest mb-3">
+          <p className="text-neon-red/40 text-[10px] uppercase tracking-widest mb-4">
             Topics — sorted by paper count
           </p>
-          <div className="space-y-px">
+          <div className="space-y-[2px]">
             {sortedTopics.map((t) => {
-              const pct = Math.round((t.paperCount / max) * 100);
+              const pct = Math.max(2, Math.round((t.paperCount / max) * 100));
               const isHov = hovered === t.slug;
               return (
                 <Link
@@ -73,63 +73,64 @@ export function ExploreClient({ totalPapers, allTopics, sortedTopics, trendingPa
                   href={`/topic/${t.slug}`}
                   onMouseEnter={() => setHovered(t.slug)}
                   onMouseLeave={() => setHovered(null)}
-                  className="group flex items-center gap-2 px-2 py-1.5 rounded
-                    hover:bg-neon-red/[0.04] transition-colors duration-100"
+                  className="group block rounded-sm px-2 py-[6px] hover:bg-white/[0.03] transition-colors duration-100"
                 >
-                  {/* Topic name — fixed width */}
-                  <span
-                    className="w-36 shrink-0 text-[11px] truncate transition-colors duration-100"
-                    style={{ color: isHov ? '#00ff41' : 'rgba(255,255,255,0.55)' }}
-                  >
-                    {t.label}
-                  </span>
+                  {/* Label row: name · badges · count */}
+                  <div className="flex items-center gap-2 mb-[5px]">
+                    <span
+                      className="text-[11px] font-medium truncate transition-colors duration-100 leading-none"
+                      style={{ color: isHov ? 'rgba(0,255,65,0.95)' : 'rgba(255,255,255,0.60)' }}
+                    >
+                      {t.label}
+                    </span>
 
-                  {/* Category codes */}
-                  <span className="flex items-center gap-1 shrink-0 w-32">
-                    {(t.categoryDetails ?? []).slice(0, 3).map(cat => (
-                      <span
-                        key={cat.code}
-                        title={cat.label}
-                        className="px-1 py-px rounded text-[8px] font-mono border"
-                        style={{
-                          background:  'rgba(0,255,65,0.04)',
-                          borderColor: isHov ? 'rgba(0,255,65,0.30)' : 'rgba(0,255,65,0.12)',
-                          color:       isHov ? 'rgba(0,255,65,0.80)' : 'rgba(0,255,65,0.35)',
-                        }}
-                      >
-                        {cat.code}
-                      </span>
-                    ))}
-                  </span>
+                    {/* Category badges */}
+                    <span className="flex items-center gap-[3px] flex-shrink-0">
+                      {(t.categoryDetails ?? []).slice(0, 3).map(cat => (
+                        <span
+                          key={cat.code}
+                          title={cat.label}
+                          className="px-[5px] py-[1px] rounded-[2px] text-[8px] border leading-none"
+                          style={{
+                            background:  isHov ? 'rgba(0,255,65,0.07)' : 'rgba(0,255,65,0.03)',
+                            borderColor: isHov ? 'rgba(0,255,65,0.35)' : 'rgba(0,255,65,0.13)',
+                            color:       isHov ? 'rgba(0,255,65,0.85)' : 'rgba(0,255,65,0.38)',
+                          }}
+                        >
+                          {cat.code}
+                        </span>
+                      ))}
+                    </span>
 
-                  {/* Bar */}
-                  <div className="flex-1 h-1.5 bg-neon-red/[0.06] rounded-full overflow-hidden">
+                    {/* Count — right-aligned */}
+                    <span
+                      className="ml-auto text-[10px] tabular-nums flex-shrink-0 transition-colors duration-100 leading-none"
+                      style={{ color: isHov ? 'rgba(0,255,65,0.80)' : 'rgba(255,255,255,0.28)' }}
+                    >
+                      {t.paperCount.toLocaleString()}
+                    </span>
+                  </div>
+
+                  {/* Full-width bar */}
+                  <div className="w-full h-[3px] bg-white/[0.05] rounded-full overflow-hidden">
                     <div
-                      className="h-full rounded-full transition-all duration-150"
+                      className="h-full rounded-full transition-all duration-200"
                       style={{
                         width: `${pct}%`,
                         background: isHov
-                          ? 'rgba(0,255,65,0.70)'
-                          : 'rgba(0,255,65,0.28)',
-                        boxShadow: isHov ? '0 0 6px rgba(0,255,65,0.4)' : 'none',
+                          ? 'linear-gradient(90deg, rgba(0,255,65,0.95) 0%, rgba(0,255,65,0.55) 100%)'
+                          : 'linear-gradient(90deg, rgba(0,255,65,0.50) 0%, rgba(0,255,65,0.18) 100%)',
+                        boxShadow: isHov ? '0 0 10px rgba(0,255,65,0.40)' : 'none',
                       }}
                     />
                   </div>
-
-                  {/* Count */}
-                  <span
-                    className="w-12 text-right text-[10px] tabular-nums shrink-0 transition-colors duration-100"
-                    style={{ color: isHov ? 'rgba(0,255,65,0.80)' : 'rgba(255,255,255,0.25)' }}
-                  >
-                    {t.paperCount.toLocaleString()}
-                  </span>
                 </Link>
               );
             })}
           </div>
         </section>
 
-        {/* ── RIGHT: trending + discover ───────────────────────────────────── */}
+        {/* ── RIGHT: trending + tools ──────────────────────────────────── */}
         <aside className="space-y-6">
 
           {/* Trending */}
@@ -164,10 +165,9 @@ export function ExploreClient({ totalPapers, allTopics, sortedTopics, trendingPa
             </section>
           )}
 
-          {/* Divider */}
           <div className="h-px bg-neon-red/10" />
 
-          {/* Discover tools */}
+          {/* Tools */}
           <section>
             <p className="text-neon-red/40 text-[10px] uppercase tracking-widest mb-3">Tools</p>
             <div className="space-y-1">
