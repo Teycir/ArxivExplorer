@@ -69,7 +69,7 @@ const STEPS = [
   {
     icon: <GitCompare size={16} />,
     title: 'Side-by-side paper comparison',
-    body: 'Use /compare with 1-6 paper IDs (e.g., /compare?ids=id1,id2,id3) to view summaries in a responsive grid. Sections include TL;DR, contributions, methods, limitations, and technical summaries. Perfect for literature reviews.',
+    body: 'Use /compare with up to 6 paper IDs (e.g., /compare?ids=id1,id2,id3) to view summaries in a responsive grid. Sections include TL;DR, contributions, methods, limitations, and technical summaries. Perfect for literature reviews. You can also use the "Compare with ID..." input on any paper page to jump directly to a two-paper comparison.',
   },
   {
     icon: <Sparkles size={16} />,
@@ -79,7 +79,7 @@ const STEPS = [
   {
     icon: <Share2 size={16} />,
     title: 'Share & export',
-    body: 'Share papers via Web Share API or copy link. Export bookmarks and collections as JSON or BibTeX. Copy arXiv IDs and BibTeX citations with one click from paper pages.',
+    body: 'Share papers via Web Share API or copy link. Export bookmarks and collections as JSON or BibTeX. Copy arXiv IDs and BibTeX citations with one click from paper pages. Copy the abstract directly from the abstract card using the copy icon next to the heading.',
   },
   {
     icon: <Trophy size={16} />,

@@ -55,7 +55,7 @@ _Scan the QR code or copy the wallet address above._
 - **Smart Abstracts** — Enhanced paper metadata with prerequisites and follow-up questions
 
 ### Paper Management
-- **Bookmarks & Playlists** — Client-side collections with 90-day TTL (100 bookmark soft cap)
+- **Bookmarks** — Client-side collections with 90-day TTL (100 bookmark soft cap)
 - **Export Options** — JSON and BibTeX export for collections
 - **Paper Comparison** — Side-by-side comparison view (up to 6 papers)
 - **Revision History** — Track paper updates and version differences
@@ -155,11 +155,10 @@ Pre-computes top-8 semantically similar papers using Vectorize and stores in `re
 
 ### Cron Schedule
 
-The ingest worker has two cron triggers:
-- `* * * * *` — Every minute (processes 1 paper per run with 1 retry on failure)
-- `30 2 * * *` — Daily CrossRef enrichment batch (50 papers per run)
+The ingest worker runs on a single cron trigger:
+- `* * * * *` — Every minute (processes 1 paper per run with 1 retry on failure; citation updates via Semantic Scholar run in the same cron)
 
-Citation updates run as part of the minutely cron, fetching data from Semantic Scholar API.
+CrossRef enrichment is triggered via the admin endpoint (`POST /admin/crossref-batch`) rather than a separate cron.
 
 ### Bulk Local Processing
 
@@ -167,7 +166,7 @@ When remote Workers AI hits rate limits, use the local Ollama pipeline to catch 
 
 ```bash
 # Process all pending/failed papers from remote D1 using local Ollama
-ADMIN_SECRET=<secret> npx tsx scripts/retry-failed-local.ts
+ADMIN_SECRET=<secret> npx tsx scripts/process-pending-local.ts
 
 # Push a fully-processed local DB up to remote D1 + Vectorize
 ADMIN_SECRET=<secret> npx tsx scripts/push-local-to-remote.ts
@@ -255,7 +254,6 @@ npm run deploy:ingest   # Ingest worker
 │   ├── compare/               # Paper comparison
 │   ├── diff/[id]/             # Paper revision history
 │   ├── bookmarks/             # Bookmark management
-│   ├── playlists/             # Playlist management
 │   ├── explore/               # Explore page
 │   ├── achievements/          # Achievement tracking
 │   ├── claim/                 # Claim classification
@@ -389,13 +387,13 @@ export const CF_D1_ID = 'your-d1-database-id';
 
 ```toml
 [vars]
-ARXIV_FETCH_CATEGORIES = "cs.AI,cs.LG"                 # Default categories
+ARXIV_FETCH_CATEGORIES = "cs.AI,cs.LG"                 # Default fetch categories (add more as needed)
 ARXIV_FETCH_LIMIT_PER_CATEGORY = "0"                   # Papers per category per cron (0 = process pending only)
 INGEST_MAX_CONCURRENT = "1"                            # Concurrent AI processing
 ARXIV_RATE_LIMIT_DELAY_MS = "3000"                     # Delay between arXiv requests
 SUMMARY_MODEL = "@cf/meta/llama-3.1-8b-instruct"       # Workers AI summary model
 EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5"          # Workers AI embedding model
-INGEST_PHASE = "hourly"                                # Phase identifier
+INGEST_PHASE = "hourly"                                # Phase label (informational only)
 POLITE_EMAIL = "your-email@example.com"                # Contact email for arXiv API
 
 # Optional Ollama (local AI)
@@ -448,10 +446,12 @@ ADMIN_SECRET=your-secret npx tsx scripts/push-local-to-remote.ts
 - `embeddings_meta` — tracks embedding generation per paper
 - `related_papers` — pre-computed top-8 semantic neighbors
 - `topics` — curated topic collections with category mappings
+- `citation_snapshots` — historical citation data for velocity tracking
+- `entity_definitions` — terminology definitions for entities
 
 ### Canonical schema file
 
-The **single source of truth** is `migrations/schema.sql` (not `migrations/0001_schema.sql`).
+The **single source of truth** is `migrations/schema.sql`. Additional columns added via incremental migrations (e.g. `0012_summaries_extended.sql` adds `problem_statement` to summaries) must be applied on top with `wrangler d1 execute`.
 
 ### Rebuild from scratch
 
@@ -510,7 +510,7 @@ ADMIN_SECRET=<secret> npx tsx scripts/push-local-to-remote.ts
 
 ### Paper Comparison
 - **Route**: `/compare?ids=id1,id2,id3`
-- **Capacity**: 1-4 papers side-by-side
+- **Capacity**: Up to 6 papers side-by-side
 - **Sections**: TL;DR, Key Contributions, Methods, Limitations, Technical Summary
 - **Layout**: Responsive grid adapts to paper count
 - **Example**: `/compare?ids=2605.30353,2302.13971,2303.08774`
@@ -602,10 +602,10 @@ npx wrangler d1 execute arxiv-explorer --remote --config wrangler.api.toml \
 
 ```bash
 # Retry up to 50 papers
-ADMIN_SECRET=<secret> LIMIT=50 npx tsx scripts/retry-failed-local.ts
+ADMIN_SECRET=<secret> LIMIT=50 npx tsx scripts/process-pending-local.ts
 
 # Process with higher concurrency (careful with GPU memory)
-ADMIN_SECRET=<secret> LIMIT=100 CONCURRENCY=2 npx tsx scripts/retry-failed-local.ts
+ADMIN_SECRET=<secret> LIMIT=100 CONCURRENCY=2 npx tsx scripts/process-pending-local.ts
 ```
 
 ### Push local DB to remote
@@ -624,7 +624,7 @@ wrangler tail arxiv-ingest --format=pretty   # Ingest worker
 ### Sync remote DB to local
 
 ```bash
-npx tsx scripts/sync-remote-to-local.ts
+npx tsx scripts/pull-remote-to-local.ts
 ```
 
 ### Reset database

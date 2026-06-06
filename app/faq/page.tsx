@@ -64,7 +64,7 @@ const FAQS = [
   },
   {
     q: 'Is there a rate limit?',
-    a: 'There is no login or per-user rate limit for browsing and searching. The ingestion pipeline processes 1 paper per minute (113 papers/day max) to stay within free-tier AI budgets.',
+    a: 'No login or API key is required. Standard per-IP rate limiting applies (100 requests/minute with a 2-minute lockout on excess) to protect the service. In practice this limit is never hit during normal browsing. The ingestion pipeline processes 1 paper per minute (113 papers/day max) to stay within free-tier AI budgets.',
   },
   {
     q: 'How do I look up a specific paper?',
