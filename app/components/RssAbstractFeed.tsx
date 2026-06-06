@@ -56,7 +56,7 @@ export function RssAbstractFeed({ papers }: RssAbstractFeedProps) {
             Subscribe
           </Link>
           <Link
-            href="/search?q=*&date=week"
+            href="/explore"
             className="text-[10px] font-mono text-neon-red/35 hover:text-neon-red/60 transition-colors"
           >
             see all →

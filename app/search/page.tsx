@@ -7,6 +7,7 @@
 
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import { Suspense } from 'react';
 import { searchPapers, getMoreLikeThis } from '@/helper/api';
 import { Navbar } from '../components/Navbar';
@@ -146,6 +147,14 @@ async function SearchResults({ searchParams }: SearchPageProps) {
   }
 
   const query = q?.trim() ?? '';
+
+  // ── Wildcard / browse-all shortcut ───────────────────────────────────────
+  // q=* was previously used by the "see all" RSS link and produces zero FTS
+  // results (bare * is invalid in SQLite FTS5).  Redirect to /explore which
+  // shows recent trending papers — the correct intent.
+  if (query === '*') {
+    redirect('/explore');
+  }
 
   // ── No query — show abstract search as the main action ───────────────────
   if (!query) {
