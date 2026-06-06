@@ -37,6 +37,33 @@ _Scan the QR code or copy the wallet address above._
 
 </div>
 
+## Screenshots
+
+<div align="center">
+
+### Landing Page
+<img src="public/snapshots/landing.png" alt="Landing page" width="800" />
+
+### Advanced Search Filters
+<img src="public/snapshots/filters.png" alt="Advanced search filters" width="800" />
+
+### AI-Powered Paper Summaries
+<img src="public/snapshots/abstract.png" alt="Paper abstract and AI summary" width="800" />
+
+### Claim Classification
+<img src="public/snapshots/claims.png" alt="Claim classification tool" width="800" />
+
+### Author Pages
+<img src="public/snapshots/authors.png" alt="Author statistics and papers" width="800" />
+
+### Paper Comparison
+<img src="public/snapshots/compare.png" alt="Side-by-side paper comparison" width="800" />
+
+### Explore & Discover
+<img src="public/snapshots/explore.png" alt="Explore topics and collections" width="800" />
+
+</div>
+
 ## Features
 
 ### Core Search & Discovery
