@@ -2,9 +2,20 @@
 
 All notable changes to ArxivExplorer are documented in this file.
 
-**Version:** 1.2.0  
-**Development Period:** May 30 - June 5, 2026  
+**Version:** 1.3.0  
+**Development Period:** June 6, 2026  
 **License:** BSL 1.1 (converts to MIT on 2029-06-01)
+
+---
+
+## [1.3.0] - 2026-06-06
+
+### Added - Discovery Features
+- **Follow-up Questions as Search Links** - AI-generated research questions in paper summaries are now clickable search links, enabling direct exploration of related topics
+- **Persistent Expertise Slider** - "Undergrad ↔ Researcher" preference is now saved to localStorage and persists across sessions
+
+### Improved - UI/UX
+- **Cleaner Search Results** - Removed confusing `(cached)` indicator from search results that could make results appear stale to users
 
 ---
 
