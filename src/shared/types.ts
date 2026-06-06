@@ -24,6 +24,7 @@ export interface Paper {
   affiliations?: Array<{ author: string; institution: string; country: string; rorId?: string }>;
   codeCount?: number;
   hasBenchmark?: boolean;
+  citationCount?: number;
   influentialCitationCount?: number;
   referenceCount?: number;
 }
@@ -129,6 +130,7 @@ export interface PaperRow {
   affiliations?: string;  // JSON
   code_count?: number;
   has_benchmark?: number;
+  citation_count?: number;
   influential_citation_count?: number;
   reference_count?: number;
   // Joined summary columns (may be null)

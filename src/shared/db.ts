@@ -100,6 +100,7 @@ export function rowToPaper(row: PaperRow): PaperWithSummary {
   if (row.oa_url !== undefined)         paper.oaUrl = row.oa_url ?? null;
   if (row.code_count !== undefined)     paper.codeCount = row.code_count ?? 0;
   if (row.has_benchmark !== undefined)  paper.hasBenchmark = row.has_benchmark === 1;
+  if (row.citation_count !== undefined)             paper.citationCount = row.citation_count ?? 0;
   if (row.influential_citation_count !== undefined) paper.influentialCitationCount = row.influential_citation_count ?? 0;
   if (row.reference_count !== undefined) paper.referenceCount = row.reference_count ?? 0;
   if (row.openalex_id !== undefined)    paper.openalexId = row.openalex_id ?? undefined;
@@ -129,7 +130,7 @@ const PAPER_SELECT = `
       p.published_at, p.revised_at, p.pdf_url, p.html_url, p.indexed_at, p.summary_ready,
       p.is_open_access, p.oa_url, p.concepts, p.affiliations,
       p.code_count, p.has_benchmark, p.openalex_id, p.ss_paper_id,
-      p.influential_citation_count, p.reference_count,
+      p.citation_count, p.influential_citation_count, p.reference_count,
       s.tldr, s.key_contributions, s.methods, s.limitations,
       s.beginner_explain, s.technical_summary, s.generated_at, s.model_version,
       s.keywords, s.entities, s.paper_type, s.novelty, s.problem_statement,
