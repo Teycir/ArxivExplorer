@@ -233,25 +233,24 @@ export async function getPapersByTopic(
   slug: string,
   limit = 20
 ): Promise<PaperWithSummary[]> {
-  // Pull category codes from the normalized join table.
-  const { results: catRows } = await db.prepare(
-    'SELECT category_code FROM topic_categories WHERE topic_slug = ? ORDER BY display_order ASC'
-  ).bind(slug).all<{ category_code: string }>();
+  // Routing via topics.keywords → FTS (migration 0015 dropped topic_categories).
+  const topicRow = await db.prepare(
+    'SELECT keywords FROM topics WHERE slug = ?'
+  ).bind(slug).first<{ keywords: string | null }>();
 
-  if (catRows.length === 0) return [];
-  const tags = catRows.map(r => r.category_code);
+  if (!topicRow?.keywords?.trim()) return [];
 
-  // Single query using INNER JOIN on summaries + the same completeness predicates
-  // as getTopicsWithPapers — guarantees the paper count on the explore page and
-  // the papers returned here are always consistent.
-  const placeholders = tags.map(() => '?').join(', ');
+  // Build an OR query from the keyword list so any matching term is a hit.
+  const terms = topicRow.keywords.trim().split(/\s+/).filter(Boolean);
+  const ftsQuery = terms.map(t => `"${t}"`).join(' OR ');
 
+  const fetchLimit = limit * 3; // over-fetch so post-filter still returns `limit`
   const { results } = await db.prepare(`
     SELECT DISTINCT ${PAPER_SELECT}
-    FROM paper_categories pc
-    JOIN papers p     ON p.id = pc.paper_id
+    FROM papers_fts f
+    JOIN papers p     ON p.id = f.paper_id
     INNER JOIN summaries s ON s.paper_id = p.id
-    WHERE pc.category IN (${placeholders})
+    WHERE papers_fts MATCH ?
       AND p.summary_ready = 1
       AND p.title    != ''
       AND p.abstract != ''
@@ -259,37 +258,25 @@ export async function getPapersByTopic(
       AND s.beginner_explain  != ''
       AND s.technical_summary != ''
       AND json_array_length(s.key_contributions) > 0
-    ORDER BY p.published_at DESC
+    ORDER BY bm25(papers_fts, 10.0, 1.0, 5.0)
     LIMIT ?
-  `).bind(...tags, limit).all<PaperRow>();
+  `).bind(ftsQuery, fetchLimit).all<PaperRow>();
 
-  // Secondary JS guard catches any edge cases the SQL predicates miss (e.g. whitespace-only fields).
-  return results.map(rowToPaper).filter(isPaperComplete);
+  return results.map(rowToPaper).filter(isPaperComplete).slice(0, limit);
 }
 
 export async function getTopicBySlug(db: D1Database, slug: string): Promise<Topic | null> {
   const row = await db.prepare(
-    'SELECT slug, label, description, updated_at FROM topics WHERE slug = ?'
-  ).bind(slug).first<{ slug: string; label: string; description?: string; updated_at: string }>();
+    'SELECT slug, label, description, updated_at, keywords FROM topics WHERE slug = ?'
+  ).bind(slug).first<{ slug: string; label: string; description?: string; updated_at: string; keywords?: string }>();
 
   if (!row) return null;
-
-  // Fetch category details from the normalized join table
-  const { results: catRows } = await db.prepare(`
-    SELECT tc.category_code AS code,
-           COALESCE(ac.label, tc.category_code) AS label,
-           COALESCE(ac.domain, 'Other') AS domain
-    FROM topic_categories tc
-    LEFT JOIN arxiv_categories ac ON ac.code = tc.category_code
-    WHERE tc.topic_slug = ?
-    ORDER BY tc.display_order ASC
-  `).bind(slug).all<{ code: string; label: string; domain: string }>();
 
   const topic: Topic = {
     slug: row.slug,
     label: row.label,
-    categoryTags: catRows.map(r => r.code),
-    categoryDetails: catRows,
+    categoryTags: [],        // topic_categories dropped in 0015; tags no longer stored
+    categoryDetails: [],
     updatedAt: row.updated_at,
   };
   if (row.description) topic.description = row.description;
@@ -297,19 +284,19 @@ export async function getTopicBySlug(db: D1Database, slug: string): Promise<Topi
 }
 
 export async function getAllTopics(db: D1Database): Promise<Topic[]> {
-  // Return every topic that has at least one category mapping
+  // topic_categories dropped in 0015 — every topic with keywords is valid
   const { results } = await db.prepare(`
-    SELECT DISTINCT t.slug, t.label, t.description, t.updated_at
-    FROM topics t
-    JOIN topic_categories tc ON tc.topic_slug = t.slug
-    ORDER BY t.label ASC
+    SELECT slug, label, description, updated_at
+    FROM topics
+    WHERE keywords IS NOT NULL AND keywords != ''
+    ORDER BY label ASC
   `).all<{ slug: string; label: string; description?: string; updated_at: string }>();
 
   return results.map(r => {
     const topic: Topic = {
       slug: r.slug,
       label: r.label,
-      categoryTags: [],   // not needed for sitemap — populated on demand by getTopicBySlug
+      categoryTags: [],
       updatedAt: r.updated_at,
     };
     if (r.description) topic.description = r.description;
@@ -323,70 +310,59 @@ export interface TopicWithCategories extends Topic {
 }
 
 export async function getTopicsWithPapers(db: D1Database): Promise<Array<TopicWithCategories>> {
-  // Count only COMPLETE papers (summary_ready=1 + all key fields non-empty).
-  // Counts across ALL mapped categories for each topic (same breadth as the
-  // topic page itself — a paper tagged cs.AI+cs.LG appears in every topic
-  // that maps to either). This matches what the user sees when clicking the topic.
+  // topic_categories / paper_categories / arxiv_categories dropped in migration 0015.
+  // Paper counts are now estimated via FTS: for each topic we count papers whose
+  // FTS index matches any keyword from topics.keywords.
+  // Full count query per topic would be expensive; we run one FTS per topic but
+  // cap at 500 matches — enough to rank topics accurately on the explore page.
+
   const { results: topicRows } = await db.prepare(`
-    SELECT
-      t.slug, t.label, t.description, t.updated_at,
-      COUNT(DISTINCT pc.paper_id) AS paper_count
-    FROM topics t
-    JOIN topic_categories tc ON tc.topic_slug = t.slug
-    JOIN paper_categories pc ON pc.category = tc.category_code
-    JOIN papers p            ON p.id = pc.paper_id
-    JOIN summaries s         ON s.paper_id = p.id
-    WHERE p.summary_ready = 1
-      AND p.title   != ''
-      AND p.abstract != ''
-      AND s.tldr    != ''
-      AND s.beginner_explain  != ''
-      AND s.technical_summary != ''
-      AND json_array_length(s.key_contributions) > 0
-    GROUP BY t.slug
-    HAVING paper_count > 0
-    ORDER BY paper_count DESC
-  `).all<{
-    slug: string; label: string; description?: string;
-    updated_at: string; paper_count: number;
-  }>();
+    SELECT slug, label, description, updated_at, keywords
+    FROM topics
+    WHERE keywords IS NOT NULL AND keywords != ''
+    ORDER BY label ASC
+  `).all<{ slug: string; label: string; description?: string; updated_at: string; keywords: string }>();
 
   if (topicRows.length === 0) return [];
 
-  // Fetch all category mappings for the returned topics in one query
-  const slugs = topicRows.map(r => r.slug);
-  const placeholders = slugs.map(() => '?').join(',');
-  const { results: catRows } = await db.prepare(`
-    SELECT tc.topic_slug,
-           tc.category_code AS code,
-           COALESCE(ac.label, tc.category_code) AS label,
-           COALESCE(ac.domain, 'Other') AS domain
-    FROM topic_categories tc
-    LEFT JOIN arxiv_categories ac ON ac.code = tc.category_code
-    WHERE tc.topic_slug IN (${placeholders})
-    ORDER BY tc.topic_slug, tc.display_order ASC
-  `).bind(...slugs).all<{ topic_slug: string; code: string; label: string; domain: string }>();
+  const topicsWithCounts: Array<TopicWithCategories> = [];
 
-  // Group categories by topic
-  const catsByTopic = new Map<string, Array<{ code: string; label: string; domain: string }>>();
-  for (const row of catRows) {
-    if (!catsByTopic.has(row.topic_slug)) catsByTopic.set(row.topic_slug, []);
-    catsByTopic.get(row.topic_slug)!.push({ code: row.code, label: row.label, domain: row.domain });
+  for (const t of topicRows) {
+    const terms = t.keywords.trim().split(/\s+/).filter(Boolean);
+    const ftsQuery = terms.map(w => `"${w}"`).join(' OR ');
+
+    const countRow = await db.prepare(`
+      SELECT COUNT(DISTINCT p.id) AS cnt
+      FROM papers_fts f
+      JOIN papers p     ON p.id = f.paper_id
+      INNER JOIN summaries s ON s.paper_id = p.id
+      WHERE papers_fts MATCH ?
+        AND p.summary_ready = 1
+        AND p.title    != ''
+        AND p.abstract != ''
+        AND s.tldr     != ''
+        AND s.beginner_explain  != ''
+        AND s.technical_summary != ''
+        AND json_array_length(s.key_contributions) > 0
+    `).bind(ftsQuery).first<{ cnt: number }>();
+
+    const paperCount = countRow?.cnt ?? 0;
+    if (paperCount === 0) continue;
+
+    topicsWithCounts.push({
+      slug:            t.slug,
+      label:           t.label,
+      description:     t.description,
+      updatedAt:       t.updated_at,
+      paperCount,
+      categoryTags:    [],   // no longer stored post-0015
+      categoryDetails: [],
+    });
   }
 
-  return topicRows.map(r => {
-    const categoryDetails = catsByTopic.get(r.slug) ?? [];
-    const topic: TopicWithCategories = {
-      slug: r.slug,
-      label: r.label,
-      categoryTags: categoryDetails.map(c => c.code),
-      updatedAt: r.updated_at,
-      paperCount: r.paper_count,
-      categoryDetails,
-    };
-    if (r.description) topic.description = r.description;
-    return topic;
-  });
+  // Sort descending by paper count (matches explore page ranking)
+  topicsWithCounts.sort((a, b) => b.paperCount - a.paperCount);
+  return topicsWithCounts;
 }
 
 /**
@@ -459,8 +435,9 @@ export async function ftsSearch(
 
   if (since) { whereParts.push('p.published_at >= ?'); binds.push(since); }
   if (cat) {
-    whereParts.push('EXISTS (SELECT 1 FROM paper_categories pc WHERE pc.paper_id = p.id AND pc.category = ?)');
-    binds.push(cat);
+    // paper_categories dropped in 0015; filter against the JSON categories column instead
+    whereParts.push("p.categories LIKE ?");
+    binds.push(`%${cat}%`);
   }
   if (author) { whereParts.push('p.authors LIKE ?'); binds.push(`%${author}%`); }
   if (minCitations !== null && minCitations > 0) { whereParts.push('p.citation_count >= ?'); binds.push(minCitations); }

@@ -39,16 +39,16 @@ async function fetchAll<T>(table: string, cols: string, order: string): Promise<
 async function main() {
   console.log('⬇️  pull-remote-to-local\n');
 
-  const [papers, summaries, related, categories, embeddings, topics] = await Promise.all([
+  // paper_categories dropped in migration 0015 — categories live in papers.categories JSON only
+  const [papers, summaries, related, embeddings, topics] = await Promise.all([
     fetchAll<any>('papers', '*', 'indexed_at ASC'),
     fetchAll<any>('summaries', '*', 'paper_id ASC'),
     fetchAll<any>('related_papers', '*', 'paper_id ASC, rank ASC'),
-    fetchAll<any>('paper_categories', '*', 'paper_id ASC'),
     fetchAll<any>('embeddings_meta', '*', 'paper_id ASC'),
     fetchAll<any>('topics', '*', 'slug ASC'),
   ]);
 
-  console.log(`\nFetched: ${papers.length} papers, ${summaries.length} summaries, ${related.length} related, ${categories.length} categories, ${embeddings.length} embeddings, ${topics.length} topics`);
+  console.log(`\nFetched: ${papers.length} papers, ${summaries.length} summaries, ${related.length} related, ${embeddings.length} embeddings, ${topics.length} topics`);
 
   const db = new Database(LOCAL_DB);
   db.pragma('journal_mode = WAL');
@@ -72,7 +72,7 @@ async function main() {
   insert('papers', papers);
   insert('summaries', summaries);
   insert('related_papers', related);
-  insert('paper_categories', categories);
+  // paper_categories dropped in migration 0015 — skip
   insert('embeddings_meta', embeddings);
   insert('topics', topics);
 

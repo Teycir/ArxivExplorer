@@ -7,15 +7,19 @@
  *
  * It has been replaced by the database:
  *
- *   topics          — slug, label, description (one row per topic)
- *   topic_categories — topic_slug, category_code, display_order  (FK join table)
- *   arxiv_categories — code, label, domain  (the category dictionary)
+ *   topics — slug, label, description, keywords (one row per topic)
  *
- * Seeded by: migrations/0014_topic_categories_normalized.sql
+ * Keywords are a space-separated list of terms used by the FTS routing
+ * layer (getPapersByTopic in src/shared/db.ts) to match papers to topics.
  *
- * To add a topic:  INSERT INTO topics + INSERT INTO topic_categories
- * To remove one:   DELETE FROM topics WHERE slug = '...'  (cascades)
- * To add a cat:    INSERT INTO topic_categories (topic_slug, category_code, display_order)
+ * Seeded by: migrations/0015_drop_category_joins.sql
+ *
+ * To add a topic:   INSERT INTO topics (slug, label, description, keywords, updated_at)
+ * To remove one:    DELETE FROM topics WHERE slug = '...'
+ * To update keywords: UPDATE topics SET keywords = '...' WHERE slug = '...'
+ *
+ * NOTE: topic_categories, arxiv_categories, and paper_categories were all
+ * dropped in migration 0015. Routing is now purely FTS-based via topics.keywords.
  *
  * This file is kept as a tombstone so git history explains the removal.
  * All exports have been removed — any import will now produce a TypeScript

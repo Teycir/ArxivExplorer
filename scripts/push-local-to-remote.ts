@@ -84,10 +84,10 @@ async function main() {
   // Reset remote schema via wrangler
   console.log('Resetting remote schema…');
   wranglerExecFile(SCHEMA);
-  // Wipe data
+  // Wipe data (paper_categories dropped in migration 0015; not included)
   const wipeSql = path.join(os.tmpdir(), `arxiv-wipe-${Date.now()}.sql`);
   fs.writeFileSync(wipeSql,
-    'DELETE FROM related_papers; DELETE FROM summaries; DELETE FROM paper_categories; DELETE FROM embeddings_meta; DELETE FROM papers; DELETE FROM topics;',
+    'DELETE FROM related_papers; DELETE FROM summaries; DELETE FROM embeddings_meta; DELETE FROM papers; DELETE FROM topics;',
     'utf8'
   );
   wranglerExecFile(wipeSql);
@@ -97,7 +97,7 @@ async function main() {
   await pushTable(db, 'papers', 'indexed_at ASC');
   await pushTable(db, 'summaries', 'paper_id ASC');
   await pushTable(db, 'related_papers', 'paper_id ASC, rank ASC');
-  await pushTable(db, 'paper_categories', 'paper_id ASC');
+  // paper_categories dropped in migration 0015 — skip
   await pushTable(db, 'embeddings_meta', 'paper_id ASC');
   await pushTable(db, 'topics', 'slug ASC');
 

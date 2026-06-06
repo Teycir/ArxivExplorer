@@ -4,7 +4,7 @@ compatibility_date = "2025-01-01"
 workers_dev = true
 
 [triggers]
-crons = ["* * * * *"]  # every minute for testing
+crons = ["0 * * * *"]  # every hour at :00 UTC
 
 [[d1_databases]]
 binding = "DB"
@@ -23,36 +23,41 @@ id = "ed3c323de9cc48a4b332beec939597a4"
 binding = "AI"
 
 [vars]
-# ── Neuron budget: 10,000 / day (free tier) ──────────────────────────────────
-# Cost: ~44 neurons / paper  (1 embedding + ~43 summary tokens)
-# Target: ≤ 200 new papers / day  →  ~8,800 neurons  (safe margin)
+# ALL arXiv categories needed to feed every topic in the DB.
+# 24 categories × 10 papers × 24 runs = 5,760 fetch attempts/day
+# After dedup typically ~60-120 truly new papers reach AI (~5,280 neurons/day)
+# Daily cap: 227 papers (10,000 neurons ÷ 44 neurons/paper) — enforced by pipeline quota
 #
-# 2 categories × 10 papers / cron × 24 runs = 480 fetch attempts/day
-# After D1 dedup ~50–80 truly new papers reach AI  →  ~3,500 neurons/day
-# ─────────────────────────────────────────────────────────────────────────────
-ARXIV_FETCH_CATEGORIES = "cs.AI,cs.LG"
-SUMMARY_MODEL = "@cf/meta/llama-3.1-8b-instruct"
-EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5"
-ARXIV_FETCH_LIMIT_PER_CATEGORY = "0"
-INGEST_MAX_CONCURRENT = "1"
-ARXIV_RATE_LIMIT_DELAY_MS = "3000"
-INGEST_PHASE = "hourly"
-POLITE_EMAIL = "your-email@example.com"
+# Derived from migrations/0014_topic_categories_normalized.sql topic_categories table.
+# Every code listed there must appear here, or papers for that topic never arrive.
+#
+# cs.AI  → Alignment, Agents, Efficient ML, Architectures, Vision, Robotics
+# cs.AR  → Computer Architecture
+# cs.CC  → Complexity
+# cs.CL  → LLMs, Alignment, Multimodal, RAG, Speech & Audio
+# cs.CR  → Cryptography, Adversarial ML, Privacy
+# cs.CV  → Multimodal, Diffusion, Efficient ML, Vision, Adversarial ML
+# cs.DC  → Distributed Systems, Operating Systems
+# cs.DM  → Algorithms
+# cs.DS  → Algorithms
+# cs.HC  → HCI
+# cs.IR  → RAG
+# cs.IT  → Info Theory
+# cs.LG  → LLMs, RL, Agents, Diffusion, Efficient ML, Alignment, Architectures, Adversarial ML, Privacy, Program Synthesis
+# cs.MA  → Agents
+# cs.NE  → Architectures
+# cs.NI  → Networking
+# cs.OS  → Operating Systems
+# cs.PL  → Program Synthesis
+# cs.RO  → Robotics
+# cs.SD  → Speech & Audio
+# cs.SE  → Program Synthesis, Software Testing
+# eess.AS → Speech & Audio
+# eess.SP → Info Theory
+# stat.ML → Efficient ML
+ARXIV_FETCH_CATEGORIES = "cs.AI,cs.AR,cs.CC,cs.CL,cs.CR,cs.CV,cs.DC,cs.DM,cs.DS,cs.HC,cs.IR,cs.IT,cs.LG,cs.MA,cs.NE,cs.NI,cs.OS,cs.PL,cs.RO,cs.SD,cs.SE,eess.AS,eess.SP,stat.ML"
 
-# Bulk schedule (overrides hourly defaults)
-BULK_FETCH_CATEGORIES = "cs.AI,cs.LG,cs.CL,cs.CV,cs.CR,cs.NE,stat.ML"
-BULK_FETCH_LIMIT_PER_CATEGORY = "50"
-
-# ── Ollama (optional) ─────────────────────────────────────────────────────────
-# When OLLAMA_BASE is set the ingest-worker calls Ollama FIRST and only falls
-# back to Workers AI if Ollama fails. Set this to your machine's LAN IP so the
-# Cloudflare Worker can reach it (Cloudflare → your router → Ollama).
-#
-# Requires a tunnel or port-forward from a public IP to localhost:11434.
-# Fastest option: cloudflared tunnel (free):
-#   cloudflared tunnel --url http://localhost:11434
-# Then set OLLAMA_BASE to the generated https://*.trycloudflare.com URL.
-#
-# OLLAMA_BASE = "https://your-tunnel.trycloudflare.com"
-# OLLAMA_SUMMARY_MODEL = "gemma4:e4b"       # default: gemma4:e4b
-# OLLAMA_EMBEDDING_MODEL = "nomic-embed-text" # default: nomic-embed-text
+SUMMARY_MODEL    = "@cf/meta/llama-3.1-8b-instruct"
+EMBEDDING_MODEL  = "@cf/baai/bge-base-en-v1.5"
+INGEST_MAX_CONCURRENT = "2"
+POLITE_EMAIL     = "teycircoder12@gmail.com"
