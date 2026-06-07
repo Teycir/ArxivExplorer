@@ -78,9 +78,15 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE || '';
 
 async function classifyOne(
   claim: string,
-  paper: PaperWithSummary
+  paper: PaperWithSummary,
+  attempt = 0
 ): Promise<ClassifiedPaper> {
-  const res = await fetch(`${API_BASE}/api/classify-claim`, {
+  // Always call the Next.js proxy (/api/classify-claim), never the worker
+  // directly. The proxy forwards the real client IP via X-Real-IP so the
+  // worker rate-limits per user, not per server. Using NEXT_PUBLIC_API_BASE
+  // here pointed at the worker directly, bypassing the proxy and collapsing
+  // all users into a single rate-limit bucket.
+  const res = await fetch(`/api/classify-claim`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -90,7 +96,15 @@ async function classifyOne(
     }),
   });
 
+  // Retry once on 429 with a short backoff — burst classification can
+  // occasionally hit the limit on the first attempt; one retry is enough
+  // to recover without hammering the server.
   if (res.status === 429) {
+    if (attempt === 0) {
+      const retryAfter = Number(res.headers.get('Retry-After') ?? '3');
+      await new Promise(r => setTimeout(r, Math.min(retryAfter, 10) * 1000));
+      return classifyOne(claim, paper, 1);
+    }
     const json = await res.json() as { error: string; retryAfter?: number };
     throw new Error(json.error || 'Rate limit exceeded. Please try again later.');
   }

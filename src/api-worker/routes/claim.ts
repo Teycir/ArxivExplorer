@@ -49,12 +49,16 @@ export async function handleClassifyClaim(
     return errorResponse('Method not allowed', cors, 405);
   }
 
-  // Rate limit: 10 requests per minute per IP
+  // Rate limit: 50 classify requests per minute per IP.
+  // One claim search fires up to 15 concurrent classify calls, so the old
+  // limit of 10/min was structurally too low — it fired on the very first
+  // search. 50/min gives ~3 full searches per minute per user with headroom.
+  // Lockout reduced to 30s (was 120s) so a burst doesn't block the user for 2min.
   const ip = getClientIP(request);
   const rateLimit = await checkRateLimit(env.CACHE, ip, {
-    maxRequests: 10,
+    maxRequests: 50,
     windowSeconds: 60,
-    lockoutSeconds: 120,
+    lockoutSeconds: 30,
     namespace: 'claim',
   });
 
