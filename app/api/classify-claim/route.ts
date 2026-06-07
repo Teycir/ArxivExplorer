@@ -1,33 +1,25 @@
 /**
  * app/api/classify-claim/route.ts
- * Next.js proxy route — forwards classify-claim POSTs to the Cloudflare Worker.
+ * Next.js proxy route — forwards classify-claim POSTs to the Cloudflare API Worker.
  *
  * Why this exists:
- * - The browser cannot POST directly to the worker (CSP connect-src + CORS constraints).
- * - This server-side route forwards the request using the server-side API_BASE env var,
- *   which is not subject to browser CSP.
+ * - Browsers cannot POST directly to the API worker (CSP connect-src restricts it).
+ * - This server-side route forwards via the `API` Cloudflare service binding so the
+ *   request never leaves the edge network, avoiding CF error 1042 (same-zone HTTP
+ *   subrequests between workers are blocked; service bindings are the correct path).
  *
  * Security:
- * - Forwards real client IP via X-Real-IP header for Worker rate limiting
- * - Re-validates input length before forwarding (defense in depth)
+ * - Forwards real client IP via X-Real-IP for per-user rate limiting on the worker.
+ * - Re-validates input length (defense in depth).
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 
-// In the Cloudflare Worker (OpenNext) runtime, wrangler vars are NOT exposed via
-// process.env — they live on the `env` binding object which Next.js route handlers
-// can't access directly. So we read the env vars and fall back to the hardcoded
-// worker URL to avoid a self-referencing loop (empty string → fetch /api/classify-claim
-// → this route again → infinite loop → 500).
-const API_BASE =
-  process.env.API_BASE ??
-  process.env.NEXT_PUBLIC_API_BASE ??
-  'https://arxiv-api.arxivexplorer.workers.dev';
+const PUBLIC_API = 'https://arxiv-api.arxivexplorer.workers.dev';
 
 function getClientIP(req: NextRequest): string {
-  // Cloudflare sets cf-connecting-ip (real client IP) and x-forwarded-for.
-  // Do NOT use req.ip — it is removed in Next.js 15 App Router and throws
-  // in the Cloudflare Worker (OpenNext) runtime, causing a 500 before fetch.
+  // Cloudflare sets cf-connecting-ip (real client IP).
+  // Do NOT use req.ip — removed in Next.js 15 App Router, throws in CF runtime.
   return (
     req.headers.get('cf-connecting-ip') ??
     req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
@@ -39,15 +31,10 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json() as { claim?: string; abstract?: string; tldr?: string };
 
-    // Validate required fields
     if (!body.claim || !body.abstract) {
-      return NextResponse.json(
-        { error: 'Missing claim or abstract' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Missing claim or abstract' }, { status: 400 });
     }
 
-    // Re-validate input length (defense in depth)
     if (body.claim.length > 500 || body.abstract.length > 2000) {
       return NextResponse.json(
         { error: 'Input too long (claim: max 500, abstract: max 2000 characters)' },
@@ -56,33 +43,60 @@ export async function POST(req: NextRequest) {
     }
 
     const clientIP = getClientIP(req);
+    const payload = JSON.stringify(body);
+    const headers = {
+      'Content-Type': 'application/json',
+      'X-Real-IP': clientIP,
+    };
 
-    const upstream = await fetch(`${API_BASE}/api/classify-claim`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Real-IP': clientIP, // Forward real client IP for rate limiting
-      },
-      body: JSON.stringify(body),
-    });
+    let upstream: Response;
 
-    const data = await upstream.json();
-    
-    // Forward rate limit headers if present
-    const headers: Record<string, string> = {};
-    const retryAfter = upstream.headers.get('Retry-After');
-    if (retryAfter) {
-      headers['Retry-After'] = retryAfter;
+    // Try the service binding first (stays on-edge, avoids CF error 1042).
+    // Fall back to public HTTP fetch for local dev where bindings aren't available.
+    try {
+      const { getCloudflareContext } = await import('@opennextjs/cloudflare');
+      const { env } = await getCloudflareContext({ async: true });
+      const apiBinding = (env as Record<string, { fetch: typeof fetch }>)['API'];
+      if (apiBinding?.fetch) {
+        upstream = await apiBinding.fetch('https://api-internal/api/classify-claim', {
+          method: 'POST',
+          headers,
+          body: payload,
+        });
+      } else {
+        upstream = await fetch(`${PUBLIC_API}/api/classify-claim`, {
+          method: 'POST', headers, body: payload,
+        });
+      }
+    } catch {
+      upstream = await fetch(`${PUBLIC_API}/api/classify-claim`, {
+        method: 'POST', headers, body: payload,
+      });
     }
 
-    return NextResponse.json(data, { 
-      status: upstream.status,
-      headers,
-    });
+    // Parse safely — infrastructure errors may return plain text, not JSON.
+    const ct = upstream.headers.get('content-type') ?? '';
+    if (!ct.includes('application/json')) {
+      const text = await upstream.text();
+      return NextResponse.json(
+        { error: 'Classification service unavailable', detail: text.slice(0, 200) },
+        { status: 503 }
+      );
+    }
+
+    const data = await upstream.json();
+
+    const resHeaders: Record<string, string> = {};
+    const retryAfter = upstream.headers.get('Retry-After');
+    if (retryAfter) resHeaders['Retry-After'] = retryAfter;
+
+    return NextResponse.json(data, { status: upstream.status, headers: resHeaders });
+
   } catch (err) {
-    console.error('[proxy/classify-claim]', err);
+    const errMsg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+    console.error('[proxy/classify-claim] CRASH:', errMsg);
     return NextResponse.json(
-      { error: 'Service temporarily unavailable' },
+      { error: 'Service temporarily unavailable', detail: errMsg },
       { status: 500 }
     );
   }
