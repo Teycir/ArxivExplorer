@@ -379,7 +379,10 @@ async function handleMoreLikeThis(
     query: `like:${paperId}`,
   };
 
-  kvPutAsync(ctx, env.CACHE, cacheKey, { ...response, cached: true }, TTL_SEARCH);
+  // Only cache non-empty results (same policy as handleAbstractSearch).
+  if (papers.length > 0) {
+    kvPutAsync(ctx, env.CACHE, cacheKey, { ...response, cached: true }, TTL_SEARCH);
+  }
   return jsonResponse(response, cors);
 }
 
@@ -443,6 +446,12 @@ async function handleAbstractSearch(
     query: text.slice(0, 100) + (text.length > 100 ? '...' : ''),
   };
 
-  kvPutAsync(ctx, env.CACHE, cacheKey, { ...response, cached: true }, TTL_SEARCH);
+  // Only cache non-empty results. An empty result set can be transient
+  // (Vectorize cold start, quality gate too strict for that query at that
+  // moment) and caching it for 2h would make the user see "No papers found"
+  // for every subsequent attempt with the same text until the TTL expires.
+  if (papers.length > 0) {
+    kvPutAsync(ctx, env.CACHE, cacheKey, { ...response, cached: true }, TTL_SEARCH);
+  }
   return jsonResponse(response, cors);
 }

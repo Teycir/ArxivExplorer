@@ -125,6 +125,7 @@ export default function ClaimTrackerPage() {
       return;
     }
 
+    // Reset ALL state before issuing any network request.
     setStatus('searching');
     setError('');
     setResults([]);
@@ -149,8 +150,12 @@ export default function ClaimTrackerPage() {
     }
 
     if (papers.length === 0) {
-      setError('No papers found matching your claim. Try rephrasing or broadening your search terms.');
-      setStatus('idle');
+      // Don't put this in the error banner (which can linger). Instead
+      // transition to 'done' with an empty results array — the empty-state
+      // block at the bottom of the render will display the message, and it
+      // will be cleared automatically the moment the next search starts
+      // (because setResults([]) + setStatus('searching') fires first).
+      setStatus('done');
       return;
     }
 
@@ -351,7 +356,7 @@ export default function ClaimTrackerPage() {
         {/* Empty state after done */}
         {status === 'done' && results.length === 0 && (
           <div className="text-center py-24 font-mono text-white/25 text-sm">
-            No papers found for this claim.
+            No papers found for this claim. Try rephrasing or broadening your search terms.
           </div>
         )}
 

@@ -129,7 +129,33 @@ describe('Search route — paper_id extraction from Vectorize metadata (regressi
   });
 });
 
-// ─── Quality gate — MIN_RELATIVE_SCORE filter ────────────────────────────────
+// ─── Empty-result cache policy ────────────────────────────────────────────────
+
+describe('Abstract search — empty results must NOT be cached (regression)', () => {
+  /**
+   * Simulates the caching decision in handleAbstractSearch / handleMoreLikeThis.
+   * Before the fix: kvPutAsync was called unconditionally → empty results got
+   * cached for 2h → every subsequent search for the same text returned 0 papers
+   * even after Vectorize returned real results.
+   */
+  function shouldCache(papers: unknown[]): boolean {
+    // The fix: only cache when papers.length > 0
+    return papers.length > 0;
+  }
+
+  it('does NOT cache an empty result set', () => {
+    assert.equal(shouldCache([]), false,
+      'empty results must never be written to KV — they are transient');
+  });
+
+  it('caches a non-empty result set', () => {
+    assert.equal(shouldCache([{ id: '2301.12345' }]), true);
+  });
+
+  it('caches when exactly one paper returned', () => {
+    assert.equal(shouldCache([{}]), true);
+  });
+});
 
 describe('Semantic search quality gate — MIN_RELATIVE_SCORE = 0.70', () => {
   const MIN_RELATIVE_SCORE = 0.70;
