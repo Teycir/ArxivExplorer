@@ -42,6 +42,7 @@ function writeCache(data: SuggestedPaper[]): void {
 export function PersonalizedFeed() {
   const [suggestions, setSuggestions] = useState<SuggestedPaper[]>([]);
   const [loading,     setLoading]     = useState(true);
+  const [feedError,   setFeedError]   = useState('');
 
   useEffect(() => {
     async function load() {
@@ -54,13 +55,18 @@ export function PersonalizedFeed() {
         setLoading(false);
         fetchSuggestions(bookmarks).then(fresh => {
           if (fresh.length > 0) { setSuggestions(fresh); writeCache(fresh); }
-        }).catch(() => {/* non-fatal */});
+        }).catch((err) => { console.error('[PersonalizedFeed] background refresh failed:', err); });
         return;
       }
 
-      const fresh = await fetchSuggestions(bookmarks);
-      setSuggestions(fresh);
-      if (fresh.length > 0) writeCache(fresh);
+      try {
+        const fresh = await fetchSuggestions(bookmarks);
+        setSuggestions(fresh);
+        if (fresh.length > 0) writeCache(fresh);
+      } catch (err) {
+        console.error('[PersonalizedFeed] fetchSuggestions failed:', err);
+        setFeedError(err instanceof Error ? err.message : 'Failed to load recommendations');
+      }
       setLoading(false);
     }
 
@@ -110,6 +116,12 @@ export function PersonalizedFeed() {
     window.addEventListener('arxiv:bookmarks-changed', handleBookmarksChanged);
     return () => window.removeEventListener('arxiv:bookmarks-changed', handleBookmarksChanged);
   }, []);
+
+  if (!loading && feedError) {
+    // Don't render the section at all on error — it's non-critical UI.
+    // The error is logged to console for debugging.
+    return null;
+  }
 
   if (!loading && suggestions.length === 0) return null;
 

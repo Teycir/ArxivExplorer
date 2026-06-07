@@ -19,8 +19,11 @@ export const revalidate = 600;
 
 export default async function HomePage() {
   const [weekPapers, stats] = await Promise.all([
-    getTrendingPapers('week').then(d => d.papers ?? [] as PaperWithSummary[]).catch(() => [] as PaperWithSummary[]),
-    getStats().catch(() => ({ totalPapers: 0 })),
+    getTrendingPapers('week')
+      .then(d => d.papers ?? [] as PaperWithSummary[])
+      .catch((err) => { console.error('[home] getTrendingPapers failed:', err); return [] as PaperWithSummary[]; }),
+    getStats()
+      .catch((err) => { console.error('[home] getStats failed:', err); return { totalPapers: 0 }; }),
   ]);
 
   const totalPapers = stats.totalPapers;

@@ -55,6 +55,15 @@ export default async function ComparePage({
     .filter((r): r is PromiseFulfilledResult<PaperWithSummary> => r.status === 'fulfilled')
     .map(r => r.value);
 
+  // Log any rejected fetches so they're visible in worker logs
+  settled.forEach((r, i) => {
+    if (r.status === 'rejected') {
+      console.error(`[compare/page] getPaper(${ids[i]}) failed:`, r.reason);
+    }
+  });
+
+  const droppedCount = settled.filter(r => r.status === 'rejected').length;
+
   // Nothing in the DB for any of the requested IDs → clean 404
   if (validPapers.length === 0) notFound();
 
@@ -66,6 +75,11 @@ export default async function ComparePage({
           <h1 className="text-xl font-mono font-bold text-white mb-2">Paper Comparison</h1>
           <p className="text-xs text-neutral-500 font-mono">
             Comparing {validPapers.length} paper{validPapers.length > 1 ? 's' : ''}
+            {droppedCount > 0 && (
+              <span className="ml-2 text-yellow-500/70">
+                · {droppedCount} ID{droppedCount > 1 ? 's' : ''} not found in the database
+              </span>
+            )}
           </p>
         </div>
 

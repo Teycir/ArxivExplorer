@@ -22,8 +22,18 @@ async function AuthorsLoader() {
   let data: Awaited<ReturnType<typeof getAuthors>>;
   try {
     data = await getAuthors({ limit: 200 });
-  } catch {
-    data = { authors: [], total: 0 };
+  } catch (err) {
+    console.error('[authors/page] getAuthors failed:', err);
+    // Show an inline error instead of silently rendering an empty list,
+    // so users know it's a service issue, not "no authors exist".
+    return (
+      <div className="flex flex-col items-center justify-center py-32 gap-3 text-center">
+        <p className="text-sm font-mono text-red-400">Failed to load authors.</p>
+        <p className="text-xs font-mono text-white/30">
+          {err instanceof Error ? err.message : 'Service temporarily unavailable — try again.'}
+        </p>
+      </div>
+    );
   }
 
   return (
