@@ -2,9 +2,22 @@
 
 All notable changes to ArxivExplorer are documented in this file.
 
-**Version:** 1.3.0  
-**Development Period:** June 6, 2026  
+**Version:** 1.4.0  
+**Development Period:** June 7, 2026  
 **License:** BSL 1.1 (converts to MIT on 2029-06-01)
+
+---
+
+## [1.4.0] - 2026-06-07
+
+### Refactoring — no functional changes
+
+- **Rate-limit boilerplate extracted** — Removed copy-pasted 20-line rate-limit/429 blocks from `trending.ts`, `search.ts`, and `paper.ts` into a `withRateLimit` middleware helper in `rate-limit.ts`
+- **`isPaperComplete` / `isRelatedPaperComplete` deduplicated** — Moved canonical definitions to `src/shared/utils.ts`; `lib/utils.ts` re-exports them; private copies in `db.ts` removed
+- **`PAPER_TYPE_LABELS` extracted** — Shared constant moved to `lib/constants.ts`; removed duplicate definitions in `PaperCard.tsx` and `paper/[arxiv_id]/page.tsx`
+- **Stale KV guard removed** — `'citationCount' in cached` migration shim in `paper.ts` dropped; all KV entries are now up-to-date
+
+> Rollback: `git revert` to tag `v1.3.0` or revert to commit before this version bump.
 
 ---
 
