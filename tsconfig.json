@@ -30,6 +30,7 @@
     "lib/**/*.ts",
     "helper/**/*.ts",
     "src/**/*.ts",
+    "tests/**/*.ts",
     ".next/types/**/*.d.ts",
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts"

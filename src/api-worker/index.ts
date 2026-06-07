@@ -14,7 +14,7 @@ import { handleClassifyClaim } from './routes/claim';
 import { handleAuthor } from './routes/author';
 import { handleAuthors } from './routes/authors';
 import { handleSitemap } from './routes/sitemap';
-import { handleVectorizeUpsert, handleRetryFailed, handleBackfillRelated, handleCrossRefBatch, handleGetAllPapers, handleClearRelated, handleBulkInsertRelated } from './routes/admin';
+import { handleVectorizeUpsert, handleEmbedAndUpsert, handleRetryFailed, handleBackfillRelated, handleCrossRefBatch, handleGetAllPapers, handleClearRelated, handleBulkInsertRelated, handleDebugSearch } from './routes/admin';
 import { handleTopics } from './routes/topics';
 import { handleStats } from './routes/stats';
 
@@ -61,13 +61,15 @@ export default {
       const authorMatch = path.match(/^\/api\/author\/(.+)$/);
       if (authorMatch) return handleAuthor(request, env, ctx, authorMatch[1]!);
 
-      if (path === '/admin/vectorize/upsert' && request.method === 'POST') return handleVectorizeUpsert(request, env);
+      if (path === '/admin/vectorize/upsert'  && request.method === 'POST') return handleVectorizeUpsert(request, env);
+      if (path === '/admin/embed-and-upsert'  && request.method === 'POST') return handleEmbedAndUpsert(request, env);
       if (path === '/admin/retry-failed'     && request.method === 'POST') return handleRetryFailed(request, env);
       if (path === '/admin/backfill-related' && request.method === 'POST') return handleBackfillRelated(request, env);
       if (path === '/admin/crossref-batch'   && request.method === 'POST') return handleCrossRefBatch(request, env);
       if (path === '/admin/papers/all'       && request.method === 'GET')  return handleGetAllPapers(request, env);
       if (path === '/admin/related/clear'    && request.method === 'POST') return handleClearRelated(request, env);
       if (path === '/admin/related/bulk-insert' && request.method === 'POST') return handleBulkInsertRelated(request, env);
+      if (path === '/admin/debug-search'        && request.method === 'POST') return handleDebugSearch(request, env);
 
       if (path === '/admin/kv/delete' && request.method === 'POST') {
         const { handleKvDelete } = await import('./routes/admin');

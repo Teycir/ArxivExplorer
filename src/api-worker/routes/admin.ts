@@ -346,6 +346,77 @@ export async function handleBulkInsertRelated(request: Request, env: Env): Promi
 }
 
 /**
+ * POST /admin/embed-and-upsert
+ * Generates embeddings via Cloudflare Workers AI (@cf/baai/bge-base-en-v1.5)
+ * and upserts them into Vectorize — the SAME model the search worker uses at
+ * query time. Replaces the nomic-embed-text vectors that caused semantic search
+ * to return unrelated results (different vector spaces).
+ * Body: { papers: [{ paper_id, text, metadata? }] }  — max 50 per call.
+ */
+export async function handleEmbedAndUpsert(request: Request, env: Env): Promise<Response> {
+  const auth = await checkAuth(request, env);
+  if (!auth.ok) {
+    return new Response(JSON.stringify({ error: auth.message }), {
+      status: auth.status, headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  try {
+    const body = await request.json() as {
+      papers: Array<{ paper_id: string; text: string; metadata?: Record<string, string> }>;
+    };
+    const papers = body.papers ?? [];
+
+    if (papers.length === 0) {
+      return new Response(JSON.stringify({ ok: 0, failed: 0 }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (papers.length > 50) {
+      return new Response(JSON.stringify({ error: 'Max 50 papers per call' }), {
+        status: 400, headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    let ok = 0, failed = 0;
+    const vectors: Array<{ id: string; values: number[]; metadata?: Record<string, string> }> = [];
+
+    for (const p of papers) {
+      try {
+        const result = await env.AI.run('@cf/baai/bge-base-en-v1.5', {
+          text: [p.text.slice(0, 2000)],
+        }) as { data?: number[][] };
+        const values = result.data?.[0];
+        if (!Array.isArray(values) || values.length === 0) throw new Error('Empty embedding');
+        vectors.push({
+          id: p.paper_id,
+          values,
+          metadata: {
+            paper_id: p.paper_id,          // ← required: search route uses this to look up the paper in D1
+            ...(p.metadata ?? {}),
+          },
+        });
+        ok++;
+      } catch (err) {
+        console.error(`[admin/embed-and-upsert] failed for ${p.paper_id}:`, err);
+        failed++;
+      }
+    }
+
+    if (vectors.length > 0) await env.VECTORIZE.upsert(vectors);
+
+    return new Response(JSON.stringify({ ok, failed }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  } catch (err) {
+    console.error('[admin/embed-and-upsert] error:', err);
+    return new Response(JSON.stringify({ error: String(err) }), {
+      status: 500, headers: { 'Content-Type': 'application/json' },
+    });
+  }
+}
+
+/**
  * POST /admin/backfill-related
  * Lightweight trigger — the actual heavy backfill runs via:
  *   npx tsx scripts/backfill-related.ts
@@ -487,6 +558,63 @@ export async function handleCrossRefBatch(request: Request, env: Env): Promise<R
     });
   } catch (err) {
     console.error('[admin/crossref-batch] error:', err);
+    return new Response(JSON.stringify({ error: String(err) }), {
+      status: 500, headers: { 'Content-Type': 'application/json' },
+    });
+  }
+}
+
+/**
+ * POST /admin/debug-search
+ * Body: { text: string }
+ * Returns raw Vectorize matches for a query — bypasses all caching and quality
+ * gates so you can see exactly what scores Vectorize is returning.
+ * Useful for diagnosing embedding / quality-gate issues after a re-embed.
+ */
+export async function handleDebugSearch(request: Request, env: Env): Promise<Response> {
+  const auth = await checkAuth(request, env);
+  if (!auth.ok) {
+    return new Response(JSON.stringify({ error: auth.message }), {
+      status: auth.status, headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  try {
+    const body = await request.json() as { text?: string };
+    const text = body.text?.trim();
+    if (!text) {
+      return new Response(JSON.stringify({ error: 'text field required' }), {
+        status: 400, headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Generate embedding using the same model the search route uses
+    const modelName = (env as unknown as Record<string, string>).EMBEDDING_MODEL ?? '@cf/baai/bge-base-en-v1.5';
+    const embedResp = await env.AI.run(modelName as Parameters<typeof env.AI.run>[0], {
+      text: [text],
+    }) as { data: number[][] };
+    const embedding = embedResp.data[0]!;
+
+    // Raw Vectorize query — no quality gate applied
+    const results = await env.VECTORIZE.query(embedding, { topK: 15, returnMetadata: true });
+    const matches = results.matches.map(m => ({
+      id: m.id,
+      paper_id: m.metadata?.paper_id ?? null,
+      score: m.score,
+    }));
+
+    const best = matches[0]?.score ?? 0;
+    return new Response(JSON.stringify({
+      query: text,
+      embedding_dim: embedding.length,
+      total_matches: matches.length,
+      best_score: best,
+      threshold_70pct: +(best * 0.70).toFixed(4),
+      would_survive_gate: matches.filter(m => m.score >= best * 0.70).length,
+      matches,
+    }, null, 2), { headers: { 'Content-Type': 'application/json' } });
+  } catch (err) {
+    console.error('[admin/debug-search] error:', err);
     return new Response(JSON.stringify({ error: String(err) }), {
       status: 500, headers: { 'Content-Type': 'application/json' },
     });

@@ -15,9 +15,14 @@
     "db:migrate": "wrangler d1 execute arxiv-explorer --file=migrations/schema.sql",
     "db:migrate:remote": "wrangler d1 execute arxiv-explorer --remote --file=migrations/schema.sql",
     "ingest": "npx tsx scripts/bulk-ingest.ts",
-    "upload-embeddings": "npx tsx scripts/upload-embeddings.ts",
+    "upload-embeddings": "npx tsx scripts/reembed-with-cf-ai.ts",
+    "purge-search-cache": "npx tsx scripts/purge-search-cache.ts",
     "db:export": "wrangler d1 export arxiv-explorer --local --output backup.sql",
-    "db:push": "wrangler d1 execute arxiv-explorer --remote --file backup.sql"
+    "db:push": "wrangler d1 execute arxiv-explorer --remote --file backup.sql",
+    "test": "node tests/run.mjs",
+    "test:unit": "node tests/run.mjs unit",
+    "test:integration": "node tests/run.mjs integration",
+    "test:regression": "node tests/run.mjs regression"
   },
   "dependencies": {
     "@opennextjs/cloudflare": "^1.19.10",
@@ -38,6 +43,7 @@
     "@types/react-dom": "^18.3.7",
     "@types/three": "^0.184.1",
     "@types/xml2js": "^0.4.14",
+    "@vitest/coverage-v8": "^3.2.6",
     "autoprefixer": "^10.5.0",
     "better-sqlite3": "^12.10.0",
     "dotenv": "^17.4.2",
@@ -46,6 +52,7 @@
     "tailwindcss": "^3.4.17",
     "tsx": "^4.22.3",
     "typescript": "^5.8.2",
+    "vitest": "^3.2.6",
     "wrangler": "^4.86.0",
     "xml2js": "^0.6.2"
   }

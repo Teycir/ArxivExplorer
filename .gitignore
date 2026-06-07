@@ -40,3 +40,5 @@ npm-debug.log*
 .open-next
 tsconfig.tsbuildinfo
 backups
+scripts/debug-vectorize.ts
+scripts/purge-search-cache.ts
