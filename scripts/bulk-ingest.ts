@@ -441,10 +441,10 @@ async function main() {
         console.log(`✅ ${cat} complete: ${catTotal} new papers (no more results)`);
         break;
       }
-      if (allKnown) {
-        console.log(`✅ ${cat} complete: ${catTotal} new papers (rest already in DB)`);
-        break;
-      }
+      // allKnown early-exit disabled: for targeted single-category runs we keep
+      // paginating until the date cutoff so we don't miss newer papers sitting
+      // deeper in the result set behind already-known IDs.
+      // if (allKnown) { ... break; }
       start += fetchSize;
     }
   }
