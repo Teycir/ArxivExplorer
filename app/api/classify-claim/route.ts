@@ -25,11 +25,12 @@ const API_BASE =
   'https://arxiv-api.arxivexplorer.workers.dev';
 
 function getClientIP(req: NextRequest): string {
-  // Cloudflare sets x-forwarded-for and cf-connecting-ip
+  // Cloudflare sets cf-connecting-ip (real client IP) and x-forwarded-for.
+  // Do NOT use req.ip — it is removed in Next.js 15 App Router and throws
+  // in the Cloudflare Worker (OpenNext) runtime, causing a 500 before fetch.
   return (
-    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
     req.headers.get('cf-connecting-ip') ??
-    req.ip ??
+    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
     '0.0.0.0'
   );
 }
