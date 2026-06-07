@@ -14,7 +14,15 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
-const API_BASE = process.env.API_BASE ?? process.env.NEXT_PUBLIC_API_BASE ?? '';
+// In the Cloudflare Worker (OpenNext) runtime, wrangler vars are NOT exposed via
+// process.env — they live on the `env` binding object which Next.js route handlers
+// can't access directly. So we read the env vars and fall back to the hardcoded
+// worker URL to avoid a self-referencing loop (empty string → fetch /api/classify-claim
+// → this route again → infinite loop → 500).
+const API_BASE =
+  process.env.API_BASE ??
+  process.env.NEXT_PUBLIC_API_BASE ??
+  'https://arxiv-api.arxivexplorer.workers.dev';
 
 function getClientIP(req: NextRequest): string {
   // Cloudflare sets x-forwarded-for and cf-connecting-ip
