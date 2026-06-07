@@ -16,20 +16,12 @@ import { AuthorLinks } from './AuthorLinks';
 import { Tooltip } from './Tooltip';
 import { CopyId } from './CopyId';
 import { QualityBadges } from './QualityBadges';
+import { PAPER_TYPE_LABELS } from '@/lib/constants';
 
 interface PaperCardProps {
   paper: PaperWithSummary;
   showAbstract?: boolean;
 }
-
-const PAPER_TYPE_LABELS: Record<string, string> = {
-  empirical:   'Empirical',
-  theoretical: 'Theoretical',
-  survey:      'Survey',
-  dataset:     'Dataset',
-  position:    'Position',
-  tutorial:    'Tutorial',
-};
 
 export function PaperCard({ paper, showAbstract = false }: PaperCardProps) {
   // Hard guard — render nothing if the paper isn't fully ready.

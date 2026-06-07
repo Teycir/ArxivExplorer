@@ -3,6 +3,44 @@
  * Shared pure utilities — no Cloudflare globals, safe to import anywhere.
  */
 
+import type { PaperWithSummary, RelatedPaper } from './types';
+
+// ─── Completeness guards ────────────────────────────────────────────────────
+
+/**
+ * Canonical completeness guard — returns true only when a paper has every
+ * piece of data a detail page needs to render without errors or placeholders:
+ *   • title and abstract non-empty
+ *   • summary_ready = 1
+ *   • summary row present with tldr, beginnerExplain, technicalSummary non-empty
+ *     and keyContributions a non-empty array
+ *
+ * This is the single source of truth. db.ts and lib/utils.ts both delegate
+ * here so the definition can never drift.
+ */
+export function isPaperComplete(paper: PaperWithSummary): boolean {
+  if (!paper.title?.trim()) return false;
+  if (!paper.abstract?.trim()) return false;
+  if (paper.summaryReady !== 1) return false;
+  if (!paper.summary) return false;
+  if (!paper.summary.tldr?.trim()) return false;
+  if (!paper.summary.beginnerExplain?.trim()) return false;
+  if (!paper.summary.technicalSummary?.trim()) return false;
+  if (!Array.isArray(paper.summary.keyContributions) || paper.summary.keyContributions.length === 0) return false;
+  return true;
+}
+
+/**
+ * A related-paper link is only safe to render when the target has a title
+ * and a tldr (its summary was generated).
+ */
+export function isRelatedPaperComplete(r: RelatedPaper): boolean {
+  if (!r.id?.trim()) return false;
+  if (!r.title?.trim()) return false;
+  if (!r.tldr?.trim()) return false;
+  return true;
+}
+
 /** Hex-encodes a SHA-256 hash of the input string using the Web Crypto API. */
 export async function sha256Hex(input: string): Promise<string> {
   const encoder = new TextEncoder();

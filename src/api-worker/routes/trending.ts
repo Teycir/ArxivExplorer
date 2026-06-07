@@ -14,7 +14,7 @@ import { getTrendingPapers, type TrendingWindow } from '../../shared/db';
 import { kvGet, kvPutAsync } from '../cache/kv';
 import { kvTrending, TTL_TRENDING_DAY, TTL_TRENDING, TTL_TRENDING_MONTH } from '../cache/keys';
 import { corsHeaders, jsonResponse, errorResponse } from '../../shared/utils';
-import { checkRateLimit, getClientIP } from '../middleware/rate-limit';
+import { withRateLimit } from '../middleware/rate-limit';
 
 const VALID_WINDOWS: TrendingWindow[] = ['day', 'week', 'month'];
 
@@ -30,33 +30,20 @@ export async function handleTrending(
   ctx: ExecutionContext
 ): Promise<Response> {
   const cors = corsHeaders(env);
-  
-  // Rate limit: 100 requests per minute per IP (high because of KV caching)
-  const ip = getClientIP(request);
-  const rateLimit = await checkRateLimit(env.CACHE, ip, {
-    maxRequests: 100,
-    windowSeconds: 60,
-    lockoutSeconds: 120,
-    namespace: 'trending',
-  });
+  return withRateLimit(
+    request, env.CACHE,
+    { maxRequests: 100, windowSeconds: 60, lockoutSeconds: 120, namespace: 'trending' },
+    cors,
+    () => handleTrendingInner(request, env, ctx, cors)
+  );
+}
 
-  if (!rateLimit.allowed) {
-    return new Response(
-      JSON.stringify({
-        error: 'Rate limit exceeded. Please try again later.',
-        retryAfter: rateLimit.resetIn,
-      }),
-      {
-        status: 429,
-        headers: {
-          ...cors,
-          'Content-Type': 'application/json',
-          'Retry-After': String(rateLimit.resetIn ?? 60),
-        },
-      }
-    );
-  }
-
+async function handleTrendingInner(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+  cors: Record<string, string>
+): Promise<Response> {
   const url  = new URL(request.url);
 
   const rawWindow = url.searchParams.get('window') ?? 'week';

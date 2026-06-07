@@ -27,29 +27,11 @@
  */
 
 import type { PaperRow, PaperWithSummary, Summary, RelatedPaper, Topic } from './types';
+import { isPaperComplete, isRelatedPaperComplete } from './utils';
 
 // ─── Completeness guards ────────────────────────────────────────────────────
-
-/** Server-side mirror of lib/utils.ts isPaperComplete (no cross-package import). */
-function isPaperComplete(p: PaperWithSummary): boolean {
-  if (!p.title?.trim()) return false;
-  if (!p.abstract?.trim()) return false;
-  if (p.summaryReady !== 1) return false;
-  if (!p.summary) return false;
-  if (!p.summary.tldr?.trim()) return false;
-  if (!p.summary.beginnerExplain?.trim()) return false;
-  if (!p.summary.technicalSummary?.trim()) return false;
-  if (!Array.isArray(p.summary.keyContributions) || p.summary.keyContributions.length === 0) return false;
-  return true;
-}
-
-/** A related-paper link is only safe when the target has a title and a tldr. */
-function isRelatedPaperComplete(r: RelatedPaper): boolean {
-  if (!r.id?.trim()) return false;
-  if (!r.title?.trim()) return false;
-  if (!r.tldr?.trim()) return false;
-  return true;
-}
+// isPaperComplete and isRelatedPaperComplete are the canonical definitions in
+// ./utils.ts — imported here so db.ts never duplicates the logic.
 
 // ─── Row → Domain Object Conversion ────────────────────────────────────────
 

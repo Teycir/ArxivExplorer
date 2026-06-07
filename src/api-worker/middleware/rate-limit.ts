@@ -101,7 +101,46 @@ export function getClientIP(request: Request): string {
   // Prefer X-Real-IP from our Next.js proxy (trusted source)
   const realIP = request.headers.get('x-real-ip');
   if (realIP) return realIP;
-  
+
   // Fallback to Cloudflare's header
   return request.headers.get('cf-connecting-ip') ?? '0.0.0.0';
+}
+
+/**
+ * Higher-order helper that runs a rate-limit check and returns a 429 Response
+ * if the IP is over quota, or calls `handler()` otherwise.
+ *
+ * Usage:
+ *   return withRateLimit(request, env.CACHE, { maxRequests: 60, windowSeconds: 60, namespace: 'search' }, () =>
+ *     handleSearchInner(request, env, ctx)
+ *   );
+ */
+export async function withRateLimit(
+  request: Request,
+  kv: KVNamespace,
+  config: RateLimitConfig,
+  cors: Record<string, string>,
+  handler: () => Promise<Response>
+): Promise<Response> {
+  const ip = getClientIP(request);
+  const result = await checkRateLimit(kv, ip, config);
+
+  if (!result.allowed) {
+    return new Response(
+      JSON.stringify({
+        error: 'Rate limit exceeded. Please try again later.',
+        retryAfter: result.resetIn,
+      }),
+      {
+        status: 429,
+        headers: {
+          ...cors,
+          'Content-Type': 'application/json',
+          'Retry-After': String(result.resetIn ?? 60),
+        },
+      }
+    );
+  }
+
+  return handler();
 }

@@ -24,7 +24,7 @@ import {
   sanitizeQuery, sanitizeCategory, sanitizeDateFilter,
   sanitizeAuthor, sanitizeInt, sanitizeArxivId,
 } from '../../shared/sanitize';
-import { checkRateLimit, getClientIP } from '../middleware/rate-limit';
+import { withRateLimit } from '../middleware/rate-limit';
 
 const KEYWORD_WEIGHT = 0.25;
 const SEMANTIC_WEIGHT = 0.75;
@@ -40,33 +40,20 @@ export async function handleSearch(
   ctx: ExecutionContext
 ): Promise<Response> {
   const cors = corsHeaders(env);
-  
-  // Rate limit: 60 requests per minute per IP for search (generous limit, protects embedding budget)
-  const ip = getClientIP(request);
-  const rateLimit = await checkRateLimit(env.CACHE, ip, {
-    maxRequests: 60,
-    windowSeconds: 60,
-    lockoutSeconds: 120,
-    namespace: 'search',
-  });
+  return withRateLimit(
+    request, env.CACHE,
+    { maxRequests: 60, windowSeconds: 60, lockoutSeconds: 120, namespace: 'search' },
+    cors,
+    () => handleSearchInner(request, env, ctx, cors)
+  );
+}
 
-  if (!rateLimit.allowed) {
-    return new Response(
-      JSON.stringify({
-        error: 'Rate limit exceeded. Please try again later.',
-        retryAfter: rateLimit.resetIn,
-      }),
-      {
-        status: 429,
-        headers: {
-          ...cors,
-          'Content-Type': 'application/json',
-          'Retry-After': String(rateLimit.resetIn ?? 60),
-        },
-      }
-    );
-  }
-
+async function handleSearchInner(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+  cors: Record<string, string>
+): Promise<Response> {
   const url = new URL(request.url);
   const rawQ      = sanitizeQuery(url.searchParams.get('q'));
   const rawCat    = sanitizeCategory(url.searchParams.get('category'));

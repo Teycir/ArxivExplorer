@@ -13,7 +13,7 @@ import { kvGet, kvPutAsync } from '../cache/kv';
 import { kvPaperFull } from '../cache/keys';
 import { corsHeaders, jsonResponse, errorResponse } from '../../shared/utils';
 import { sanitizeArxivId } from '../../shared/sanitize';
-import { checkRateLimit, getClientIP } from '../middleware/rate-limit';
+import { withRateLimit } from '../middleware/rate-limit';
 
 export async function handlePaper(
   request: Request,
@@ -22,54 +22,31 @@ export async function handlePaper(
   arxivId: string
 ): Promise<Response> {
   const cors = corsHeaders(env);
-
-  // Rate limit: 100 requests per minute per IP (high because of KV caching)
-  const ip = getClientIP(request);
-  const rateLimit = await checkRateLimit(env.CACHE, ip, {
-    maxRequests: 100,
-    windowSeconds: 60,
-    lockoutSeconds: 120,
-    namespace: 'paper',
-  });
-
-  if (!rateLimit.allowed) {
-    return new Response(
-      JSON.stringify({
-        error: 'Rate limit exceeded. Please try again later.',
-        retryAfter: rateLimit.resetIn,
-      }),
-      {
-        status: 429,
-        headers: {
-          ...cors,
-          'Content-Type': 'application/json',
-          'Retry-After': String(rateLimit.resetIn ?? 60),
-        },
-      }
-    );
-  }
-
-  arxivId = sanitizeArxivId(arxivId);
-  if (!arxivId) {
+  const cleanId = sanitizeArxivId(arxivId);
+  if (!cleanId) {
     return errorResponse('Invalid arXiv ID format', cors, 400);
   }
+  return withRateLimit(
+    request, env.CACHE,
+    { maxRequests: 100, windowSeconds: 60, lockoutSeconds: 120, namespace: 'paper' },
+    cors,
+    () => handlePaperInner(env, ctx, cleanId, cors)
+  );
+}
 
+async function handlePaperInner(
+  env: Env,
+  ctx: ExecutionContext,
+  arxivId: string,
+  cors: Record<string, string>
+): Promise<Response> {
   // 1. KV cache (permanent — papers are immutable).
   // KV errors surface as 503, not as silent cache misses.
-  // Staleness guard: if a cached blob is missing `citationCount` it was written
-  // before the c28d229 fix and must be busted so D1 is re-queried with the
-  // corrected PAPER_SELECT.  Once all pre-fix entries have been replaced this
-  // check costs only a single property lookup on an already-parsed object.
   const cacheKey = kvPaperFull(arxivId);
   try {
-    const cached = await kvGet<{ citationCount?: number } & Record<string, unknown>>(env.CACHE, cacheKey);
+    const cached = await kvGet<Record<string, unknown>>(env.CACHE, cacheKey);
     if (cached !== null) {
-      if ('citationCount' in cached) {
-        return jsonResponse(cached, cors);
-      }
-      // Stale blob — evict and fall through to D1
-      console.warn(`[paper] KV stale (no citationCount) for ${arxivId}, busting`);
-      ctx.waitUntil(env.CACHE.delete(cacheKey));
+      return jsonResponse(cached, cors);
     }
   } catch (err) {
     console.error(`[paper] KV read error for ${arxivId}:`, err);

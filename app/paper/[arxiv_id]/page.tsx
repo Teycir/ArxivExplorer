@@ -22,6 +22,7 @@ import { ActivityTracker } from '../../components/ActivityTracker';
 import { AchievementToast } from '../../components/AchievementToast';
 import { CompareWith } from '../../components/CompareWith';
 import { CopyAbstract } from '../../components/CopyAbstract';
+import { PAPER_TYPE_LABELS } from '@/lib/constants';
 
 interface Props {
   params: Promise<{ arxiv_id: string }>;
@@ -80,14 +81,6 @@ export default async function PaperPage({ params }: Props) {
   }
 
   // Paper type badge (matches PaperCard)
-  const PAPER_TYPE_LABELS: Record<string, string> = {
-    empirical:   'Empirical',
-    theoretical: 'Theoretical',
-    survey:      'Survey',
-    dataset:     'Dataset',
-    position:    'Position',
-    tutorial:    'Tutorial',
-  };
   const paperType  = paper.summary?.paperType;
   const typeLabel  = paperType && paperType !== 'unknown' ? PAPER_TYPE_LABELS[paperType] : null;
 
