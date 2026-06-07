@@ -293,10 +293,9 @@ export interface TopicWithCategories extends Topic {
 
 export async function getTopicsWithPapers(db: D1Database): Promise<Array<TopicWithCategories>> {
   // topic_categories / paper_categories / arxiv_categories dropped in migration 0015.
-  // Paper counts are now estimated via FTS: for each topic we count papers whose
+  // Paper counts are estimated via FTS: for each topic we count papers whose
   // FTS index matches any keyword from topics.keywords.
-  // Full count query per topic would be expensive; we run one FTS per topic but
-  // cap at 500 matches — enough to rank topics accurately on the explore page.
+  // Counts run in parallel (Promise.all) — previously serial, one round-trip per topic.
 
   const { results: topicRows } = await db.prepare(`
     SELECT slug, label, description, updated_at, keywords
@@ -307,40 +306,41 @@ export async function getTopicsWithPapers(db: D1Database): Promise<Array<TopicWi
 
   if (topicRows.length === 0) return [];
 
-  const topicsWithCounts: Array<TopicWithCategories> = [];
+  const counted = await Promise.all(
+    topicRows.map(async t => {
+      const terms = t.keywords.trim().split(/\s+/).filter(Boolean);
+      const ftsQuery = terms.map(w => `"${w}"`).join(' OR ');
 
-  for (const t of topicRows) {
-    const terms = t.keywords.trim().split(/\s+/).filter(Boolean);
-    const ftsQuery = terms.map(w => `"${w}"`).join(' OR ');
+      const countRow = await db.prepare(`
+        SELECT COUNT(DISTINCT p.id) AS cnt
+        FROM papers_fts f
+        JOIN papers p     ON p.id = f.paper_id
+        INNER JOIN summaries s ON s.paper_id = p.id
+        WHERE papers_fts MATCH ?
+          AND p.summary_ready = 1
+          AND p.title    != ''
+          AND p.abstract != ''
+          AND s.tldr     != ''
+          AND s.beginner_explain  != ''
+          AND s.technical_summary != ''
+          AND json_array_length(s.key_contributions) > 0
+      `).bind(ftsQuery).first<{ cnt: number }>();
 
-    const countRow = await db.prepare(`
-      SELECT COUNT(DISTINCT p.id) AS cnt
-      FROM papers_fts f
-      JOIN papers p     ON p.id = f.paper_id
-      INNER JOIN summaries s ON s.paper_id = p.id
-      WHERE papers_fts MATCH ?
-        AND p.summary_ready = 1
-        AND p.title    != ''
-        AND p.abstract != ''
-        AND s.tldr     != ''
-        AND s.beginner_explain  != ''
-        AND s.technical_summary != ''
-        AND json_array_length(s.key_contributions) > 0
-    `).bind(ftsQuery).first<{ cnt: number }>();
+      return { t, paperCount: countRow?.cnt ?? 0 };
+    })
+  );
 
-    const paperCount = countRow?.cnt ?? 0;
-    if (paperCount === 0) continue;
-
-    topicsWithCounts.push({
+  const topicsWithCounts: Array<TopicWithCategories> = counted
+    .filter(({ paperCount }) => paperCount > 0)
+    .map(({ t, paperCount }) => ({
       slug:            t.slug,
       label:           t.label,
       description:     t.description,
       updatedAt:       t.updated_at,
       paperCount,
-      categoryTags:    [],   // no longer stored post-0015
+      categoryTags:    [],
       categoryDetails: [],
-    });
-  }
+    }));
 
   // Sort descending by paper count (matches explore page ranking)
   topicsWithCounts.sort((a, b) => b.paperCount - a.paperCount);
