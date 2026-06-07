@@ -109,7 +109,16 @@ async function classifyOne(
     throw new Error(json.error || 'Rate limit exceeded. Please try again later.');
   }
 
-  if (!res.ok) return { ...paper, classification: 'neutral' };
+  if (!res.ok) {
+    // Throw so the caller knows classification failed — don't silently
+    // return 'neutral' which makes every failed call look like a real result.
+    let detail = `HTTP ${res.status}`;
+    try {
+      const body = await res.json() as { error?: string; detail?: string };
+      detail = body.error ?? body.detail ?? detail;
+    } catch { /* non-JSON body — use status code */ }
+    throw new Error(`Classification failed (${detail})`);
+  }
 
   const json = await res.json() as { result: 'support' | 'contradict' | 'neutral'; reasoning?: string; confidence?: number };
   const valid = ['support', 'contradict', 'neutral'];
@@ -129,6 +138,7 @@ export default function ClaimTrackerPage() {
   const [classified, setClassified] = useState(0);
   const [total, setTotal]     = useState(0);
   const [error, setError]     = useState('');
+  const [classifyError, setClassifyError] = useState('');
 
   const handleSearch = useCallback(async () => {
     const sanitized = sanitizeClaim(claim);
@@ -142,6 +152,7 @@ export default function ClaimTrackerPage() {
     // Reset ALL state before issuing any network request.
     setStatus('searching');
     setError('');
+    setClassifyError('');
     setResults([]);
     setClassified(0);
     setTotal(0);
@@ -181,22 +192,44 @@ export default function ClaimTrackerPage() {
     setTotal(papers.length);
     setStatus('classifying');
 
-    const settled: ClassifiedPaper[] = [];
+    let failCount = 0;
+    let lastError = '';
 
     try {
       await pMap(papers, async (paper) => {
-        const result = await classifyOne(sanitized, paper);
-        setResults(prev => [...prev, result]);
-        setClassified(prev => prev + 1);
-        settled.push(result);
+        try {
+          const result = await classifyOne(sanitized, paper);
+          setResults(prev => [...prev, result]);
+        } catch (err) {
+          failCount++;
+          lastError = err instanceof Error ? err.message : String(err);
+          // Hard stop on rate limit — no point continuing
+          if (lastError.includes('Rate limit')) throw err;
+          // All other errors (500, 503): skip this paper silently,
+          // we'll surface a summary warning at the end.
+        } finally {
+          setClassified(prev => prev + 1);
+        }
       }, 5);
     } catch (err) {
-      if (err instanceof Error && err.message.includes('Rate limit')) {
-        setError(err.message);
+      // Only re-thrown for rate limit
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes('Rate limit')) {
+        setError(msg);
         setStatus('idle');
         return;
       }
-      // Continue on other errors, show partial results
+    }
+
+    // Surface classification errors as a non-blocking warning so users know
+    // results may be incomplete — not silently showing neutral for failures.
+    if (failCount > 0) {
+      const detail = lastError.length < 120 ? ` (${lastError})` : '';
+      setClassifyError(
+        failCount === papers.length
+          ? `Classification failed for all papers${detail}. The service may be temporarily unavailable — try again in a moment.`
+          : `Classification failed for ${failCount} of ${papers.length} papers${detail}. Results below may be incomplete.`
+      );
     }
 
     setStatus('done');
@@ -263,11 +296,19 @@ export default function ClaimTrackerPage() {
           </div>
         </div>
 
-        {/* Error */}
+        {/* Search / validation error */}
         {error && (
           <div className="flex items-center gap-2 p-4 bg-red-500/10 border border-red-500/30 rounded-lg mb-6">
             <AlertCircle size={16} className="text-red-500" />
             <p className="text-sm font-mono text-red-400">{error}</p>
+          </div>
+        )}
+
+        {/* Classification warning — service errors that didn't block all results */}
+        {classifyError && (
+          <div className="flex items-start gap-2 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg mb-6">
+            <AlertCircle size={16} className="text-yellow-500 mt-0.5 shrink-0" />
+            <p className="text-sm font-mono text-yellow-400">{classifyError}</p>
           </div>
         )}
 
