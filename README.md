@@ -35,6 +35,12 @@ _Scan the QR code or copy the wallet address above._
 
 ### _"Research papers, decoded.."_
 
+<img src="Marketimg/arxivexplorer.gif" alt="arXiv Explorer Demo" width="800" />
+
+<a href="https://www.youtube.com/watch?v=QjZOQn2OW9s" target="_blank">
+  <img src="Marketimg/arxivexplorer_youtube_thumbnail.png" alt="Watch Demo Video" width="800" />
+</a>
+
 </div>
 
 ## Screenshots
