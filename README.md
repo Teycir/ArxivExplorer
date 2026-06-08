@@ -37,6 +37,8 @@ _Scan the QR code or copy the wallet address above._
 
 <img src="Marketimg/arxivexplorer.gif" alt="arXiv Explorer Demo" width="800" />
 
+### Video Demo
+
 <a href="https://www.youtube.com/watch?v=QjZOQn2OW9s" target="_blank">
   <img src="Marketimg/arxivexplorer_youtube_thumbnail.png" alt="Watch Demo Video" width="800" />
 </a>
