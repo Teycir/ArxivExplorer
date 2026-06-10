@@ -2,7 +2,8 @@
  * src/ingest-worker/fetch-arxiv.ts
  *
  * Single fetch method: one arXiv Atom API call per category.
- * On 429: wait exactly 60s, retry once, then throw (caller skips that category).
+ * On 429: wait 10s, retry once, then throw (caller skips that category).
+ * (Was 60s — that exceeds CF Workers wall-clock timeout, guaranteeing a crash.)
  * Any other non-200: throw immediately.
  * All errors are thrown; callers decide whether to continue the batch.
  */
@@ -11,7 +12,7 @@ import type { ArxivEntry } from '../shared/types';
 import { delay } from '../shared/utils';
 
 const ARXIV_API = 'https://export.arxiv.org/api/query';
-const RATE_LIMIT_BACKOFF_MS = 60_000;
+const RATE_LIMIT_BACKOFF_MS = 10_000; // was 60_000 — exceeded CF Workers timeout
 
 export async function fetchArxivBatch(
   category: string,
@@ -32,7 +33,7 @@ export async function fetchArxivBatch(
     response = await fetch(url, { headers });
 
     if (response.status === 429) {
-      throw new Error(`[fetch-arxiv] Still rate-limited after 60s backoff for ${category} — skipping`);
+      throw new Error(`[fetch-arxiv] Still rate-limited after ${RATE_LIMIT_BACKOFF_MS / 1000}s backoff for ${category} — skipping`);
     }
   }
 

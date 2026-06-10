@@ -6,7 +6,7 @@
  * Flow per run:
  *   1. Check daily quota — bail early if exhausted
  *   2. Fetch latest papers from arXiv for each configured category
- *      (3s polite delay between categories; 60s backoff + single retry on 429)
+ *      (2 categories in parallel; 500ms polite delay between batches; 10s backoff + single retry on 429)
  *   3. Drop cross-listed out-of-scope papers
  *   4. Dedup against D1 — only truly new IDs proceed
  *   5. INSERT metadata rows to D1
@@ -34,8 +34,9 @@ import { kvDelete } from '../api-worker/cache/kv';
 const NEURONS_PER_PAPER    = 44;
 const MAX_PAPERS_PER_DAY   = Math.floor(10_000 / NEURONS_PER_PAPER); // 227
 
-const PAPERS_PER_CATEGORY  = 10;   // papers fetched per category per run
-const CATEGORY_DELAY_MS    = 3_000; // arXiv polite-crawl policy
+const PAPERS_PER_CATEGORY  = 10;  // papers fetched per category per run
+const CATEGORY_BATCH_SIZE  = 2;   // fetch N categories in parallel (arXiv polite-crawl policy)
+const CATEGORY_DELAY_MS    = 500; // pause between parallel batches — was 3_000×24=72s which caused CF Workers timeout
 
 // ── Pipeline entry point ─────────────────────────────────────────────────────
 
@@ -61,24 +62,46 @@ export async function runIngestionPipeline(env: Env): Promise<IngestResult> {
 
   const result: IngestResult = { fetched: 0, newPapers: 0, summarized: 0, failed: 0, neuronsEstimate: 0 };
 
-  // ── 2. Fetch from arXiv ────────────────────────────────────────────────────
+  // ── 2. Fetch from arXiv (parallel batches of 2, 500ms between batches) ────
+  // 24 cats ÷ 2 parallel = 12 batches × 500ms = ~6s total fetch time
+  // (was sequential 3s×24 = 72s — exceeded CF Workers wall-clock limit)
   const allEntries: ArxivEntry[] = [];
   let categoryFetchErrors = 0;
 
-  for (let i = 0; i < categories.length; i++) {
-    const category = categories[i]!;
-    try {
-      const entries = await fetchArxivBatch(category, PAPERS_PER_CATEGORY);
-      allEntries.push(...entries);
-      console.info(`[pipeline] ${category}: fetched ${entries.length}`);
-    } catch (err) {
-      console.error(`[pipeline] ${category}: fetch failed —`, err);
-      categoryFetchErrors++;
-    }
-    if (i < categories.length - 1) await delay(CATEGORY_DELAY_MS);
-  }
+  try {
+    for (let i = 0; i < categories.length; i += CATEGORY_BATCH_SIZE) {
+      const batch = categories.slice(i, i + CATEGORY_BATCH_SIZE);
 
-  result.fetched = allEntries.length;
+      const batchResults = await Promise.allSettled(
+        batch.map(category => fetchArxivBatch(category, PAPERS_PER_CATEGORY))
+      );
+
+      for (let j = 0; j < batch.length; j++) {
+        const category = batch[j]!;
+        const res = batchResults[j]!;
+        if (res.status === 'fulfilled') {
+          allEntries.push(...res.value);
+          console.info(`[pipeline] ${category}: fetched ${res.value.length}`);
+        } else {
+          console.error(`[pipeline] ${category}: fetch failed —`, res.reason);
+          categoryFetchErrors++;
+        }
+      }
+
+      // Polite delay between batches (skip after the last one)
+      if (i + CATEGORY_BATCH_SIZE < categories.length) {
+        await delay(CATEGORY_DELAY_MS);
+      }
+    }
+  } catch (err) {
+    console.error('[pipeline] Category fetch loop threw unexpectedly:', err);
+  } finally {
+    result.fetched = allEntries.length;
+    console.info(
+      `[pipeline] Fetch phase complete — ${result.fetched} entries collected,` +
+      ` ${categoryFetchErrors}/${categories.length} categories failed`
+    );
+  }
 
   if (allEntries.length === 0) {
     console.warn(`[pipeline] Nothing fetched (${categoryFetchErrors}/${categories.length} categories failed)`);

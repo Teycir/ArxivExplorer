@@ -15,16 +15,35 @@ export default {
     env: Env,
     _ctx: ExecutionContext
   ): Promise<void> {
-    console.info(`[ingest-worker] Cron triggered at ${new Date().toISOString()}`);
+    const startedAt = new Date().toISOString();
+    console.info(`[ingest-worker] Cron triggered at ${startedAt}`);
+
+    let status: 'ok' | 'error' = 'error';
+    let errorMessage: string | undefined;
+
     try {
       const result = await runIngestionPipeline(env);
       console.info('[ingest-worker] Pipeline complete:', JSON.stringify(result));
 
       const citationResult = await updateCitations(env);
       console.info('[ingest-worker] Citations updated:', JSON.stringify(citationResult));
+
+      status = 'ok';
     } catch (err) {
+      errorMessage = String(err);
       console.error('[ingest-worker] Pipeline failed with unhandled error:', err);
       throw err;
+    } finally {
+      try {
+        await env.CACHE.put('kv:health:cron_last_run', JSON.stringify({
+          started_at: startedAt,
+          finished_at: new Date().toISOString(),
+          status,
+          ...(errorMessage ? { error: errorMessage } : {}),
+        }), { expirationTtl: 90000 }); // ~25h
+      } catch (kvErr) {
+        console.warn('[ingest-worker] Finally: failed to write cron health key:', kvErr);
+      }
     }
   },
 
