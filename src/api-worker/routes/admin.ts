@@ -224,11 +224,11 @@ export async function handleGetAllPapers(request: Request, env: Env): Promise<Re
 
   try {
     const { results } = await env.DB.prepare(`
-      SELECT id, title, abstract
+      SELECT id, title, abstract, published_at, categories
       FROM papers
       WHERE summary_ready = 1
       ORDER BY indexed_at DESC
-    `).all<{ id: string; title: string; abstract: string }>();
+    `).all<{ id: string; title: string; abstract: string; published_at: string; categories: string }>();
 
     return new Response(JSON.stringify({ papers: results }), {
       headers: { 'Content-Type': 'application/json' },
@@ -404,6 +404,27 @@ export async function handleEmbedAndUpsert(request: Request, env: Env): Promise<
     }
 
     if (vectors.length > 0) await env.VECTORIZE.upsert(vectors);
+
+    // Write embeddings_meta tracking rows for all successfully embedded papers.
+    // INSERT OR IGNORE — never overwrites rows already written by the ingestion pipeline.
+    if (vectors.length > 0) {
+      const now = new Date().toISOString();
+      const stmts = vectors.map(v =>
+        env.DB.prepare(
+          'INSERT OR IGNORE INTO embeddings_meta (paper_id, vectorize_id, embedded_at) VALUES (?, ?, ?)'
+        ).bind(v.metadata!.paper_id, v.id, now)
+      );
+      // D1 batch supports up to 100 statements per call
+      const D1_CHUNK = 100;
+      for (let i = 0; i < stmts.length; i += D1_CHUNK) {
+        try {
+          await env.DB.batch(stmts.slice(i, i + D1_CHUNK));
+        } catch (err) {
+          // Non-fatal: Vectorize already has the vectors. Log and continue.
+          console.warn('[admin/embed-and-upsert] embeddings_meta batch write failed (non-fatal):', err);
+        }
+      }
+    }
 
     return new Response(JSON.stringify({ ok, failed }), {
       headers: { 'Content-Type': 'application/json' },

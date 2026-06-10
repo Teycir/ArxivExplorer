@@ -98,7 +98,10 @@ export async function upsertToVectorize(
   categories: string[],
   embedding: number[]
 ): Promise<string> {
-  const vectorizeId = `paper-${paperId}`;
+  // Vector ID = bare arXiv ID (e.g. "2506.12345") — must match what
+  // handleMoreLikeThis uses in getByIds() and what handleEmbedAndUpsert writes.
+  // Do NOT add a "paper-" prefix here — that would break More-Like-This lookups.
+  const vectorizeId = paperId;
 
   await env.VECTORIZE.upsert([
     {

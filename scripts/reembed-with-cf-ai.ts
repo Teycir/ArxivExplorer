@@ -2,36 +2,33 @@
 /**
  * scripts/reembed-with-cf-ai.ts
  *
- * Regenerates ALL Vectorize embeddings using Cloudflare Workers AI
- * (@cf/baai/bge-base-en-v1.5) — the same model the search worker uses
- * at query time. Replaces the nomic-embed-text vectors that were wrongly
- * uploaded, which caused semantic search to return random results.
+ * Backfills Vectorize embeddings for ALL summary_ready=1 papers in production D1
+ * using Cloudflare Workers AI (@cf/baai/bge-base-en-v1.5) — the same model the
+ * search worker uses at query time.
  *
- * Flow:
- *   1. Read all summary_ready=1 papers from local SQLite
- *   2. For each batch: POST to /admin/embed-and-upsert (worker generates
- *      embedding via CF AI + writes to Vectorize in one call)
- *   3. Report progress
+ * Reads paper list from the live /admin/papers/all endpoint (production D1),
+ * NOT from local SQLite, so it always operates on the real dataset.
  *
- * The admin endpoint handles embedding generation server-side so we never
- * touch Ollama here.
+ * For each paper it calls POST /admin/embed-and-upsert which:
+ *   1. Generates the embedding server-side via CF AI
+ *   2. Upserts the vector into Vectorize (vector ID = bare arXiv ID)
+ *   3. Writes INSERT OR IGNORE INTO embeddings_meta — safe to re-run
  *
  * Usage:
  *   ADMIN_SECRET=xxx npx tsx scripts/reembed-with-cf-ai.ts
  *   ADMIN_SECRET=xxx npx tsx scripts/reembed-with-cf-ai.ts --batch 20
+ *   ADMIN_SECRET=xxx API_BASE=https://... npx tsx scripts/reembed-with-cf-ai.ts
  */
 
-import Database from 'better-sqlite3';
-import * as path from 'path';
-
-const LOCAL_DB     = path.resolve('.wrangler/state/v3/d1/miniflare-D1DatabaseObject/arxiv-explorer.sqlite');
 const API_BASE     = process.env.API_BASE     || 'https://arxiv-api.arxivexplorer.workers.dev';
 const ADMIN_SECRET = process.env.ADMIN_SECRET || '';
 
 const args      = process.argv.slice(2);
-const batchSize = parseInt(args[args.indexOf('--batch') + 1] || '20');
-// CF AI has tight rate limits — go conservative
-const DELAY_MS  = 500;   // between batches
+const batchSize = (() => {
+  const idx = args.indexOf('--batch');
+  return idx !== -1 ? parseInt(args[idx + 1] ?? '20', 10) : 20;
+})();
+const DELAY_MS = 500; // between batches — CF AI rate-limit headroom
 
 if (!ADMIN_SECRET) {
   console.error('❌ ADMIN_SECRET env var required');
@@ -39,17 +36,61 @@ if (!ADMIN_SECRET) {
   process.exit(1);
 }
 
+// ── Types ────────────────────────────────────────────────────────────────────
+
+interface RemotePaper {
+  id:           string;
+  title:        string;
+  abstract:     string;
+  published_at: string;
+  categories:   string; // JSON array string e.g. '["cs.LG","stat.ML"]'
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+async function fetchAllPapers(): Promise<RemotePaper[]> {
+  console.log('  Fetching paper list from production D1…');
+  const res = await fetch(`${API_BASE}/admin/papers/all`, {
+    headers: { 'x-admin-secret': ADMIN_SECRET },
+    signal: AbortSignal.timeout(120_000), // large dataset — allow 2 min
+  });
+
+  if (res.status === 401) { console.error('\n❌ 401 — bad ADMIN_SECRET'); process.exit(1); }
+  if (res.status === 404) { console.error('\n❌ 404 — /admin/papers/all endpoint not found'); process.exit(1); }
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Failed to fetch paper list: HTTP ${res.status}: ${body.slice(0, 200)}`);
+  }
+
+  const json = await res.json() as { papers?: RemotePaper[]; error?: string };
+  if (json.error) throw new Error(`/admin/papers/all returned error: ${json.error}`);
+  if (!Array.isArray(json.papers)) throw new Error('Unexpected response shape from /admin/papers/all');
+  return json.papers;
+}
+
 async function embedAndUpsertBatch(
-  papers: Array<{ id: string; title: string; abstract: string; published_at: string; categories: string }>
+  papers: RemotePaper[]
 ): Promise<{ ok: number; failed: number }> {
-  const payload = papers.map(p => ({
-    paper_id:     p.id,
-    text:         `${p.title}\n${p.abstract}`.slice(0, 2000),
-    metadata: {
-      published_at: p.published_at ?? '',
-      categories:   p.categories  ?? '',
-    },
-  }));
+  const payload = papers.map(p => {
+    // Parse categories JSON array (e.g. '["cs.LG","stat.ML"]') into a comma string
+    // so it can be stored in Vectorize metadata for date-filtered queries.
+    let categoriesStr = '';
+    try {
+      const parsed = JSON.parse(p.categories);
+      categoriesStr = Array.isArray(parsed) ? parsed.join(',') : String(p.categories ?? '');
+    } catch {
+      categoriesStr = String(p.categories ?? '');
+    }
+
+    return {
+      paper_id: p.id,
+      text:     `${p.title}\n${p.abstract}`.slice(0, 2000),
+      metadata: {
+        published_at: p.published_at ?? '',
+        categories:   categoriesStr,
+      },
+    };
+  });
 
   const res = await fetch(`${API_BASE}/admin/embed-and-upsert`, {
     method:  'POST',
@@ -69,35 +110,34 @@ async function embedAndUpsertBatch(
   return { ok: json.ok ?? papers.length, failed: json.failed ?? 0 };
 }
 
+// ── Main ─────────────────────────────────────────────────────────────────────
+
 async function main() {
   console.log(`\n🔄 reembed-with-cf-ai`);
   console.log(`   API:        ${API_BASE}`);
   console.log(`   batch size: ${batchSize}`);
   console.log(`   delay:      ${DELAY_MS}ms between batches\n`);
 
-  // Check if admin endpoint exists
-  const check = await fetch(`${API_BASE}/admin/embed-and-upsert`, {
-    method: 'POST',
+  // Smoke-test auth before fetching the full list
+  const ping = await fetch(`${API_BASE}/admin/embed-and-upsert`, {
+    method:  'POST',
     headers: { 'Content-Type': 'application/json', 'x-admin-secret': ADMIN_SECRET },
-    body: JSON.stringify({ papers: [] }),
+    body:    JSON.stringify({ papers: [] }),
+    signal:  AbortSignal.timeout(15_000),
   }).catch(() => null);
 
-  if (!check) { console.error('❌ Cannot reach API'); process.exit(1); }
-  if (check.status === 401) { console.error('❌ Bad ADMIN_SECRET'); process.exit(1); }
-  if (check.status === 404) {
-    console.error('❌ /admin/embed-and-upsert endpoint not found — need to add it to the worker first');
-    process.exit(1);
+  if (!ping)                 { console.error('❌ Cannot reach API'); process.exit(1); }
+  if (ping.status === 401)   { console.error('❌ Bad ADMIN_SECRET'); process.exit(1); }
+  if (ping.status === 404)   { console.error('❌ /admin/embed-and-upsert not found'); process.exit(1); }
+  console.log('   Auth ✅\n');
+
+  const papers = await fetchAllPapers();
+  console.log(`   Papers to embed: ${papers.length}\n`);
+
+  if (papers.length === 0) {
+    console.log('Nothing to do — no summary_ready=1 papers found.');
+    return;
   }
-
-  const db = new Database(LOCAL_DB, { readonly: true });
-  const papers = db.prepare(`
-    SELECT id, title, abstract, published_at, categories
-    FROM papers WHERE summary_ready = 1
-    ORDER BY indexed_at ASC
-  `).all() as Array<{ id: string; title: string; abstract: string; published_at: string; categories: string }>;
-  db.close();
-
-  console.log(`Papers to embed: ${papers.length}\n`);
 
   let totalOk = 0, totalFailed = 0;
   const chunks = Math.ceil(papers.length / batchSize);
@@ -120,7 +160,9 @@ async function main() {
   }
 
   console.log(`\n\n✅ Done — embedded: ${totalOk}, failed: ${totalFailed}`);
-  if (totalFailed > 0) console.log(`   Re-run to retry failed papers (already-good vectors are overwritten safely).`);
+  if (totalFailed > 0) {
+    console.log(`   Re-run to retry failed papers (already-good vectors are overwritten safely).`);
+  }
 }
 
 main().catch(e => { console.error('❌', e); process.exit(1); });
