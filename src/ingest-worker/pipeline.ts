@@ -4,6 +4,7 @@
  * Ingestion pipeline — runs on every cron tick (hourly).
  *
  * Flow per run:
+ *   0. Retry queue — re-process papers that previously failed AI work (due retries only)
  *   1. Check daily quota — bail early if exhausted
  *   2. Fetch latest papers from arXiv for each configured category
  *      (2 categories in parallel; 500ms polite delay between batches; 10s backoff + single retry on 429)
@@ -17,6 +18,8 @@
  *
  * Failure policy: Promise.allSettled — one bad paper never aborts the batch.
  * summary_ready: 0 = pending, 1 = done, 2 = permanently failed.
+ * Retry policy: failed papers are enqueued with exponential backoff (2h / 6h / 24h),
+ *   then permanently failed after 3 attempts.
  */
 
 import type { Env, ArxivEntry, IngestResult } from '../shared/types';
@@ -26,6 +29,13 @@ import { generateEmbedding, upsertToVectorize } from './generate-embedding';
 import { generateSummary } from './generate-summary';
 import { computeAndStoreRelated } from './compute-related';
 import { kvDelete } from '../api-worker/cache/kv';
+import {
+  enqueueRetry,
+  getRetryRecord,
+  deleteRetryKey,
+  getDueRetries,
+  fetchPaperStubs,
+} from './retry-queue';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -42,9 +52,51 @@ const CATEGORY_DELAY_MS    = 500; // pause between parallel batches — was 3_00
 
 export async function runIngestionPipeline(env: Env): Promise<IngestResult> {
   const categories  = ingestCategories(env);
-  const concurrency = ingestConcurrency(env);
+  const concurrency = ingestConcurrency(env); // always 1 — sequential AI calls avoid Workers AI burst rate limits
 
   console.info(`[pipeline] categories: ${categories.join(', ')} | ${PAPERS_PER_CATEGORY}/cat | concurrency: ${concurrency}`);
+
+  // ── 0. Retry queue — drain due retries before touching new papers ─────────
+  const dueIds = await getDueRetries(env.CACHE);
+  if (dueIds.length > 0) {
+    console.info(`[pipeline] Retry queue: ${dueIds.length} paper(s) due for retry`);
+    const stubs = await fetchPaperStubs(env.DB, dueIds);
+    console.info(`[pipeline] Retry queue: ${stubs.length}/${dueIds.length} stubs found in D1 (rest already succeeded or were GC'd)`);
+
+    // Any IDs not found in D1 with summary_ready != 1 are already done — clean up their keys
+    const foundIds = new Set(stubs.map(s => s.id));
+    for (const id of dueIds) {
+      if (!foundIds.has(id)) await deleteRetryKey(env.CACHE, id);
+    }
+
+    const retrySettled = await runConcurrent(
+      stubs,
+      async (entry) => {
+        const record = await getRetryRecord(env.CACHE, entry.id);
+        const prevAttempts = record?.attempts ?? 0;
+        try {
+          await processSinglePaper(entry, env);
+          await deleteRetryKey(env.CACHE, entry.id);
+          console.info(`[pipeline] Retry succeeded for ${entry.id} (attempt ${prevAttempts})`);
+        } catch (err) {
+          console.warn(`[pipeline] Retry failed for ${entry.id} (attempt ${prevAttempts}):`, err);
+          if (prevAttempts >= 3) {
+            // Permanently give up — mark summary_ready = 2 and drop the retry key
+            await markFailed(env.DB, entry.id).catch(() => {});
+            await deleteRetryKey(env.CACHE, entry.id);
+            console.warn(`[pipeline] Permanently failed ${entry.id} after ${prevAttempts} attempts`);
+          } else {
+            await enqueueRetry(env.CACHE, entry.id, prevAttempts);
+          }
+        }
+      },
+      concurrency,
+    );
+
+    const retrySucceeded = retrySettled.filter(r => r.status === 'fulfilled').length;
+    const retryFailed    = retrySettled.filter(r => r.status === 'rejected').length;
+    console.info(`[pipeline] Retry batch done — ${retrySucceeded} succeeded, ${retryFailed} rescheduled/failed`);
+  }
 
   // ── 1. Daily quota check ───────────────────────────────────────────────────
   const todayKey  = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
@@ -215,7 +267,9 @@ async function processSinglePaper(entry: ArxivEntry, env: Env): Promise<void> {
       'INSERT OR IGNORE INTO embeddings_meta (paper_id, vectorize_id, embedded_at) VALUES (?, ?, ?)'
     ).bind(id, vectorizeId, new Date().toISOString()).run();
   } catch (err) {
-    await markFailed(env.DB, id);
+    // Don't permanently mark failed — enqueue for retry with backoff instead
+    const record = await getRetryRecord(env.CACHE, id).catch(() => null);
+    await enqueueRetry(env.CACHE, id, record?.attempts ?? 0).catch(() => {});
     throw new Error(`Embedding failed for ${id}: ${String(err)}`);
   }
 
@@ -224,7 +278,9 @@ async function processSinglePaper(entry: ArxivEntry, env: Env): Promise<void> {
   try {
     summaryFields = await generateSummary(entry.summary, env);
   } catch (err) {
-    await markFailed(env.DB, id);
+    // Don't permanently mark failed — enqueue for retry with backoff instead
+    const record = await getRetryRecord(env.CACHE, id).catch(() => null);
+    await enqueueRetry(env.CACHE, id, record?.attempts ?? 0).catch(() => {});
     throw new Error(`Summary failed for ${id}: ${String(err)}`);
   }
 
