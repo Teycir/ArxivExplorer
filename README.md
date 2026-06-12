@@ -179,6 +179,8 @@ Either the ingest worker (Workers AI, rate-limited) or the local bulk script (Ol
 - Paper embeddings for semantic search
 - Sets `summary_ready = 1` when complete
 
+AI calls are processed **sequentially** (concurrency 1) to stay within the Workers AI free tier rate limit of 300 req/min for text generation. Papers that fail AI processing are enqueued in a **KV retry queue** with exponential backoff (2h → 6h → 24h) and retried automatically on subsequent cron ticks, up to 3 attempts before permanent failure (`summary_ready = 2`).
+
 ### 3. Enrichment Stage (optional)
 - **Citations**: Semantic Scholar API updates citation counts via cron
 - **CrossRef**: DOI-based metadata enrichment (daily cron `30 2 * * *`)
@@ -191,7 +193,7 @@ Pre-computes top-8 semantically similar papers using Vectorize and stores in `re
 ### Cron Schedule
 
 The ingest worker runs on a single cron trigger:
-- `* * * * *` — Every minute (processes 1 paper per run with 1 retry on failure; citation updates via Semantic Scholar run in the same cron)
+- `0 * * * *` — Every hour at :00 UTC (fetches new papers from arXiv, runs AI processing, drains retry queue, updates citations via Semantic Scholar)
 
 CrossRef enrichment is triggered via the admin endpoint (`POST /admin/crossref-batch`) rather than a separate cron.
 
@@ -424,7 +426,7 @@ export const CF_D1_ID = 'your-d1-database-id';
 [vars]
 ARXIV_FETCH_CATEGORIES = "cs.AI,cs.LG"                 # Default fetch categories (add more as needed)
 ARXIV_FETCH_LIMIT_PER_CATEGORY = "0"                   # Papers per category per cron (0 = process pending only)
-INGEST_MAX_CONCURRENT = "1"                            # Concurrent AI processing
+INGEST_MAX_CONCURRENT = "1"                            # AI processing concurrency (keep at 1 — avoids Workers AI 300 req/min burst limit)
 ARXIV_RATE_LIMIT_DELAY_MS = "3000"                     # Delay between arXiv requests
 SUMMARY_MODEL = "@cf/meta/llama-3.1-8b-instruct"       # Workers AI summary model
 EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5"          # Workers AI embedding model
@@ -437,10 +439,11 @@ POLITE_EMAIL = "your-email@example.com"                # Contact email for arXiv
 # OLLAMA_EMBEDDING_MODEL = "nomic-embed-text"
 ```
 
-**Minutely cron schedule**:
-- Processes exactly 1 pending paper per run (summary_ready = 0 or failed within 7 days)
-- Retries once on failure (2 total attempts)
-- Daily quota: 113 papers/day max (5,000 neurons, 50% of daily budget reserved for tooltips)
+**Hourly cron schedule**:
+- Drains retry queue first (papers that previously failed AI processing)
+- Fetches up to 10 new papers per arXiv category (24 categories)
+- Processes new papers sequentially through embedding + summary AI pipeline
+- Daily quota: 227 papers/day max (10,000 neurons ÷ ~44 neurons/paper, resets 00:00 UTC)
 - Quota tracking via KV with automatic reset at 00:00 UTC
 
 ### Admin Secret
@@ -701,7 +704,8 @@ The deployment uses:
 - Single consolidated prompt per paper → structured JSON output
 - Workers AI uses `@cf/meta/llama-3.1-8b-instruct` for summaries, `@cf/baai/bge-base-en-v1.5` for embeddings
 - Local Ollama fallback: `gemma4:e4b` (summaries) + `nomic-embed-text` (embeddings)
-- Failed papers marked `summary_ready = 2` and retried on next run
+- Papers processed **sequentially** (concurrency 1) to avoid Workers AI text generation rate limit (300 req/min)
+- Failed papers enqueued in KV retry queue with exponential backoff (2h / 6h / 24h); permanently marked `summary_ready = 2` after 3 failed attempts
 
 
 ## Contributing
