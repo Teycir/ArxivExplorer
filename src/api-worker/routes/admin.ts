@@ -134,7 +134,11 @@ export async function handleKvDelete(request: Request, env: Env): Promise<Respon
     let deleted = 0;
     let cursor: string | undefined;
     do {
-      const listed = await env.CACHE.list({ prefix, limit: 1000, cursor });
+      const listed = await env.CACHE.list({
+        limit: 1000,
+        ...(prefix !== undefined && { prefix }),
+        ...(cursor !== undefined && { cursor }),
+      });
       await Promise.all(listed.keys.map(k => env.CACHE.delete(k.name)));
       deleted += listed.keys.length;
       cursor = listed.list_complete ? undefined : listed.cursor;

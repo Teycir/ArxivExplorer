@@ -113,18 +113,18 @@ async function main() {
     LEFT JOIN related_papers r ON r.paper_id = p.id
     WHERE p.summary_ready=1 AND r.paper_id IS NULL
   `).get() as any).n;
-  verify.close();
-
   console.log(`
 ✅ Local DB synced:
    papers:         ${cnt('papers')} (${ready} ready)
    summaries:      ${cnt('summaries')}
    related_papers: ${cnt('related_papers')}
    topics:         ${cnt('topics')}
-   embeddings:     ${cnt('embeddings')} (local-only, untouched)
+   embeddings:     ${cnt('embeddings_meta')} (local-only, untouched)
    papers_fts:     rebuilt ✓
    no-related gap: ${noRelated} papers
   `);
+
+  verify.close();
 }
 
 main().catch(e => { console.error('❌', e); process.exit(1); });

@@ -121,10 +121,10 @@ describe('Search route — paper_id extraction from Vectorize metadata (regressi
 
   it('handles missing metadata gracefully (null/undefined)', () => {
     const matches = [
-      { metadata: undefined },
+      {},
       { metadata: { paper_id: '2301.12345' } },
     ];
-    const ids = extractPaperIds(matches);
+    const ids = extractPaperIds(matches as any);
     assert.deepEqual(ids, ['2301.12345']);
   });
 });

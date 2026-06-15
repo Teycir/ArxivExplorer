@@ -335,11 +335,11 @@ export async function getTopicsWithPapers(db: D1Database): Promise<Array<TopicWi
     .map(({ t, paperCount }) => ({
       slug:            t.slug,
       label:           t.label,
-      description:     t.description,
       updatedAt:       t.updated_at,
       paperCount,
       categoryTags:    [],
       categoryDetails: [],
+      ...(t.description && { description: t.description }),
     }));
 
   // Sort descending by paper count (matches explore page ranking)

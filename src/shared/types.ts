@@ -76,6 +76,8 @@ export interface Topic {
   description?: string;
   keywords?: string;   // space-separated FTS terms used to match papers
   updatedAt: string;
+  categoryTags?: string[];
+  categoryDetails?: Array<{ code: string; label: string; domain: string }>;
 }
 
 export interface IngestResult {
