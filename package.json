@@ -1,6 +1,33 @@
 {
   "name": "arxiv-explorer",
   "version": "1.4.0",
+  "description": "Semantic arXiv paper search with AI summaries, embeddings, citation tracking, and reproducibility claims",
+  "keywords": [
+    "arxiv",
+    "research-papers",
+    "semantic-search",
+    "ai-summaries",
+    "embeddings",
+    "academic-search",
+    "literature-review",
+    "citation-tracking",
+    "machine-learning",
+    "deep-learning",
+    "llama3",
+    "cloudflare-workers",
+    "vectorize",
+    "reproducibility"
+  ],
+  "homepage": "https://github.com/Teycir/ArxivExplorer",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Teycir/ArxivExplorer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Teycir/ArxivExplorer/issues"
+  },
+  "license": "SEE LICENSE IN LICENSE.md",
+  "author": "Teycir",
   "private": true,
   "scripts": {
     "dev": "next dev",

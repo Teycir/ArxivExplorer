@@ -1,0 +1,53 @@
+{
+  "name": "arXiv Explorer",
+  "slug": "arxiv-explorer",
+  "version": "1.4.0",
+  "category": "research",
+  "tags": [
+    "arxiv",
+    "research-papers",
+    "semantic-search",
+    "ai-summaries",
+    "embeddings",
+    "academic-search",
+    "literature-review",
+    "citation-tracking",
+    "machine-learning",
+    "reproducibility"
+  ],
+  "shortDescription": "Semantic arXiv paper search with AI summaries",
+  "description": "Fast semantic search across arXiv research papers powered by BGE embeddings and Llama 3.1 summaries. Find papers by meaning, track citations, extract reproducibility claims. No login required.",
+  "author": "Teycir",
+  "license": "BSL 1.1",
+  "homepage": "https://github.com/Teycir/ArxivExplorer",
+  "repository": "https://github.com/Teycir/ArxivExplorer",
+  "usage": {
+    "web": "https://arxivexplorer.workers.dev/search?q=<query>",
+    "cli": "arxiv search <query>"
+  },
+  "features": [
+    "Semantic search (BGE base v1.5)",
+    "AI summaries (Llama 3.1)",
+    "Citation tracking",
+    "Reproducibility claims extraction",
+    "Topic/category browsing",
+    "Author search",
+    "Paper comparison",
+    "Local bookmarks (no account)"
+  ],
+  "technology": {
+    "embeddings": "BGE base v1.5 (768-dim)",
+    "summaries": "Llama 3.1",
+    "vector": "Cloudflare Vectorize",
+    "database": "Cloudflare D1",
+    "hosting": "Cloudflare Workers/Pages"
+  },
+  "categories": [
+    "cs.AI",
+    "cs.LG",
+    "cs.CV",
+    "cs.CL",
+    "cs.NE",
+    "stat.ML"
+  ]
+}
