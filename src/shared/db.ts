@@ -439,6 +439,40 @@ export function dateWindowStart(window: string): string | null {
   return new Date(Date.now() - ms).toISOString().slice(0, 10);
 }
 
+/**
+ * Converts a free-text user query into a syntactically safe FTS5 MATCH
+ * expression by quoting every token as a literal phrase and joining with
+ * explicit AND.
+ *
+ * WHY THIS EXISTS: FTS5's MATCH argument is not free text — it's a small
+ * query language with its own operators (AND/OR/NOT, "phrase", col:term,
+ * prefix*). Passing user input straight through breaks on anything
+ * containing a hyphen, colon, quote, or other FTS5-special character.
+ * The most common real-world trigger is a hyphenated compound word like
+ * "large-scale" or "state-of-the-art": FTS5 tokenises the leading `-` as
+ * the NOT operator, so `large-scale` becomes "match large, but exclude
+ * `scale`" — and because `scale` isn't a column, SQLite raises
+ * `no such column: scale` instead of a normal search result. This is
+ * documented, known-confusing FTS5 behaviour (see the SQLite forum thread
+ * "FTS5 tables, = vs. MATCH, ... and error: no such column"), not a schema
+ * problem — papers_fts has no column named after any search term.
+ *
+ * Quoting each token as "term" makes it a literal phrase to FTS5, so
+ * -, :, *, ^, (, ) inside a token can never be read as operators. A lone
+ * double-quote in a token is escaped by doubling it (FTS5's own escape for
+ * quotes inside a quoted string). Empty input becomes an empty string,
+ * which callers should treat as "no query" upstream (ftsSearch does not
+ * special-case it here — sanitizeQuery already guarantees non-empty input
+ * on the /api/search path).
+ */
+export function toFts5MatchQuery(query: string): string {
+  return query
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(term => `"${term.replace(/"/g, '""')}"`)
+    .join(' AND ');
+}
+
 export async function ftsSearch(
   db: D1Database,
   query: string,
@@ -451,7 +485,7 @@ export async function ftsSearch(
   const minCitations = filters.minCitations ?? null;
 
   const whereParts: string[] = ['papers_fts MATCH ?', 'p.summary_ready = 1'];
-  const binds: (string | number)[] = [query];
+  const binds: (string | number)[] = [toFts5MatchQuery(query)];
 
   if (since) { whereParts.push('p.published_at >= ?'); binds.push(since); }
   if (cat) {
