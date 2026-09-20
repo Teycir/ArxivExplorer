@@ -138,6 +138,44 @@ export async function getPaperById(db: D1Database, id: string): Promise<PaperWit
 }
 
 /**
+ * Batch paper lookup — same contract as getPaperById (no completeness
+ * filtering) but fetches many IDs in a single D1 round-trip via WHERE IN.
+ * Chunked at 100 (D1 IN-clause / bound-parameter limit). Missing IDs are
+ * simply absent from the returned map — callers should treat that the same
+ * way a null from getPaperById would be treated (index lag, deleted row).
+ *
+ * Introduced to fix a read-amplification bug in search.ts's mergeResults():
+ * it used to call getPaperById once per semantic-only match (up to
+ * VECTORIZE_TOP_K = 30 individual D1 round-trips per uncached search).
+ */
+export async function getPapersByIds(
+  db: D1Database,
+  ids: string[]
+): Promise<Map<string, PaperWithSummary>> {
+  const out = new Map<string, PaperWithSummary>();
+  if (ids.length === 0) return out;
+
+  const CHUNK = 100; // D1 IN-clause / bound-parameter limit
+
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const chunk = ids.slice(i, i + CHUNK);
+    const placeholders = chunk.map(() => '?').join(',');
+    const { results } = await db.prepare(`
+      SELECT ${PAPER_SELECT}
+      FROM papers p
+      LEFT JOIN summaries s ON s.paper_id = p.id
+      WHERE p.id IN (${placeholders})
+    `).bind(...chunk).all<PaperRow>();
+
+    for (const row of results) {
+      out.set(row.id, rowToPaper(row));
+    }
+  }
+
+  return out;
+}
+
+/**
  * Related papers for the sidebar — only returns entries whose target paper
  * has a title and a tldr so every link in the sidebar is safe to follow.
  */

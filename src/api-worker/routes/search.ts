@@ -12,7 +12,7 @@
  */
 
 import type { Env, PaperWithSummary, EmbeddingResponse } from '../../shared/types';
-import { ftsSearch, getPaperById, rowToPaper, dateWindowStart } from '../../shared/db';
+import { ftsSearch, getPapersByIds, rowToPaper, dateWindowStart } from '../../shared/db';
 import type { SearchFilters } from '../../shared/db';
 import { kvGet, kvPutAsync } from '../cache/kv';
 import { kvEmbed, TTL_SEARCH, TTL_EMBED } from '../cache/keys';
@@ -265,26 +265,29 @@ async function mergeResults(
     .filter(([, v]) => v.paper == null)
     .map(([id]) => id);
 
-  // Batch-fetch missing papers from D1 in parallel (up to VECTORIZE_TOP_K gaps)
+  // Batch-fetch missing papers from D1 in ONE round-trip (WHERE id IN (...))
+  // instead of one getPaperById() call per gap. With VECTORIZE_TOP_K = 30,
+  // the old per-ID loop turned a single uncached search into up to 30
+  // individual D1 queries — this was the main driver of the account's D1
+  // free-tier row-read exhaustion (see incident: D1 error 7500, Sept 2026).
   let d1Errors = 0;
   if (missingIds.length > 0) {
-    const fetched = await Promise.allSettled(
-      missingIds.map(id => getPaperById(db, id))
-    );
-    for (let i = 0; i < missingIds.length; i++) {
-      const r = fetched[i]!;
-      const id = missingIds[i]!;
-      if (r.status === 'fulfilled' && r.value) {
-        scoreMap.get(id)!.paper = r.value;
-      } else {
-        if (r.status === 'rejected') {
-          // D1 fetch error — log and count so caller can set degraded:true.
-          console.error(`[search] D1 fetch failed for semantic-only paper ${id}:`, r.reason);
-          d1Errors++;
+    try {
+      const found = await getPapersByIds(db, missingIds);
+      for (const id of missingIds) {
+        const paper = found.get(id);
+        if (paper) {
+          scoreMap.get(id)!.paper = paper;
+        } else {
+          // Index lag (paper in Vectorize but not yet in D1) — silent drop is fine.
+          scoreMap.delete(id);
         }
-        // 'fulfilled' + null means index lag (paper in Vectorize but not yet in D1) — silent drop is fine.
-        scoreMap.delete(id);
       }
+    } catch (err) {
+      // D1 fetch error — log and count so caller can set degraded:true.
+      console.error('[search] Batch D1 fetch failed for semantic-only papers:', err);
+      d1Errors = missingIds.length;
+      for (const id of missingIds) scoreMap.delete(id);
     }
   }
 
@@ -351,14 +354,12 @@ async function handleMoreLikeThis(
     .filter(m => m.score >= bestScore * MIN_RELATIVE_SCORE)
     .slice(0, DEFAULT_RESULTS);
 
-  // Fetch paper objects from D1
-  const papers = (await Promise.allSettled(
-    matches.map(m => getPaperById(env.DB, m.metadata?.paper_id as string))
-  ))
-    .filter((r): r is PromiseFulfilledResult<PaperWithSummary> =>
-      r.status === 'fulfilled' && r.value !== null
-    )
-    .map(r => r.value);
+  // Fetch paper objects from D1 in a single batched round-trip
+  const matchIds = matches.map(m => m.metadata?.paper_id as string);
+  const foundPapers = await getPapersByIds(env.DB, matchIds);
+  const papers = matchIds
+    .map(id => foundPapers.get(id))
+    .filter((p): p is PaperWithSummary => p != null);
 
   const response = {
     papers,
@@ -417,14 +418,12 @@ async function handleAbstractSearch(
     m => m.score >= bestScore * MIN_RELATIVE_SCORE
   );
 
-  // Fetch paper objects from D1
-  const papers = (await Promise.allSettled(
-    qualityFiltered.map(m => getPaperById(env.DB, m.metadata?.paper_id as string))
-  ))
-    .filter((r): r is PromiseFulfilledResult<PaperWithSummary> =>
-      r.status === 'fulfilled' && r.value !== null
-    )
-    .map(r => r.value)
+  // Fetch paper objects from D1 in a single batched round-trip
+  const qualityIds = qualityFiltered.map(m => m.metadata?.paper_id as string);
+  const foundAbstractPapers = await getPapersByIds(env.DB, qualityIds);
+  const papers = qualityIds
+    .map(id => foundAbstractPapers.get(id))
+    .filter((p): p is PaperWithSummary => p != null)
     .slice(0, DEFAULT_RESULTS);
 
   const response = {
