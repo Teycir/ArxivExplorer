@@ -43,3 +43,11 @@ backups
 scripts/debug-vectorize.ts
 scripts/purge-search-cache.ts
 .trunk
+
+# Local D1 database dumps / exports (large, regenerable from remote)
+db-dumps/
+*.sqlite
+*.sqlite3
+*.db
+arxiv-explorer*.sql
+d1-export*.sql
