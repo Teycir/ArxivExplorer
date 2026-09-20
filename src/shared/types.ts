@@ -210,6 +210,10 @@ export interface Env {
   CACHE: KVNamespace;
   VECTORIZE: VectorizeIndex;
   AI: Ai;
+  // Native Workers Rate Limiting binding (api-worker only) — see
+  // wrangler.api.toml [[ratelimits]]. Optional because the ingest worker
+  // and other configs don't declare it.
+  RATE_LIMITER?: { limit(options: { key: string }): Promise<{ success: boolean }> };
   ARXIV_FETCH_CATEGORIES?: string;
   SUMMARY_MODEL?: string;
   EMBEDDING_MODEL?: string;

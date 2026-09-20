@@ -30,7 +30,8 @@ export async function handlePaper(
     request, env.CACHE,
     { maxRequests: 100, windowSeconds: 60, lockoutSeconds: 120, namespace: 'paper' },
     cors,
-    () => handlePaperInner(env, ctx, cleanId, cors)
+    () => handlePaperInner(env, ctx, cleanId, cors),
+    env.RATE_LIMITER
   );
 }
 

@@ -9,6 +9,7 @@ import { kvGet, kvPutAsync } from '../cache/kv';
 import { kvTopic, TTL_TOPIC } from '../cache/keys';
 import { corsHeaders, jsonResponse, errorResponse } from '../../shared/utils';
 import { sanitizeCategory } from '../../shared/sanitize';
+import { withRateLimit } from '../middleware/rate-limit';
 
 export async function handleTopic(
   request: Request,
@@ -17,7 +18,21 @@ export async function handleTopic(
   slug: string
 ): Promise<Response> {
   const cors = corsHeaders(env);
+  return withRateLimit(
+    request, env.CACHE,
+    { maxRequests: 60, windowSeconds: 60, lockoutSeconds: 120, namespace: 'topic' },
+    cors,
+    () => handleTopicInner(env, ctx, slug, cors),
+    env.RATE_LIMITER
+  );
+}
 
+async function handleTopicInner(
+  env: Env,
+  ctx: ExecutionContext,
+  slug: string,
+  cors: Record<string, string>
+): Promise<Response> {
   slug = sanitizeCategory(slug); // Reuse category sanitizer (alphanumeric + hyphens)
   if (!slug) {
     return errorResponse('Invalid topic slug', cors, 400);

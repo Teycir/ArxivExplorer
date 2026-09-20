@@ -19,6 +19,17 @@ index_name = "arxiv-papers"
 [ai]
 binding = "AI"
 
+# Native Workers Rate Limiting binding — backed by the same infra as
+# Cloudflare's WAF rate-limiting rules, NOT KV. Used as a first line of
+# defense that keeps working even when the KV-backed per-route limiter in
+# middleware/rate-limit.ts is degraded (KV outage, daily quota exhausted).
+# Period must be 10 or 60 seconds (Cloudflare API constraint) — 60 chosen to
+# match the existing per-route KV limits for consistent behavior.
+[[ratelimits]]
+name = "RATE_LIMITER"
+namespace_id = "1001"
+simple = { limit = 120, period = 60 }
+
 [vars]
 ARXIV_FETCH_CATEGORIES = "cs.LG,cs.CL,cs.CV,stat.ML"
 SUMMARY_MODEL = "@cf/meta/llama-3.1-8b-instruct"

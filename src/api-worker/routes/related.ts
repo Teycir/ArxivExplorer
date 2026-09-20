@@ -12,6 +12,7 @@ import { getRelatedPapers } from '../../shared/db';
 import { kvGet, kvPutAsync } from '../cache/kv';
 import { kvPaperRelated } from '../cache/keys';
 import { corsHeaders, jsonResponse, errorResponse } from '../../shared/utils';
+import { withRateLimit } from '../middleware/rate-limit';
 
 export async function handleRelated(
   request: Request,
@@ -20,7 +21,21 @@ export async function handleRelated(
   arxivId: string
 ): Promise<Response> {
   const cors = corsHeaders(env);
+  return withRateLimit(
+    request, env.CACHE,
+    { maxRequests: 60, windowSeconds: 60, lockoutSeconds: 120, namespace: 'related' },
+    cors,
+    () => handleRelatedInner(env, ctx, arxivId, cors),
+    env.RATE_LIMITER
+  );
+}
 
+async function handleRelatedInner(
+  env: Env,
+  ctx: ExecutionContext,
+  arxivId: string,
+  cors: Record<string, string>
+): Promise<Response> {
   if (!arxivId || !/^[\w.-]+$/.test(arxivId)) {
     return errorResponse('Invalid arXiv ID format', cors, 400);
   }

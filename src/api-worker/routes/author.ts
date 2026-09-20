@@ -13,6 +13,7 @@ import { kvGet, kvPutAsync } from '../cache/kv';
 import { kvAuthor, TTL_AUTHOR } from '../cache/keys';
 import { corsHeaders, jsonResponse, errorResponse } from '../../shared/utils';
 import { sanitizeAuthor } from '../../shared/sanitize';
+import { withRateLimit } from '../middleware/rate-limit';
 
 const SIX_MONTHS_MS = 6 * 30 * 24 * 60 * 60 * 1000;
 
@@ -82,7 +83,21 @@ export async function handleAuthor(
   name: string
 ): Promise<Response> {
   const cors = corsHeaders(env);
+  return withRateLimit(
+    request, env.CACHE,
+    { maxRequests: 60, windowSeconds: 60, lockoutSeconds: 120, namespace: 'author' },
+    cors,
+    () => handleAuthorInner(env, ctx, name, cors),
+    env.RATE_LIMITER
+  );
+}
 
+async function handleAuthorInner(
+  env: Env,
+  ctx: ExecutionContext,
+  name: string,
+  cors: Record<string, string>
+): Promise<Response> {
   const decoded = sanitizeAuthor(decodeURIComponent(name));
   if (!decoded) {
     return errorResponse('Invalid author name', cors, 400);

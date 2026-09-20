@@ -34,7 +34,8 @@ export async function handleTrending(
     request, env.CACHE,
     { maxRequests: 100, windowSeconds: 60, lockoutSeconds: 120, namespace: 'trending' },
     cors,
-    () => handleTrendingInner(request, env, ctx, cors)
+    () => handleTrendingInner(request, env, ctx, cors),
+    env.RATE_LIMITER
   );
 }
 

@@ -44,7 +44,8 @@ export async function handleSearch(
     request, env.CACHE,
     { maxRequests: 60, windowSeconds: 60, lockoutSeconds: 120, namespace: 'search' },
     cors,
-    () => handleSearchInner(request, env, ctx, cors)
+    () => handleSearchInner(request, env, ctx, cors),
+    env.RATE_LIMITER
   );
 }
 
