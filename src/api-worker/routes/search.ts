@@ -183,6 +183,18 @@ async function runFtsSearch(
 
 // ─── Semantic / Vectorize ──────────────────────────────────────────────────
 
+/**
+ * Paper id of a Vectorize match. Vectors are written with id === paper id and
+ * metadata.paper_id, but a vector missing the metadata field must not turn into
+ * `undefined` (D1 .bind() throws D1_TYPE_ERROR for undefined, which used to fail
+ * the whole batched lookup and flag the response degraded).
+ */
+function matchPaperId(m: { id: string; metadata?: Record<string, unknown> | null }): string | null {
+  const fromMeta = m.metadata?.paper_id;
+  if (typeof fromMeta === 'string' && fromMeta !== '') return fromMeta;
+  return typeof m.id === 'string' && m.id !== '' ? m.id : null;
+}
+
 async function runSemanticSearch(
   env: Env,
   ctx: ExecutionContext,
@@ -220,10 +232,12 @@ async function runSemanticSearch(
     ...(vecFilter ? { filter: vecFilter } : {}),
   });
 
-  return results.matches.map(m => ({
-    paperId: m.metadata?.paper_id as string,
-    score: m.score * SEMANTIC_WEIGHT,
-  }));
+  const out: Array<{ paperId: string; score: number }> = [];
+  for (const m of results.matches) {
+    const paperId = matchPaperId(m);
+    if (paperId) out.push({ paperId, score: m.score * SEMANTIC_WEIGHT });
+  }
+  return out;
 }
 
 async function generateEmbedding(env: Env, text: string): Promise<number[]> {
@@ -345,7 +359,7 @@ async function handleMoreLikeThis(
 
   // Exclude the source paper itself
   const excludedSource = results.matches.filter(
-    m => (m.metadata?.paper_id as string) !== paperId
+    m => matchPaperId(m) !== paperId
   );
 
   // Drop results where score falls off relative to best (quality gate)
@@ -355,7 +369,7 @@ async function handleMoreLikeThis(
     .slice(0, DEFAULT_RESULTS);
 
   // Fetch paper objects from D1 in a single batched round-trip
-  const matchIds = matches.map(m => m.metadata?.paper_id as string);
+  const matchIds = matches.map(matchPaperId).filter((id): id is string => id !== null);
   const foundPapers = await getPapersByIds(env.DB, matchIds);
   const papers = matchIds
     .map(id => foundPapers.get(id))
@@ -419,7 +433,7 @@ async function handleAbstractSearch(
   );
 
   // Fetch paper objects from D1 in a single batched round-trip
-  const qualityIds = qualityFiltered.map(m => m.metadata?.paper_id as string);
+  const qualityIds = qualityFiltered.map(matchPaperId).filter((id): id is string => id !== null);
   const foundAbstractPapers = await getPapersByIds(env.DB, qualityIds);
   const papers = qualityIds
     .map(id => foundAbstractPapers.get(id))

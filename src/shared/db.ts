@@ -153,12 +153,15 @@ export async function getPapersByIds(
   ids: string[]
 ): Promise<Map<string, PaperWithSummary>> {
   const out = new Map<string, PaperWithSummary>();
-  if (ids.length === 0) return out;
+  // Drop non-string / empty ids and dedupe: D1 .bind() throws D1_TYPE_ERROR on
+  // undefined, and one bad id must not fail the whole batch.
+  const cleanIds = Array.from(new Set(ids.filter((id): id is string => typeof id === 'string' && id !== '')));
+  if (cleanIds.length === 0) return out;
 
   const CHUNK = 100; // D1 IN-clause / bound-parameter limit
 
-  for (let i = 0; i < ids.length; i += CHUNK) {
-    const chunk = ids.slice(i, i + CHUNK);
+  for (let i = 0; i < cleanIds.length; i += CHUNK) {
+    const chunk = cleanIds.slice(i, i + CHUNK);
     const placeholders = chunk.map(() => '?').join(',');
     const { results } = await db.prepare(`
       SELECT ${PAPER_SELECT}
