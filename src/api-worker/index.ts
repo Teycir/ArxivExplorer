@@ -4,6 +4,7 @@
  */
 
 import type { Env } from '../shared/types';
+import { withRowBudget } from '../shared/db-budget';
 import { corsHeaders } from '../shared/utils';
 import { handleSearch } from './routes/search';
 import { handlePaper } from './routes/paper';
@@ -19,15 +20,20 @@ import { handleTopics } from './routes/topics';
 import { handleStats } from './routes/stats';
 
 export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, rawEnv: Env, ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(request.url);
+    const path = url.pathname;
+
+    // Measure the D1 cost of this request: withRowBudget sums meta.rows_read and
+    // logs one warning past REQUEST_ROW_BUDGET, so an over-budget query is visible
+    // in `wrangler tail` immediately instead of only surfacing as a once-a-day
+    // free-tier quota rejection (the Sept 2026 outage mode).
+    const env: Env = { ...rawEnv, DB: withRowBudget(rawEnv.DB, path) };
     const cors = corsHeaders(env);
 
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: cors });
     }
-
-    const url = new URL(request.url);
-    const path = url.pathname;
 
     if (path === '/api/classify-claim' && request.method === 'POST') {
       return handleClassifyClaim(request, env);

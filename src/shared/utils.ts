@@ -4,6 +4,7 @@
  */
 
 import type { PaperWithSummary, RelatedPaper } from './types';
+import { isD1QuotaError, secondsUntilQuotaReset } from './db-budget';
 
 // ─── Completeness guards ────────────────────────────────────────────────────
 
@@ -170,4 +171,45 @@ export function errorResponse(
       ...cors,
     },
   });
+}
+
+/**
+ * Error response for a failed D1 query.
+ *
+ * The free-tier daily quota rejection is an infrastructure limit, not a bug, and
+ * it is what the September 2026 outage looked like: `/api/topics`, `/api/stats`
+ * and `/api/sitemap` answered `500` while every page silently rendered an empty
+ * state, so nothing distinguished "no papers" from "database switched off".
+ *
+ * Quota errors now return **503 + Retry-After** (seconds until 00:00 UTC, when
+ * D1 resets) with an explicit `degraded` flag, so clients and monitoring can tell
+ * the two apart. Anything else keeps the previous 500 behaviour.
+ */
+export function dbErrorResponse(
+  err: unknown,
+  cors: Record<string, string>,
+  context: string
+): Response {
+  if (isD1QuotaError(err)) {
+    const retryAfter = secondsUntilQuotaReset();
+    console.error(`[${context}] D1 daily quota exhausted — degraded until 00:00 UTC`);
+    return new Response(
+      JSON.stringify({
+        error: 'Database read budget exhausted — service is degraded until 00:00 UTC.',
+        degraded: true,
+        retryAfter,
+      }),
+      {
+        status: 503,
+        headers: {
+          'Content-Type': 'application/json',
+          'Retry-After': String(retryAfter),
+          'Cache-Control': 'no-store',
+          ...cors,
+        },
+      }
+    );
+  }
+
+  return errorResponse(`Database error: ${String(err)}`, cors, 500);
 }
