@@ -34,6 +34,19 @@ export const KV_SITEMAP = 'kv:sitemap';
 /** Topics list with paper counts (TTL 1h). */
 export const KV_TOPICS = 'kv:topics:with-papers';
 
+/** Landing/explore aggregate stats (TTL 1h).
+ * v5: payload now comes from the materialized `counters` + `topics.paper_count`
+ * columns (migration 0017) instead of 25 live FTS count joins. */
+export const KV_STATS = 'kv:stats:v5';
+
+/**
+ * Every key that must be dropped when the materialized counts change.
+ * Single source of truth — the ingest worker used to invalidate the stale
+ * `kv:stats:v2` key while stats.ts read `kv:stats:v4`, so the stats cache was
+ * never actually invalidated.
+ */
+export const DERIVED_COUNT_KEYS = [KV_TOPICS, KV_STATS, KV_SITEMAP] as const;
+
 // ─── TTL constants (in seconds) ────────────────────────────────────────────
 export const TTL_TOPICS = 3_600;          // 1h
 export const TTL_SEARCH = 7_200;          // 2h
