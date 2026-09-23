@@ -115,21 +115,39 @@ _Scan the QR code or copy the wallet address above._
 
 ### SEO & Discoverability
 - **Dynamic Meta Tags** — Open Graph and Twitter Card tags on all paper pages
-- **Sitemap.xml** — Auto-generated sitemap with all papers, topics, and authors
-- **Robots.txt** — Search engine crawler configuration
+- **Sitemap.xml** — Auto-generated sitemap: `app/sitemap.ts` emits the static
+  routes plus topic URLs (topics come from `/api/topics`), while the api-worker
+  `GET /api/sitemap` emits the full paper list. Revalidates daily.
+- **Robots.txt** — Search engine crawler configuration: every user-agent group,
+  including all AI crawlers, disallows `/api/`. The JSON API is intentionally
+  off-limits to crawlers.
 - **Structured Data** — JSON-LD schema markup for papers and authors
 - **SSR Content** — Server-side rendered pages with full content for crawlers
 - **Canonical URLs** — Proper canonical tags to prevent duplicate content
-- **AI Agent Discovery** — `/ai.txt` and `/llms.txt` routes for LLM tool integration
+- **AI Agent Discovery** — `/ai.txt` and `/llms.txt` routes describe the corpus for
+  LLMs and point aggregators to the RSS feed. The raw JSON API is deliberately
+  not advertised.
 
 ### Performance
-- **Edge Caching** — Cloudflare KV with intelligent TTL strategies
-- **ISR Rendering** — Next.js ISR with 10-minute revalidation
+- **Two-layer caching** — The per-colo edge cache (Cache API, quota-free) sits in
+  front of KV. Hot JSON endpoints send `Cache-Control: public, s-maxage=…` and
+  answer `X-Edge-Cache: HIT|MISS` (`src/api-worker/cache/edge.ts`). KV entries
+  carry matching TTLs: search 2 h, trending 10 min–3 h, topics/stats 1 h,
+  sitemap 24 h, embeddings 24 h, papers permanent.
+- **ISR Rendering** — Next.js ISR with page-level `revalidate` values
+  > Note: `open-next.config.ts` currently uses `incrementalCache: "dummy"` and
+  > `helper/api.ts` fetches `no-store`, so revalidate values are inert for now.
+  > This is tracked follow-up work (see CHANGELOG).
 - **Zero Login** — Instant access to all features
 - **Global CDN** — Cloudflare Workers edge deployment
 
 ### Security
-- **Rate Limiting** — Per-IP token bucket on all public endpoints (60-100 req/min) with lockout
+- **Rate Limiting** — Every public route is wrapped in `withRateLimit`, which
+  approves via the native `RATE_LIMITER` binding (per-route `${namespace}:${ip}`
+  key, zero KV writes; KV sliding window only as fallback). Identity comes from
+  the edge-set `cf-connecting-ip`; forwarded IPs need a matching
+  `X-Internal-Auth` secret (`INTERNAL_TOKEN`), and service-binding traffic has
+  its own `internal` bucket instead of sharing one counter.
 - **SQL Injection Protection** — 100% parameterized queries via D1 `.prepare().bind()`
 - **Input Sanitization** — Strict validation on all user inputs (control chars, length limits, allowlists)
 - **Timing-Safe Auth** — Admin endpoints use `crypto.timingSafeEqual` (no timing oracles)
@@ -277,6 +295,10 @@ npm run deploy:ingest   # Ingest worker
 
 # Note: deploy.sh does NOT deploy ingest worker
 # Deploy ingest worker manually when needed
+
+# IMPORTANT — when this change ships a migration, run it BEFORE the API deploy:
+npx wrangler d1 execute arxiv-explorer --remote --file=migrations/0017_topic_paper_counts.sql
+# (ADD-only migration for materialized topic counts; see CHANGELOG "Deploy checklist")
 ```
 
 ## Project Structure
@@ -483,7 +505,12 @@ ADMIN_SECRET=your-secret npx tsx scripts/push-local-to-remote.ts
 - `papers_fts` — FTS5 virtual table with insert/update/delete triggers
 - `embeddings_meta` — tracks embedding generation per paper
 - `related_papers` — pre-computed top-8 semantic neighbors
-- `topics` — curated topic collections with category mappings
+- `topics` — curated topic collections with category mappings; `paper_count` is a
+  **materialized aggregate maintained by the ingest cron** (`refreshTopicCounts`,
+  migration `0017`). Public endpoints read it directly — never recompute it in a
+  request path (that cost 88 % of the daily D1 read budget, see CHANGELOG).
+- `counters` — cron-maintained single-row aggregates (`papers_ready`, `papers_total`)
+  so badges never `COUNT(*)` the papers table per request.
 - `citation_snapshots` — historical citation data for velocity tracking
 - `entity_definitions` — terminology definitions for entities
 
@@ -659,6 +686,21 @@ wrangler tail arxiv-api    --format=pretty   # API worker
 wrangler tail arxiv-ingest --format=pretty   # Ingest worker
 ```
 
+### "Pages load but show no papers" / degraded mode
+
+If the D1 budget is ever exhausted, the API answers 503 with a `degraded: true`
+body and a `Retry-After` until 00:00 UTC, instead of a raw 500:
+
+```bash
+curl -s https://arxiv-api.arxivexplorer.workers.dev/api/stats | head -c 300
+# {"error":"Database read budget exhausted — ...","degraded":true,"retryAfter":...}
+```
+
+Check live cost per request (every request is summed from `meta.rows_read` and
+logged once past 5,000 rows):
+the fixes that prevent recurrence, see the
+[post-mortem](#post-mortem--d1-free-tier-quota-exhaustion-2026-09-23).
+
 ### Sync remote DB to local
 
 ```bash
@@ -670,6 +712,35 @@ npx tsx scripts/pull-remote-to-local.ts
 ```bash
 ./scripts/reset-and-ingest.sh
 ```
+
+## Reliability Notes
+
+This section is deliberately short — the full incident history lives in the
+[CHANGELOG post-mortem](CHANGELOG.md#unreleased--post-mortem-d1-free-tier-row-read-exhaustion-2026-09-23).
+
+**Free-tier budgets are the hard limits the system is designed around:**
+D1 allows 5,000,000 rows read/day, KV allows 1,000 writes/day. Everything
+expensive is therefore *precomputed* (topic counts, aggregate counters — see
+[Database Schema](#database-schema)) or *cached* before it ever reaches a user:
+
+- Read endpoints cascade through two caches before D1: the per-colo edge cache
+  (`X-Edge-Cache: HIT|MISS` header on every response) and KV.
+- Rate limiting runs on the native `RATE_LIMITER` binding and costs zero KV writes.
+- A D1 quota rejection is answered with **503 + `Retry-After` until 00:00 UTC +
+  `degraded: true`** (`dbErrorResponse`), never with a silent empty page.
+- Every request's D1 cost is summed from `meta.rows_read` and logged once past
+  5,000 rows (`withRowBudget`), so a new expensive query shows up in
+  `wrangler tail` instead of as a once-a-day outage.
+
+**If pages load but show no papers**, check the budget first — the API reports the
+truth, the pages swallow it:
+
+```bash
+curl -s https://arxiv-api.arxivexplorer.workers.dev/api/stats | head -c 300
+npx wrangler tail --config wrangler.api.toml --format=pretty   # live errors
+```
+
+---
 
 ## Design Notes
 
