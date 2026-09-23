@@ -29,6 +29,8 @@ import { generateEmbedding, upsertToVectorize } from './generate-embedding';
 import { generateSummary } from './generate-summary';
 import { computeAndStoreRelated } from './compute-related';
 import { kvDelete } from '../api-worker/cache/kv';
+import { DERIVED_COUNT_KEYS } from '../api-worker/cache/keys';
+import { refreshTopicCounts } from '../shared/db';
 import {
   enqueueRetry,
   getRetryRecord,
@@ -236,12 +238,19 @@ export async function runIngestionPipeline(env: Env): Promise<IngestResult> {
         kvDelete(env.CACHE, 'kv:trending:day'),
         kvDelete(env.CACHE, 'kv:trending:week'),
         kvDelete(env.CACHE, 'kv:trending:month'),
-        kvDelete(env.CACHE, 'kv:stats:v2'),
+        ...DERIVED_COUNT_KEYS.map(key => kvDelete(env.CACHE, key)),
       ]);
     } catch (err) {
       console.warn('[pipeline] Cache invalidation failed:', err);
     }
   }
+
+  // ── 10. Materialize topic counts + aggregate counters ─────────────────────
+  // /api/topics, /api/stats and /sitemap.xml read topics.paper_count and the
+  // `counters` rows instead of running 25 FTS count joins per request. Moving
+  // that cost here is what takes the account from ~11.5 M rows read/day to
+  // ~2.5 M against a 5 M/day free-tier budget (see CHANGELOG post-mortem).
+  await refreshMaterializedCounts(env, result.summarized > 0);
 
   console.info(
     `[pipeline] Done — ${result.summarized} summarized, ${result.failed} failed,` +
@@ -328,6 +337,47 @@ async function processSinglePaper(entry: ArxivEntry, env: Env): Promise<void> {
 }
 
 // ── D1 helpers ───────────────────────────────────────────────────────────────
+
+/** Cadence guard: at most one expensive count refresh per interval. */
+const COUNTS_REFRESH_KEY = 'kv:topic_counts:last_refresh';
+const COUNTS_REFRESH_INTERVAL_S = 6 * 3600; // 6 h
+
+/**
+ * Recomputes `topics.paper_count` + the aggregate counters and drops the caches
+ * derived from them.
+ *
+ * Cadence: forced whenever papers were summarised this run (counts must be right
+ * immediately), otherwise at most once every 6 h — so the FTS count joins cost
+ * ~0.18 M rows/day instead of running on ~3,354 requests/day.
+ *
+ * Never throws: a count refresh failure must not fail the ingestion run.
+ */
+async function refreshMaterializedCounts(env: Env, force: boolean): Promise<void> {
+  if (!force) {
+    try {
+      const last = await env.CACHE.get(COUNTS_REFRESH_KEY);
+      if (last) return; // refreshed recently
+    } catch {
+      // KV degraded → refresh anyway; the counts are what must stay correct.
+    }
+  }
+
+  try {
+    const counts = await refreshTopicCounts(env.DB);
+    console.info(
+      `[counts] refreshed ${counts.topics} topic counts + ${counts.counters} counters`
+      + ` — ${counts.rowsRead} rows read, ${counts.rowsWritten} rows written`
+    );
+
+    await Promise.all(DERIVED_COUNT_KEYS.map(key => kvDelete(env.CACHE, key)));
+
+    await env.CACHE.put(COUNTS_REFRESH_KEY, String(Date.now()), {
+      expirationTtl: COUNTS_REFRESH_INTERVAL_S,
+    });
+  } catch (err) {
+    console.error('[counts] Materialized count refresh failed (non-fatal):', err);
+  }
+}
 
 async function filterNew(db: D1Database, entries: ArxivEntry[]): Promise<ArxivEntry[]> {
   if (entries.length === 0) return [];

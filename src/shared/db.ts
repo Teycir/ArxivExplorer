@@ -332,27 +332,116 @@ export interface TopicWithCategories extends Topic {
   categoryDetails: Array<{ code: string; label: string; domain: string }>;
 }
 
+/**
+ * Topics that have at least one paper, ordered by paper count descending.
+ *
+ * `topics.paper_count` is materialized by the ingest cron
+ * (refreshTopicCounts, migration 0017), so this is ONE indexed SELECT over
+ * ~25 rows.
+ *
+ * HISTORY — do not reintroduce per-topic counting here. This function used to
+ * run 25 separate `COUNT(DISTINCT p.id) … papers_fts MATCH ?` joins on every
+ * /api/topics, /api/stats and /sitemap.xml request. Measured with
+ * `wrangler d1 insights`: 23,477 executions and 42,226,877 rows read in 7 days —
+ * 88 % of the account total — against a free-tier budget of 5,000,000 rows/day.
+ * That is what exhausted the quota in September 2026. To change the counts,
+ * extend refreshTopicCounts() and let the cron pay for it.
+ */
 export async function getTopicsWithPapers(db: D1Database): Promise<Array<TopicWithCategories>> {
-  // topic_categories / paper_categories / arxiv_categories dropped in migration 0015.
-  // Paper counts are estimated via FTS: for each topic we count papers whose
-  // FTS index matches any keyword from topics.keywords.
-  // Counts run in parallel (Promise.all) — previously serial, one round-trip per topic.
-
-  const { results: topicRows } = await db.prepare(`
-    SELECT slug, label, description, updated_at, keywords
+  const { results } = await db.prepare(`
+    SELECT slug, label, description, updated_at, paper_count
     FROM topics
+    WHERE paper_count > 0
+    ORDER BY paper_count DESC, label ASC
+  `).all<{
+    slug: string;
+    label: string;
+    description: string | null;
+    updated_at: string;
+    paper_count: number;
+  }>();
+
+  return results.map(r => {
+    const topic: TopicWithCategories = {
+      slug:            r.slug,
+      label:           r.label,
+      updatedAt:       r.updated_at,
+      paperCount:      r.paper_count,
+      categoryTags:    [],
+      categoryDetails: [],
+    };
+    if (r.description) topic.description = r.description;
+    return topic;
+  });
+}
+
+// ─── Materialized aggregates (maintained by the ingest cron) ────────────────
+
+export interface AggregateCounts {
+  /** Papers with summary_ready = 1. */
+  papersReady: number;
+  /** All papers, whatever their state. */
+  papersTotal: number;
+}
+
+/**
+ * Reads the cron-maintained counter rows — one row per counter.
+ *
+ * Replaces `SELECT COUNT(*) AS total FROM papers WHERE summary_ready = 1`,
+ * which scanned 1,528 rows and ran 5,326 times in 7 days (761/day ⇒ 8.1 M rows
+ * read) just to render the "N papers" badge.
+ */
+export async function getAggregateCounts(db: D1Database): Promise<AggregateCounts> {
+  const { results } = await db.prepare(`
+    SELECT name, value FROM counters
+    WHERE name IN ('papers_ready', 'papers_total')
+  `).all<{ name: string; value: number }>();
+
+  let papersReady = 0;
+  let papersTotal = 0;
+  for (const row of results) {
+    if (row.name === 'papers_ready') papersReady = row.value;
+    if (row.name === 'papers_total') papersTotal = row.value;
+  }
+  return { papersReady, papersTotal };
+}
+
+export interface TopicCountRefreshResult {
+  topics: number;
+  counters: number;
+  rowsRead: number;
+  rowsWritten: number;
+}
+
+/**
+ * Recomputes `topics.paper_count` and the aggregate counters.
+ *
+ * CALL FROM THE INGEST CRON ONLY — never from a request path. It runs the
+ * expensive FTS count joins on purpose, but a few times per day instead of on
+ * every request:
+ *
+ *   before: 23,477 executions / 7 days (42,226,877 rows read), request-driven
+ *   after:  ≤24 executions / day                             , cron-driven
+ *
+ * Everything goes through `db.batch()` so the exact rows-read cost is captured
+ * from the batch metadata (`meta.rows_read`) and logged by the caller.
+ */
+export async function refreshTopicCounts(db: D1Database): Promise<TopicCountRefreshResult> {
+  const { results: topicRows } = await db.prepare(`
+    SELECT slug, keywords FROM topics
     WHERE keywords IS NOT NULL AND keywords != ''
-    ORDER BY label ASC
-  `).all<{ slug: string; label: string; description?: string; updated_at: string; keywords: string }>();
+  `).all<{ slug: string; keywords: string }>();
 
-  if (topicRows.length === 0) return [];
+  let rowsRead = 0;
+  let rowsWritten = 0;
+  const now = new Date().toISOString();
 
-  const counted = await Promise.all(
-    topicRows.map(async t => {
+  // ── 1. Per-topic counts — all topics in a single batch round trip ─────────
+  if (topicRows.length > 0) {
+    const countStatements = topicRows.map(t => {
       const terms = t.keywords.trim().split(/\s+/).filter(Boolean);
       const ftsQuery = terms.map(w => `"${w}"`).join(' OR ');
-
-      const countRow = await db.prepare(`
+      return db.prepare(`
         SELECT COUNT(DISTINCT p.id) AS cnt
         FROM papers_fts f
         JOIN papers p     ON p.id = f.paper_id
@@ -362,30 +451,57 @@ export async function getTopicsWithPapers(db: D1Database): Promise<Array<TopicWi
           AND p.title    != ''
           AND p.abstract != ''
           AND s.tldr     != ''
-          AND s.beginner_explain  != ''
-          AND s.technical_summary != ''
+          AND s.beginner_explain   != ''
+          AND s.technical_summary  != ''
           AND json_array_length(s.key_contributions) > 0
-      `).bind(ftsQuery).first<{ cnt: number }>();
+      `).bind(ftsQuery);
+    });
 
-      return { t, paperCount: countRow?.cnt ?? 0 };
-    })
-  );
+    const counts = await db.batch<{ cnt: number }>(countStatements);
 
-  const topicsWithCounts: Array<TopicWithCategories> = counted
-    .filter(({ paperCount }) => paperCount > 0)
-    .map(({ t, paperCount }) => ({
-      slug:            t.slug,
-      label:           t.label,
-      updatedAt:       t.updated_at,
-      paperCount,
-      categoryTags:    [],
-      categoryDetails: [],
-      ...(t.description && { description: t.description }),
-    }));
+    const updateStatements = topicRows.map((t, i) => {
+      const row = counts[i];
+      rowsRead += row?.meta?.rows_read ?? 0;
+      return db
+        .prepare('UPDATE topics SET paper_count = ? WHERE slug = ?')
+        .bind(row?.results?.[0]?.cnt ?? 0, t.slug);
+    });
 
-  // Sort descending by paper count (matches explore page ranking)
-  topicsWithCounts.sort((a, b) => b.paperCount - a.paperCount);
-  return topicsWithCounts;
+    for (const w of await db.batch(updateStatements)) {
+      rowsRead    += w?.meta?.rows_read    ?? 0;
+      rowsWritten += w?.meta?.rows_written ?? 0;
+    }
+  }
+
+  // ── 2. Account-wide counters ─────────────────────────────────────────────
+  const [ready, total] = await db.batch<{ n: number }>([
+    db.prepare('SELECT COUNT(*) AS n FROM papers WHERE summary_ready = 1'),
+    db.prepare('SELECT COUNT(*) AS n FROM papers'),
+  ]);
+  rowsRead += (ready?.meta?.rows_read ?? 0) + (total?.meta?.rows_read ?? 0);
+
+  const counterWrites = await db.batch([
+    db.prepare(`
+      INSERT INTO counters (name, value, updated_at) VALUES ('papers_ready', ?, ?)
+      ON CONFLICT(name) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+    `).bind(ready?.results?.[0]?.n ?? 0, now),
+    db.prepare(`
+      INSERT INTO counters (name, value, updated_at) VALUES ('papers_total', ?, ?)
+      ON CONFLICT(name) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+    `).bind(total?.results?.[0]?.n ?? 0, now),
+  ]);
+
+  for (const w of counterWrites) {
+    rowsRead    += w?.meta?.rows_read    ?? 0;
+    rowsWritten += w?.meta?.rows_written ?? 0;
+  }
+
+  return {
+    topics:   topicRows.length,
+    counters: counterWrites.length,
+    rowsRead,
+    rowsWritten,
+  };
 }
 
 /**
