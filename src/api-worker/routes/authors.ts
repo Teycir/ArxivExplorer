@@ -8,7 +8,7 @@
 import type { Env } from '../../shared/types';
 import { getAllAuthors } from '../../shared/db';
 import { kvGet, kvPutAsync } from '../cache/kv';
-import { corsHeaders, jsonResponse, errorResponse } from '../../shared/utils';
+import { corsHeaders, dbErrorResponse, errorResponse, jsonResponse } from '../../shared/utils';
 import { withRateLimit } from '../middleware/rate-limit';
 
 const TTL_AUTHORS = 3600; // 1 hour
@@ -24,7 +24,8 @@ export async function handleAuthors(
     { maxRequests: 60, windowSeconds: 60, lockoutSeconds: 120, namespace: 'authors' },
     cors,
     () => handleAuthorsInner(request, env, ctx, cors),
-    env.RATE_LIMITER
+    env.RATE_LIMITER,
+    env.INTERNAL_TOKEN
   );
 }
 
@@ -56,7 +57,7 @@ async function handleAuthorsInner(
     authors = await getAllAuthors(env.DB, limit, search);
   } catch (err) {
     console.error('[authors] DB error:', err);
-    return errorResponse(`Database error: ${String(err)}`, cors, 500);
+    return dbErrorResponse(err, cors, 'authors');
   }
 
   const response = { authors, total: authors.length };

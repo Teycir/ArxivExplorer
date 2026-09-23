@@ -11,7 +11,7 @@ import type { Env, PaperWithSummary } from '../../shared/types';
 import { getPapersByAuthor } from '../../shared/db';
 import { kvGet, kvPutAsync } from '../cache/kv';
 import { kvAuthor, TTL_AUTHOR } from '../cache/keys';
-import { corsHeaders, jsonResponse, errorResponse } from '../../shared/utils';
+import { corsHeaders, dbErrorResponse, errorResponse, jsonResponse } from '../../shared/utils';
 import { sanitizeAuthor } from '../../shared/sanitize';
 import { withRateLimit } from '../middleware/rate-limit';
 
@@ -88,7 +88,8 @@ export async function handleAuthor(
     { maxRequests: 60, windowSeconds: 60, lockoutSeconds: 120, namespace: 'author' },
     cors,
     () => handleAuthorInner(env, ctx, name, cors),
-    env.RATE_LIMITER
+    env.RATE_LIMITER,
+    env.INTERNAL_TOKEN
   );
 }
 
@@ -122,7 +123,7 @@ async function handleAuthorInner(
     papers = await getPapersByAuthor(env.DB, decoded, 50);
   } catch (err) {
     console.error(`[author] D1 query error for "${decoded}":`, err);
-    return errorResponse(`Database error: ${String(err)}`, cors, 500);
+    return dbErrorResponse(err, cors, 'author');
   }
 
   const stats = buildAuthorStats(decoded, papers);

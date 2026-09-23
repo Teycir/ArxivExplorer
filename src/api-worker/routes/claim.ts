@@ -6,7 +6,7 @@
 import type { Env } from '../../shared/types';
 import { corsHeaders, jsonResponse, errorResponse } from '../../shared/utils';
 import { sanitizeQuery } from '../../shared/sanitize';
-import { checkRateLimit, getClientIP } from '../middleware/rate-limit';
+import { checkRateLimit, getClientIP, INTERNAL_BUCKET } from '../middleware/rate-limit';
 
 const SYSTEM_PROMPT = 'You are a research paper classifier. Analyze if a paper supports, contradicts, or is neutral to a given claim. Think step-by-step before concluding. Return ONLY valid JSON.';
 
@@ -54,9 +54,18 @@ export async function handleClassifyClaim(
   // limit of 10/min was structurally too low — it fired on the very first
   // search. 50/min gives ~3 full searches per minute per user with headroom.
   // Lockout reduced to 30s (was 120s) so a burst doesn't block the user for 2min.
-  const ip = getClientIP(request);
+  //
+  // Per-user accounting needs a trusted client IP. The Next.js proxy forwards it
+  // as `X-Real-IP`, but that header is only honoured when it is authenticated
+  // with INTERNAL_TOKEN (see getClientIP) — otherwise anyone could spoof their
+  // way past this limit. Until that secret is configured on both workers, all
+  // proxied claim traffic shares the INTERNAL_BUCKET, so that bucket gets a
+  // higher ceiling: real users must never be throttled by each other, while a
+  // runaway loop is still bounded (this is the only AI-costly endpoint).
+  const ip = getClientIP(request, env.INTERNAL_TOKEN);
+  const internal = ip === INTERNAL_BUCKET;
   const rateLimit = await checkRateLimit(env.CACHE, ip, {
-    maxRequests: 50,
+    maxRequests: internal ? 300 : 50,
     windowSeconds: 60,
     lockoutSeconds: 30,
     namespace: 'claim',

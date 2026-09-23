@@ -11,7 +11,7 @@ import type { Env } from '../../shared/types';
 import { getPaperById } from '../../shared/db';
 import { kvGet, kvPutAsync } from '../cache/kv';
 import { kvPaperFull } from '../cache/keys';
-import { corsHeaders, jsonResponse, errorResponse } from '../../shared/utils';
+import { corsHeaders, dbErrorResponse, errorResponse, jsonResponse } from '../../shared/utils';
 import { sanitizeArxivId } from '../../shared/sanitize';
 import { withRateLimit } from '../middleware/rate-limit';
 
@@ -31,7 +31,8 @@ export async function handlePaper(
     { maxRequests: 100, windowSeconds: 60, lockoutSeconds: 120, namespace: 'paper' },
     cors,
     () => handlePaperInner(env, ctx, cleanId, cors),
-    env.RATE_LIMITER
+    env.RATE_LIMITER,
+    env.INTERNAL_TOKEN
   );
 }
 
@@ -60,7 +61,7 @@ async function handlePaperInner(
     paper = await getPaperById(env.DB, arxivId);
   } catch (err) {
     console.error(`[paper] D1 query error for ${arxivId}:`, err);
-    return errorResponse(`Database error: ${String(err)}`, cors, 500);
+    return dbErrorResponse(err, cors, 'paper');
   }
 
   if (!paper) {

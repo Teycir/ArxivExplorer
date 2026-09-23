@@ -7,7 +7,7 @@ import type { Env } from '../../shared/types';
 import { getPapersByTopic, getTopicBySlug } from '../../shared/db';
 import { kvGet, kvPutAsync } from '../cache/kv';
 import { kvTopic, TTL_TOPIC } from '../cache/keys';
-import { corsHeaders, jsonResponse, errorResponse } from '../../shared/utils';
+import { corsHeaders, dbErrorResponse, errorResponse, jsonResponse } from '../../shared/utils';
 import { sanitizeCategory } from '../../shared/sanitize';
 import { withRateLimit } from '../middleware/rate-limit';
 
@@ -23,7 +23,8 @@ export async function handleTopic(
     { maxRequests: 60, windowSeconds: 60, lockoutSeconds: 120, namespace: 'topic' },
     cors,
     () => handleTopicInner(env, ctx, slug, cors),
-    env.RATE_LIMITER
+    env.RATE_LIMITER,
+    env.INTERNAL_TOKEN
   );
 }
 
@@ -58,7 +59,7 @@ async function handleTopicInner(
     topic = await getTopicBySlug(env.DB, slug);
   } catch (err) {
     console.error(`[topic] D1 topic lookup error for ${slug}:`, err);
-    return errorResponse(`Database error: ${String(err)}`, cors, 500);
+    return dbErrorResponse(err, cors, 'topic');
   }
 
   if (!topic) {
@@ -70,7 +71,7 @@ async function handleTopicInner(
     papers = await getPapersByTopic(env.DB, slug);
   } catch (err) {
     console.error(`[topic] D1 papers query error for ${slug}:`, err);
-    return errorResponse(`Database error: ${String(err)}`, cors, 500);
+    return dbErrorResponse(err, cors, 'topic');
   }
 
   // A topic with no complete papers is treated as not-found — same guard as
