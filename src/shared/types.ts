@@ -214,6 +214,11 @@ export interface Env {
   // wrangler.api.toml [[ratelimits]]. Optional because the ingest worker
   // and other configs don't declare it.
   RATE_LIMITER?: { limit(options: { key: string }): Promise<{ success: boolean }> };
+  // Shared secret for trusted X-Real-IP forwarding from our Next.js worker
+  // (see getClientIP / app/api/classify-claim/route.ts). Set the same value on
+  // both workers with `wrangler secret put INTERNAL_TOKEN`. Optional: when unset,
+  // forwarded client IPs are ignored and proxied traffic is bucketed as 'internal'.
+  INTERNAL_TOKEN?: string;
   ARXIV_FETCH_CATEGORIES?: string;
   SUMMARY_MODEL?: string;
   EMBEDDING_MODEL?: string;

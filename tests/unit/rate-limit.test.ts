@@ -10,6 +10,8 @@ import assert from 'node:assert/strict';
 import {
   checkRateLimit,
   getClientIP,
+  withRateLimit,
+  INTERNAL_BUCKET,
   type RateLimitConfig,
 } from '../../src/api-worker/middleware/rate-limit.js';
 
@@ -137,27 +139,181 @@ describe('checkRateLimit — fail-open on KV error', () => {
 });
 
 // ─── getClientIP ─────────────────────────────────────────────────────────────
+//
+// These assertions were changed on 2026-09-23 while fixing the D1 quota outage.
+// The old expectations encoded the vulnerability: `x-real-ip` was trusted
+// because "our Next.js proxy sends it", but this worker is publicly reachable
+// (workers_dev = true), so any caller could set that header and mint a fresh
+// rate-limit bucket per request. Requests with no CF header also used to collapse
+// every SSR render worldwide into one shared `'0.0.0.0'` bucket.
 
 describe('getClientIP', () => {
   function makeRequest(headers: Record<string, string>): Request {
     return new Request('https://example.com/', { headers });
   }
 
-  it('prefers x-real-ip over cf-connecting-ip', () => {
+  it('prefers cf-connecting-ip (edge-set, not client-settable)', () => {
     const req = makeRequest({
       'x-real-ip': '192.168.1.1',
       'cf-connecting-ip': '10.0.0.1',
     });
-    assert.equal(getClientIP(req), '192.168.1.1');
-  });
-
-  it('falls back to cf-connecting-ip when x-real-ip absent', () => {
-    const req = makeRequest({ 'cf-connecting-ip': '10.0.0.1' });
     assert.equal(getClientIP(req), '10.0.0.1');
   });
 
-  it('falls back to 0.0.0.0 when both headers absent', () => {
+  it('ignores x-real-ip when no internal token is configured', () => {
+    const req = makeRequest({ 'x-real-ip': '192.168.1.1' });
+    assert.equal(getClientIP(req), INTERNAL_BUCKET,
+      'an unauthenticated forwarded IP must never be trusted');
+  });
+
+  it('ignores x-real-ip when the auth header is missing', () => {
+    const req = makeRequest({ 'x-real-ip': '192.168.1.1' });
+    assert.equal(getClientIP(req, 'secret-token'), INTERNAL_BUCKET);
+  });
+
+  it('ignores x-real-ip when the auth header is wrong', () => {
+    const req = makeRequest({
+      'x-real-ip': '192.168.1.1',
+      'x-internal-auth': 'wrong-secret',
+    });
+    assert.equal(getClientIP(req, 'secret-token'), INTERNAL_BUCKET);
+  });
+
+  it('honours x-real-ip only with a matching shared secret', () => {
+    const req = makeRequest({
+      'x-real-ip': '192.168.1.1',
+      'x-internal-auth': 'secret-token',
+    });
+    assert.equal(getClientIP(req, 'secret-token'), '192.168.1.1');
+  });
+
+  it('still prefers cf-connecting-ip over a valid forwarded IP', () => {
+    const req = makeRequest({
+      'x-real-ip': '192.168.1.1',
+      'x-internal-auth': 'secret-token',
+      'cf-connecting-ip': '10.0.0.1',
+    });
+    assert.equal(getClientIP(req, 'secret-token'), '10.0.0.1');
+  });
+
+  it('buckets internal service-binding traffic under INTERNAL_BUCKET, not 0.0.0.0', () => {
     const req = makeRequest({});
-    assert.equal(getClientIP(req), '0.0.0.0');
+    assert.equal(getClientIP(req), INTERNAL_BUCKET);
+    assert.equal(getClientIP(req, 'secret-token'), INTERNAL_BUCKET);
   });
 });
+
+// ─── withRateLimit ───────────────────────────────────────────────────────────
+
+/** KV mock that records how many writes happen — the budget under scrutiny. */
+function countingKVMock(): { kv: KVNamespace; puts: string[] } {
+  const store = new Map<string, string>();
+  const puts: string[] = [];
+  const kv = {
+    async get(key: string) {
+      const raw = store.get(key);
+      if (raw === undefined) return null;
+      try { return JSON.parse(raw); } catch { return raw; }
+    },
+    async put(key: string, value: string) {
+      puts.push(key);
+      store.set(key, value);
+    },
+    async delete(key: string) { store.delete(key); },
+    async list() { return { keys: [], list_complete: true, cursor: '' }; },
+    async getWithMetadata() { return { value: null, metadata: null }; },
+  } as unknown as KVNamespace;
+  return { kv, puts };
+}
+
+function publicRequest(): Request {
+  return new Request('https://api.example.com/api/topics', {
+    headers: { 'cf-connecting-ip': '203.0.113.7' },
+  });
+}
+
+describe('withRateLimit — native binding only, no KV writes', () => {
+  const CORS = { 'Access-Control-Allow-Origin': 'https://example.com' };
+  const ok = async (): Promise<Response> => new Response('{"ok":true}', {
+    status: 200, headers: { 'Content-Type': 'application/json' },
+  });
+
+  it('never writes to KV when the native limiter approves (the outage regression)', async () => {
+    const { kv, puts } = countingKVMock();
+    const native = { limit: async (_o: { key: string }) => ({ success: true }) };
+
+    for (let i = 0; i < 25; i++) {
+      const res = await withRateLimit(
+        publicRequest(), kv,
+        { maxRequests: 60, windowSeconds: 60, namespace: 'topics' },
+        CORS, ok, native
+      );
+      assert.equal(res.status, 200);
+    }
+
+    assert.equal(puts.length, 0,
+      'the native limiter must not cost any KV write — 1 KV write/request burned '
+      + 'the 1,000 writes/day free-tier budget and silently disabled the response '
+      + 'cache, which is what caused the Sept 2026 D1 quota outage');
+  });
+
+  it('returns 429 when the native limiter denies, without touching KV', async () => {
+    const { kv, puts } = countingKVMock();
+    const native = { limit: async (_o: { key: string }) => ({ success: false }) };
+
+    const res = await withRateLimit(
+      publicRequest(), kv,
+      { maxRequests: 60, windowSeconds: 60, namespace: 'topics' },
+      CORS, ok, native
+    );
+
+    assert.equal(res.status, 429);
+    assert.equal(puts.length, 0);
+    assert.equal(res.headers.get('Retry-After'), '60');
+  });
+
+  it('keys the native limiter per route so namespaces stay independent', async () => {
+    const seen: string[] = [];
+    const native = { limit: async (o: { key: string }) => { seen.push(o.key); return { success: true }; } };
+
+    await withRateLimit(publicRequest(), countingKVMock().kv,
+      { maxRequests: 60, windowSeconds: 60, namespace: 'topics' }, CORS, ok, native);
+    await withRateLimit(publicRequest(), countingKVMock().kv,
+      { maxRequests: 60, windowSeconds: 60, namespace: 'stats' }, CORS, ok, native);
+
+    assert.deepEqual(seen, ['topics:203.0.113.7', 'stats:203.0.113.7']);
+  });
+
+  it('routes internal traffic to the handler without the native limiter or KV writes', async () => {
+    const { kv, puts } = countingKVMock();
+    let nativeCalls = 0;
+    const native = { limit: async (_o: { key: string }) => { nativeCalls++; return { success: false }; } };
+
+    const res = await withRateLimit(
+      new Request('https://api-internal/api/topics'), // no client IP headers
+      kv,
+      { maxRequests: 60, windowSeconds: 60, namespace: 'topics' },
+      CORS, ok, native
+    );
+
+    assert.equal(res.status, 200,
+      'our own worker renders pages for many users — it must not be throttled by a shared bucket');
+    assert.equal(nativeCalls, 0);
+    assert.equal(puts.length, 0);
+  });
+
+  it('falls back to the KV limiter when no native binding is configured', async () => {
+    const { kv, puts } = countingKVMock();
+    const config: RateLimitConfig = { maxRequests: 2, windowSeconds: 60, namespace: 'x' };
+
+    const first = await withRateLimit(publicRequest(), kv, config, CORS, ok);
+    const second = await withRateLimit(publicRequest(), kv, config, CORS, ok);
+    const third = await withRateLimit(publicRequest(), kv, config, CORS, ok);
+
+    assert.equal(first.status, 200);
+    assert.equal(second.status, 200);
+    assert.equal(third.status, 429);
+    assert.ok(puts.length > 0, 'KV path should record its counter writes');
+  });
+});
+
