@@ -86,7 +86,21 @@ CREATE TABLE IF NOT EXISTS topics (
   label         TEXT NOT NULL,
   description   TEXT,
   category_tags TEXT,
-  updated_at    TEXT NOT NULL
+  updated_at    TEXT NOT NULL,
+  -- Space-separated FTS terms used to match papers (migration 0015/0016).
+  keywords      TEXT,
+  -- Materialized by the ingest cron (refreshTopicCounts, migration 0017).
+  -- Public endpoints read this instead of re-running the FTS count joins.
+  paper_count   INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_topics_paper_count ON topics(paper_count DESC);
+
+-- Small aggregate counters — one row read instead of a table scan per request.
+CREATE TABLE IF NOT EXISTS counters (
+  name       TEXT PRIMARY KEY,
+  value      INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS arxiv_categories (
