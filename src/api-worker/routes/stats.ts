@@ -1,69 +1,67 @@
 /**
  * src/api-worker/routes/stats.ts
- * GET /api/stats — returns aggregate counts for the landing page and explore page.
+ * GET /api/stats — aggregate counts for the landing page and explore page.
+ *
+ * Both legs are now cheap indexed reads:
+ *   • totalPapers  ← the `counters` row maintained by the ingest cron
+ *   • topicCounts  ← `topics.paper_count`, same source as /api/topics
+ *
+ * Previously this endpoint ran 25 live FTS count joins plus a `COUNT(*)` over
+ * papers on every request (8.1 M rows read / 7 days for the count alone) — one of
+ * the three query shapes that exhausted the D1 free-tier budget in Sept 2026.
  */
 
 import type { Env } from '../../shared/types';
+import { getAggregateCounts, getTopicsWithPapers } from '../../shared/db';
 import { kvGet, kvPutAsync } from '../cache/kv';
-import { corsHeaders, jsonResponse, errorResponse } from '../../shared/utils';
+import { withEdgeCache } from '../cache/edge';
+import { KV_STATS, TTL_TOPICS } from '../cache/keys';
+import { corsHeaders, jsonResponse, dbErrorResponse } from '../../shared/utils';
+import { withRateLimit } from '../middleware/rate-limit';
 
-const KV_STATS = 'kv:stats:v4';  // bumped — paper_categories/arxiv_categories dropped in 0015
-const TTL_STATS = 3600;           // 1 h
+const TTL_STATS = TTL_TOPICS; // 1 h — matches /api/topics
 
 interface TopicCount { slug: string; label: string; count: number; }
 
 export async function handleStats(
-  _request: Request,
+  request: Request,
   env: Env,
   ctx: ExecutionContext
 ): Promise<Response> {
   const cors = corsHeaders(env);
+  return withRateLimit(
+    request, env.CACHE,
+    { maxRequests: 20, windowSeconds: 60, lockoutSeconds: 300, namespace: 'stats' },
+    cors,
+    () => withEdgeCache(request, ctx, TTL_STATS, () => handleStatsInner(env, ctx, cors)),
+    env.RATE_LIMITER,
+    env.INTERNAL_TOKEN
+  );
+}
 
+async function handleStatsInner(
+  env: Env,
+  ctx: ExecutionContext,
+  cors: Record<string, string>
+): Promise<Response> {
   try {
     const cached = await kvGet<unknown>(env.CACHE, KV_STATS);
     if (cached !== null) return jsonResponse(cached, cors);
   } catch { /* non-fatal */ }
 
   try {
-    // paper_categories + arxiv_categories dropped in migration 0015.
-    // Category breakdown is replaced by per-topic counts via FTS keywords.
-    const [paperRow, topicRows] = await Promise.all([
-      env.DB.prepare(
-        'SELECT COUNT(*) AS total FROM papers WHERE summary_ready = 1'
-      ).first<{ total: number }>(),
-
-      env.DB.prepare(`
-        SELECT slug, label, keywords FROM topics
-        WHERE keywords IS NOT NULL AND keywords != ''
-        ORDER BY label ASC
-      `).all<{ slug: string; label: string; keywords: string }>(),
+    const [counts, topics] = await Promise.all([
+      getAggregateCounts(env.DB),
+      getTopicsWithPapers(env.DB),
     ]);
 
-    // Count papers per topic via FTS (run in parallel, capped at 25 topics)
-    const topicCounts: TopicCount[] = [];
-    await Promise.all(
-      (topicRows.results ?? []).map(async t => {
-        const terms = t.keywords.trim().split(/\s+/).filter(Boolean);
-        const ftsQuery = terms.map(w => `"${w}"`).join(' OR ');
-        const row = await env.DB.prepare(`
-          SELECT COUNT(DISTINCT p.id) AS cnt
-          FROM papers_fts f
-          JOIN papers p     ON p.id = f.paper_id
-          INNER JOIN summaries s ON s.paper_id = p.id
-          WHERE papers_fts MATCH ?
-            AND p.summary_ready = 1
-            AND s.tldr != ''
-            AND json_array_length(s.key_contributions) > 0
-        `).bind(ftsQuery).first<{ cnt: number }>();
-        if ((row?.cnt ?? 0) > 0) {
-          topicCounts.push({ slug: t.slug, label: t.label, count: row!.cnt });
-        }
-      })
-    );
-    topicCounts.sort((a, b) => b.count - a.count);
+    const topicCounts: TopicCount[] = topics
+      .map(t => ({ slug: t.slug, label: t.label, count: t.paperCount }))
+      .sort((a, b) => b.count - a.count);
 
     const payload = {
-      totalPapers: paperRow?.total ?? 0,
+      totalPapers: counts.papersReady,
+      totalPapersAll: counts.papersTotal,
       topicCounts,
     };
 
@@ -71,6 +69,7 @@ export async function handleStats(
     return jsonResponse(payload, cors);
   } catch (err) {
     console.error('[stats] D1 error:', err);
-    return errorResponse(`Database error: ${String(err)}`, cors, 500);
+    return dbErrorResponse(err, cors, 'stats');
   }
 }
+

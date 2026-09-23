@@ -12,8 +12,9 @@
 import type { Env } from '../../shared/types';
 import { getTrendingPapers, type TrendingWindow } from '../../shared/db';
 import { kvGet, kvPutAsync } from '../cache/kv';
+import { withEdgeCache } from '../cache/edge';
 import { kvTrending, TTL_TRENDING_DAY, TTL_TRENDING, TTL_TRENDING_MONTH } from '../cache/keys';
-import { corsHeaders, jsonResponse, errorResponse } from '../../shared/utils';
+import { corsHeaders, dbErrorResponse, errorResponse, jsonResponse } from '../../shared/utils';
 import { withRateLimit } from '../middleware/rate-limit';
 
 const VALID_WINDOWS: TrendingWindow[] = ['day', 'week', 'month'];
@@ -24,18 +25,32 @@ const TTL_BY_WINDOW: Record<TrendingWindow, number> = {
   month: TTL_TRENDING_MONTH,
 };
 
+/**
+ * Resolve the trending window + KV TTL for this request. Shared by the cache
+ * wrapper (outer, needs the TTL) and the handler (inner, needs the key).
+ */
+function resolveWindow(request: Request): { window: TrendingWindow; ttl: number } {
+  const rawWindow = new URL(request.url).searchParams.get('window') ?? 'week';
+  const window: TrendingWindow = (VALID_WINDOWS as string[]).includes(rawWindow)
+    ? rawWindow as TrendingWindow
+    : 'week';
+  return { window, ttl: TTL_BY_WINDOW[window] };
+}
+
 export async function handleTrending(
   request: Request,
   env: Env,
   ctx: ExecutionContext
 ): Promise<Response> {
   const cors = corsHeaders(env);
+  const { ttl } = resolveWindow(request);
   return withRateLimit(
     request, env.CACHE,
     { maxRequests: 100, windowSeconds: 60, lockoutSeconds: 120, namespace: 'trending' },
     cors,
-    () => handleTrendingInner(request, env, ctx, cors),
-    env.RATE_LIMITER
+    () => withEdgeCache(request, ctx, ttl, () => handleTrendingInner(request, env, ctx, cors)),
+    env.RATE_LIMITER,
+    env.INTERNAL_TOKEN
   );
 }
 
@@ -45,38 +60,19 @@ async function handleTrendingInner(
   ctx: ExecutionContext,
   cors: Record<string, string>
 ): Promise<Response> {
-  const url  = new URL(request.url);
-
-  const rawWindow = url.searchParams.get('window') ?? 'week';
-  const window: TrendingWindow = (VALID_WINDOWS as string[]).includes(rawWindow)
-    ? rawWindow as TrendingWindow
-    : 'week';
-
+  const { window, ttl } = resolveWindow(request);
   const cacheKey = kvTrending(window);
-  const ttl      = TTL_BY_WINDOW[window];
 
-  // 1. KV cache — validate that the first paper is still fully complete
-  // (summary_ready=1 AND has a real summaries row with a non-empty tldr).
-  // Without the summaries join, a paper with summary_ready=1 but no summary
-  // row would pass the guard and keep stale/broken data cached.
+  // 1. KV cache — plain lookup, no D1 round trip.
+  //
+  // This handler used to run a D1 staleness query (papers ⨝ summaries) on EVERY
+  // request, including cache hits, so a hot trending list cost a D1 read per
+  // page view. Freshness is now the job of the ingest cron, which invalidates
+  // the trending keys after any run that summarised papers (see pipeline.ts
+  // step 9), plus the short KV TTLs (10 min / 1 h / 3 h).
   try {
     const cached = await kvGet<{ papers: { id: string }[] }>(env.CACHE, cacheKey);
-    if (cached !== null) {
-      const firstId = cached.papers?.[0]?.id;
-      if (firstId) {
-        const row = await env.DB.prepare(
-          `SELECT p.id FROM papers p
-           JOIN summaries s ON s.paper_id = p.id
-           WHERE p.id = ? AND p.summary_ready = 1 AND s.tldr != ''`
-        ).bind(firstId).first();
-        if (row) return jsonResponse(cached, cors);
-        // Cache is stale — fall through to re-query
-        console.warn('[trending] KV cache stale, busting');
-        ctx.waitUntil(env.CACHE.delete(cacheKey));
-      } else {
-        return jsonResponse(cached, cors);
-      }
-    }
+    if (cached !== null) return jsonResponse(cached, cors);
   } catch (err) {
     console.error('[trending] KV cache read error:', err);
   }
@@ -87,7 +83,7 @@ async function handleTrendingInner(
     papers = await getTrendingPapers(env.DB, 10, window);
   } catch (err) {
     console.error('[trending] D1 query error:', err);
-    return errorResponse(`Database error: ${String(err)}`, cors, 500);
+    return dbErrorResponse(err, cors, 'trending');
   }
 
   const response = { papers, total: papers.length, window };
