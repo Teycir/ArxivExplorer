@@ -11,14 +11,14 @@ export async function GET() {
 - Citation counts via Semantic Scholar (weekly updates; may be zero for very recent papers)
 - Open access status and code availability where available
 
-## Machine-readable endpoints
+## Machine-readable content
 
-- Full paper data (JSON): https://arxiv-api.arxivexplorer.workers.dev/api/paper/{arxiv_id}
-- Search (JSON): https://arxiv-api.arxivexplorer.workers.dev/api/search?q={query}
-- Trending papers (JSON): https://arxiv-api.arxivexplorer.workers.dev/api/trending?window=week
-- Topic index (JSON): https://arxiv-api.arxivexplorer.workers.dev/api/topics
-- RSS feed: https://arxivexplorer.arxivexplorer.workers.dev/rss.xml
-- Sitemap: https://arxivexplorer.arxivexplorer.workers.dev/sitemap.xml
+RSS feed: https://arxivexplorer.arxivexplorer.workers.dev/rss.xml
+
+> The JSON API (/api/...) is rate limited and deliberately not advertised here.
+> It backs this site's own pages; please do not bulk-query it. If you want to
+> ingest this data, open an issue on https://github.com/Teycir/ArxivExplorer and
+> we can arrange an export.
 
 ## Content notes
 

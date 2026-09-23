@@ -8,6 +8,9 @@ Allow: cohere-ai
 Allow: anthropic-ai
 Allow: Bytespider
 
+Crawl-directive: the JSON API under /api/ is rate limited and disallowed in robots.txt.
+Please crawl the HTML pages instead, and send an identifiable User-Agent.
+
 DataUse: research, summarization, retrieval-augmented-generation
 Attribution: Required — cite original arXiv paper, not this index
 

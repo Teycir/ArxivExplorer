@@ -44,8 +44,11 @@ export async function POST(req: NextRequest) {
 
     const clientIP = getClientIP(req);
     const payload = JSON.stringify(body);
-    const headers = {
+    const headers: Record<string, string> = {
       'Content-Type': 'application/json',
+      // The API worker only honours X-Real-IP when this request authenticates it
+      // with the shared INTERNAL_TOKEN secret below — otherwise anyone could
+      // forge it to escape per-user rate limiting on this endpoint.
       'X-Real-IP': clientIP,
     };
 
@@ -56,6 +59,10 @@ export async function POST(req: NextRequest) {
     try {
       const { getCloudflareContext } = await import('@opennextjs/cloudflare');
       const { env } = await getCloudflareContext({ async: true });
+      const internalToken = (env as Record<string, unknown>)['INTERNAL_TOKEN'];
+      if (typeof internalToken === 'string' && internalToken.length > 0) {
+        headers['X-Internal-Auth'] = internalToken;
+      }
       const apiBinding = (env as Record<string, { fetch: typeof fetch }>)['API'];
       if (apiBinding?.fetch) {
         upstream = await apiBinding.fetch('https://api-internal/api/classify-claim', {

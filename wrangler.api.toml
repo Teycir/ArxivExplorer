@@ -41,3 +41,11 @@ ALLOWED_ORIGIN = "https://arxivexplorer.arxivexplorer.workers.dev"
 
 # Set ADMIN_SECRET via: wrangler secret put ADMIN_SECRET --config wrangler.api.toml
 # Required for /admin/* endpoints (Vectorize upserts, maintenance)
+
+# INTERNAL_TOKEN authenticates X-Real-IP forwarding from the Next.js worker
+# (app/api/classify-claim/route.ts). Set the SAME random value on both workers:
+#   wrangler secret put INTERNAL_TOKEN --config wrangler.api.toml
+#   wrangler secret put INTERNAL_TOKEN --config wrangler.jsonc
+# Optional: when unset, forwarded client IPs are ignored (fail-safe) and proxied
+# traffic is bucketed as 'internal'. Without it, /api/classify-claim cannot do
+# per-user rate limiting; with a forged header anyone could escape it.
