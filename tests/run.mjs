@@ -57,7 +57,9 @@ for (const file of files) {
   const relative = file.replace(ROOT + '/', '');
   const result = spawnSync(
     'npx',
-    ['tsx', '--test', file],
+    // register-stubs stubs only Next router-bound components/next/link for the
+    // page render tests; it is inert for every other test file.
+    ['tsx', '--import', './tests/helpers/register-stubs.mjs', '--test', file],
     {
       cwd: ROOT,
       stdio: 'inherit',
