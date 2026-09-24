@@ -10,8 +10,9 @@ All notable changes to ArxivExplorer are documented in this file.
 
 ## [Unreleased] — Post-mortem: D1 free-tier row-read exhaustion (2026-09-23)
 
-**Status: diagnosis complete. Remediation NOT implemented — no code was changed
-for this entry.** Reader-friendly version:
+**Status: diagnosis complete. This entry is the diagnosis only — no code was changed
+for it. The fixes are recorded in the two "Implemented" entries below.**
+Reader-friendly version:
 [README → Post-Mortem](README.md#post-mortem--d1-free-tier-quota-exhaustion-2026-09-23).
 
 ### Summary
@@ -346,6 +347,245 @@ budget (measured with Cloudflare's query insights; re-measure after deploy with
   explicit instead of rendering empty pages with HTTP 200.
 
 <!-- POSTMORTEM-REMEDIATION-2 -->
+
+## [Unreleased] — Implemented: bot-defence logic flaws + explicit quota UI (2026-09-24)
+
+Follow-up to the entry above. Local tests only — **nothing committed, nothing
+deployed, `wrangler` never run.** The first round shipped defences that guarded
+paths the bots were not actually using; this round fixes the paths they were.
+`npm test` → **15 files, all green**. `npx tsc --noEmit` → only the 14
+pre-existing `revisions.test.ts` errors (no new ones).
+
+### Fixed
+
+- **Edge cache could be busted with junk query params.** `edge.ts` keyed on the
+  raw URL, so `/api/topics?cb=1`, `?cb=2`, … each minted their own entry and each
+  was a guaranteed miss. Measured: 50 junk-param requests → 50 handler runs.
+  The key is now `origin + path + allow-listed params` (`canonicalCacheUrl`,
+  `KeyParams`), with param order normalised. Topics/stats/sitemap key on the path
+  alone; trending keys on its **validated** `window` value, so `?window=garbage`
+  cannot mint keys either.
+- **Page views were never rate limited per visitor.** SSR/RSC pages reach the API
+  through the `API` service binding, which carries no client IP, so every visitor
+  and crawler shared one `internal` bucket with a 5,000/window ceiling. Measured:
+  2,000 unique `/search?q=` page views all reached D1. `helper/api.ts` now forwards
+  the visitor's `cf-connecting-ip` as `X-Real-IP` + `X-Internal-Auth`
+  (`INTERNAL_TOKEN`) — the same scheme `/api/classify-claim` already uses. Same
+  crawler: 2,000 → 60 reaching D1, without locking out other visitors.
+  `robots.txt` and the `/api/` limits never helped here: page views bypass them.
+  - Identity is forwarded **only** when `INTERNAL_TOKEN` is configured; otherwise
+    the API ignores forwarded IPs (fails safe, no benefit).
+  - `next/headers` is read inside a try/catch and falls back to the old
+    `internal` bucket when unavailable (build time, no request scope).
+
+### Changed
+
+- **Embedding cache write is now cache-after-repeat** (`search.ts`, `seenBefore`).
+  A query only earns its KV write the **second** time an isolate sees it. Tracker
+  is per-isolate, in-memory, capped at 2,000 keys with oldest-first eviction, and
+  costs no KV I/O; an isolate recycle just means a query must repeat once more.
+  Measured: 100 unique crawler queries wrote **0** embeddings to KV (was 1 each);
+  a repeated query is still cached. The **result** cache still writes once per
+  unique search, so the 1,000/day KV budget now lasts ≈1,000 unique searches
+  instead of ≈500 — it is reduced, not eliminated.
+- **Outage states are explicit instead of empty.** New `QuotaNotice`
+  (`app/components/QuotaNotice.tsx`) is rendered by `/`, `/explore`, `/topic/*`
+  and `/search` when the API fails:
+  - `QuotaExhaustedError` (503 + `degraded: true`, or an empty degraded search) →
+    **"Daily quota exhausted, replenishes midnight"** with the reset time; the home
+    stats badge reads "quota exhausted" instead of a bare "Index Stats". (Wording
+    changed from "Daily quota reached" / "quota reached" at the maintainer's
+    request; the render tests assert the new phrase, and were confirmed to fail
+    against the old one.)
+  - `ServiceUnavailableError` (429, any 5xx, or a transport failure) →
+    **"Temporarily unavailable"**. It never claims the quota is gone, because
+    those cases do not prove it.
+  - Topic pages show the notice instead of a 404 during an outage; a genuinely
+    unknown topic still 404s. During an outage `generateMetadata` keeps the URL's
+    own name in the title ("… — temporarily unavailable") and sets
+    `robots: { index: false, follow: true }`, so a "Topic not found" title is never
+    indexed for a topic that exists. `/search` no longer prints the raw upstream
+    URL to visitors on a 429.
+  - The headline message is in the server-rendered HTML, so bots see it. The
+    **localised reset time and countdown** are computed in a client effect
+    (`'use client'`), so they appear only after hydration.
+  - **The home stats badge is never bare.** Besides "quota exhausted" /
+    "unavailable", a *healthy* 200 with `totalPapers: 0` now reads **"count
+    pending"**. This is a defensive guard, not the fix for the observed outage:
+    `getAggregateCounts` returns `{0, 0}` with no error if the `counters` table has
+    no rows (after migration `0017`, before the first cron refresh), so `/api/stats`
+    *could* answer a healthy 200 with a zero count. It is deliberately *not*
+    labelled a quota problem — nothing has proved one. Regression test in
+    `home-quota-render.test.ts`; verified to fail with the fix disabled.
+  - **Observed production state (2026-09-24, ~19:48 UTC):** `/api/stats` answered
+    `200` to a direct request (`totalPapers: 6681`, edge cache `HIT`) while
+    `/api/trending?window=week` answered `503` + `degraded: true` +
+    `Retry-After: 15142` — the D1 daily row-read quota was exhausted. The *deployed*
+    web worker predates this change, and its home page rendered a bare "Index
+    Stats" pill with no count and no message (none of the strings above appear in
+    its HTML).
+    **Partly explained, re-checked at ~19:55 UTC.** The pre-change page fetches each
+    leg with its own `.catch`, so a trending failure alone would still have shown
+    "6,681 papers". A bare badge therefore means the *server-side* `getStats()` call
+    (service binding, not the public URL I curled) failed or returned 0. That path
+    was not reproduced. What the recheck did establish:
+    - The origin is genuinely in quota exhaustion: any URL not already in the edge
+      cache (`/api/stats?cb=…`, `/api/trending?window=day|month`, an unseen
+      `?window=week&zz=…`) returns `503` + `degraded: true` + `Retry-After` until
+      00:00 UTC. The exact URLs the page requests are served **from the edge cache
+      with 200**, which is why `/api/stats` looks healthy from outside.
+    - Rendering the *local* `HomePage` against the live API (no fetch mock) shows
+      "6,681 papers" and no notice, because both of its requests hit those cached
+      200s. So the new code is not wrong here; it is simply not triggered while the
+      cache is warm. The notice appears once a cache entry expires and the origin
+      is asked again (the deployed `stale-while-revalidate` window is 1 h).
+    - **`/api/trending?window=week` is cached as `{"papers":[],"total":0}` with a
+      200**, so the "Trending this week" feed is empty on the live site even though
+      the origin is failing. The 503 itself is *not* cached (`edgeCachePut` only
+      stores 200s). Why an empty 200 was stored was **not determined**: the origin
+      was already refusing uncached URLs, so a fresh successful D1 read is
+      unlikely at that moment, and I did not find the writer. Note the current
+      code would also cache a *legitimate* empty list for the full TTL
+      (`handleTrendingInner` treats `[]` as success), which is a separate, real
+      risk.
+    The new page renders the count and the notice independently, and
+    `home-quota-render.test.ts` asserts that state (stats OK + trending in quota).
+- `tests/run.mjs` now passes `--import ./tests/helpers/register-stubs.mjs` for every
+  test file; without it the new render tests fail under `npm test`.
+
+### Tests (new)
+
+- `tests/unit/bot-abuse.test.ts` — adversarial harness: drives the real middleware
+  the way a crawler would (cache-busting params, shared `internal` bucket, spoofed
+  identity) with in-memory KV/Cache mocks. Each test is named after the bot
+  strategy it models, so a failure is a demonstrated logic flaw. Complements
+  `api-hardening.test.ts`, which only checks that limiters *exist*.
+- `tests/unit/embed-cache-repeat.test.ts` — unique-once queries (the crawler
+  pattern) write no embedding to KV; repeated queries still get cached.
+- `tests/unit/quota-notice.test.ts`, `tests/unit/home-quota-render.test.ts`,
+  `tests/unit/pages-outage-render.test.ts` — the outage notice, rendered against a
+  mocked API rather than scanned as source.
+
+The "15 files" figure matches the number of `*.test.ts` files under `tests/`, and
+the full suite was re-run on 2026-09-24 after the last edit: `npm test` → all 15
+files pass; `npx tsc --noEmit` → only the 14 pre-existing `revisions.test.ts`
+errors.
+
+### Known gaps (not fixed)
+
+- **Bots still get HTTP 200 during an outage.** Because the site has a
+  `loading.tsx`, the status is already 200 by the time a page learns the API
+  failed, so crawlers do not receive a real 503 + `Retry-After`. A `proxy.ts`
+  check could return one, at the cost of a service call in front of every request.
+  Undecided; today the mitigation is the visible notice (plus `noindex` on topic
+  pages).
+- **`INTERNAL_TOKEN`: set (per the maintainer), not yet verified end to end.** The
+  per-visitor fix needs the *same* value on both workers; if they differ,
+  `getClientIP` ignores the forwarded IP and everything silently falls back to the
+  shared `internal` bucket — no error, no benefit. Verify after deploy: in
+  `wrangler tail --config wrangler.api.toml`, page-view requests from
+  `api-internal` should log distinct per-visitor identities, not one bucket.
+- **`next/headers` inside RSC on OpenNext/Cloudflare** compiles and is guarded by a
+  try/catch fallback, but is untested at runtime.
+- **A crawler spread across many IPs** is still only bounded per IP: 500 IPs × 30
+  requests puts 15,000 requests through to D1. Needs a WAF layer, or working ISR so
+  pages stop hitting D1 at all (see "Still open" above).
+- **Result-cache KV write** is still 1 per unique search. The same repeat gate could
+  be applied to it.
+
+## [Unreleased] — Implemented: stale summary backfill + cache availability during D1 outages (2026-09-24)
+
+Follow-up to the two entries above. Two related fixes to the same underlying
+concern — "is a paper still reachable when D1 is unhealthy?" — landed in this
+session. **Not committed, not deployed, `wrangler` not run for this entry** (only
+used earlier to inspect remote D1 state and query insights).
+
+### Added
+
+- **Stale-summary backfill (`src/ingest-worker/stale-backfill.ts`)** — a pipeline
+  step that finds papers stuck at `summary_ready ∈ {0, 2}` (pending or failed) and
+  re-runs them through the normal summarisation path via `processSinglePaper`, so
+  they eventually reach `summary_ready = 1` instead of staying permanently
+  unservable. Runs as part of the scheduled ingestion cycle, bounded by the same
+  Workers AI quota as regular ingestion. Its healed count is folded into
+  `result.summarized` so downstream cache-invalidation (`kv:stats`, `kv:topics`,
+  sitemap) fires correctly for papers it fixes.
+- **Cache-on-generation (`primeCacheOnReady`, wired into `processSinglePaper`)** —
+  previously the KV cache + 30-day durable twin for a paper were written lazily,
+  only on a visitor's first successful read of `/api/paper/:id`. Now the twin and
+  the 7-day KV entry are written **the moment** a paper reaches
+  `summary_ready = 1` — whether that's a new paper, a retry, or a stale-backfill
+  recovery — via a new `writeDurableTwin` helper in `durable.ts` (an awaited
+  variant of the existing fire-and-forget `rememberDurable`, needed because
+  `runIngestionPipeline` has no `ExecutionContext` to hand `ctx.waitUntil`).
+  Cost: one extra `getPaperById` read + two KV writes per paper processed
+  (≤237/day at the current ingestion cap) — negligible against both the D1 and
+  the 1,000-write/day KV budgets.
+- **`src/ingest-worker/kv-backfill.ts`** — one-time catch-up for the 6,681 papers
+  already at `summary_ready = 1` before this change, which therefore have no
+  durable twin. Advances a KV-stored cursor (`kv:cache-backfill:cursor`, keyed on
+  `indexed_at`, covered by the existing `idx_papers_summary` index) and twins up
+  to 30 papers per run — no Workers AI calls, so it runs independently of the
+  summarisation quota. At roughly one run/hour the backlog clears in ~9 days,
+  after which it's a no-op. Wired into `pipeline.ts` as step 6c
+  (`finishWithStaleBackfill`), with its own `kv_backfill` field in the health
+  record.
+
+### Why
+
+Confirmed by tracing `handlePaper` (read) → `processSinglePaper` (write) → KV,
+across both meanings of "stale": D1 unreachable (served from the twin via
+`serveStale()`) and D1 reachable but returning an unfinished paper. The cache was
+already correct in both cases — a paper is only ever cached once
+`summary_ready = 1`, so a stale-backfill correction can't clobber or freeze a good
+cache entry, since a stale paper never had one. The real gap was coverage: the
+twin only existed for papers a visitor had already clicked, so during a D1 outage
+(free-tier row-read quota exhausted) any never-visited paper returned `503`
+regardless of whether its summary was ready. `/api/trending` was already resilient
+(cache: 'stale', twin is never empty by construction); individual paper pages were
+not.
+
+### Verified
+
+- `npx tsc --noEmit` → clean.
+- `npm test` → 26/26 test files pass (25 pre-existing + new
+  `tests/unit/kv-backfill.test.ts`, 9 cases: cap enforcement, cursor advancement,
+  D1 failure, isolated KV-write failure, a paper racing back to non-`=1` mid-run).
+- `tests/unit/stale-backfill.test.ts` (prior session, 10 cases) still green.
+
+### Impact once deployed
+
+Once the 6,681-paper backfill completes (~9 days at the capped rate), every paper
+with `summary_ready = 1` — old or new, visited or not — will have a durable twin.
+`/api/paper/:id` will then answer `200` (`cache: 'stale'`) instead of `503` for any
+completed paper during a D1 quota outage, closing the gap `/api/trending` did not
+have. Papers still `pending`/`failed` (`summary_ready ∈ {0, 2}`) remain
+uncachable by design and will still `503` during an outage until the stale-backfill
+completes them.
+
+### Deploy checklist
+
+1. `npx tsc --noEmit && npm test` (re-run right before deploy, not just relied on
+   from this session).
+2. `npm run deploy:ingest` — this entry only touches the ingest worker
+   (`stale-backfill.ts`, `kv-backfill.ts`, `pipeline.ts`, `durable.ts`); no API- or
+   web-worker changes.
+3. Watch the first scheduled run in `wrangler tail --config wrangler.ingest.toml`
+   (or the equivalent ingest config) for the new `kv_backfill` health-record field
+   and confirm the cursor advances.
+4. Spot-check: pick an arxiv id known to be `summary_ready = 1` and never visited,
+   confirm its durable twin key exists in KV (`kv:paper:<id>:full:v2:durable` or
+   equivalent), and that `/api/paper/:id` returns `200` even if D1 is
+   artificially made to fail.
+
+### Still open
+
+- No pre-fill for papers currently `pending`/`failed` beyond what stale-backfill's
+  existing quota-bounded throughput already provides — they remain `503` during an
+  outage until healed.
+- `kv-backfill.ts`'s 30/run cap is conservative and untuned against the actual KV
+  write budget headroom; could likely go higher without risk now that the rate
+  limiter no longer burns writes per request (per the previous entry's L4 fix).
 
 ## [1.4.0] - 2026-06-07
 

@@ -131,9 +131,11 @@ _Scan the QR code or copy the wallet address above._
 ### Performance
 - **Two-layer caching** — The per-colo edge cache (Cache API, quota-free) sits in
   front of KV. Hot JSON endpoints send `Cache-Control: public, s-maxage=…` and
-  answer `X-Edge-Cache: HIT|MISS` (`src/api-worker/cache/edge.ts`). KV entries
-  carry matching TTLs: search 2 h, trending 10 min–3 h, topics/stats 1 h,
-  sitemap 24 h, embeddings 24 h, papers permanent.
+  answer `X-Edge-Cache: HIT|MISS` (`src/api-worker/cache/edge.ts`). The cache key
+  is `path` plus allow-listed query params only, so junk params
+  (`?cb=1`, `?cb=2`, …) cannot mint extra entries. KV entries carry matching
+  TTLs: search 2 h, trending 10 min–3 h, topics/stats 1 h, sitemap 24 h,
+  embeddings 24 h, papers permanent.
 - **ISR Rendering** — Next.js ISR with page-level `revalidate` values
   > Note: `open-next.config.ts` currently uses `incrementalCache: "dummy"` and
   > `helper/api.ts` fetches `no-store`, so revalidate values are inert for now.
@@ -146,8 +148,12 @@ _Scan the QR code or copy the wallet address above._
   approves via the native `RATE_LIMITER` binding (per-route `${namespace}:${ip}`
   key, zero KV writes; KV sliding window only as fallback). Identity comes from
   the edge-set `cf-connecting-ip`; forwarded IPs need a matching
-  `X-Internal-Auth` secret (`INTERNAL_TOKEN`), and service-binding traffic has
-  its own `internal` bucket instead of sharing one counter.
+  `X-Internal-Auth` secret (`INTERNAL_TOKEN`). Server-rendered page views reach
+  the API through a service binding that carries no client IP, so
+  `helper/api.ts` forwards the visitor's IP with that secret and each visitor
+  gets their own bucket. **This only works once `INTERNAL_TOKEN` is set on both
+  workers**; without it, all page-view traffic shares the single `internal`
+  bucket and per-visitor limits do not apply to it.
 - **SQL Injection Protection** — 100% parameterized queries via D1 `.prepare().bind()`
 - **Input Sanitization** — Strict validation on all user inputs (control chars, length limits, allowlists)
 - **Timing-Safe Auth** — Admin endpoints use `crypto.timingSafeEqual` (no timing oracles)
@@ -728,12 +734,28 @@ expensive is therefore *precomputed* (topic counts, aggregate counters — see
 - Rate limiting runs on the native `RATE_LIMITER` binding and costs zero KV writes.
 - A D1 quota rejection is answered with **503 + `Retry-After` until 00:00 UTC +
   `degraded: true`** (`dbErrorResponse`), never with a silent empty page.
+- The pages turn that into an explicit message (`QuotaNotice`): **"Daily quota
+  exhausted, replenishes midnight"** for a quota rejection, **"Temporarily
+  unavailable"** for a 429, 5xx or network failure — the latter never claims the
+  quota is gone. It is in the server-rendered HTML, so crawlers see it too; the
+  localised reset time appears after hydration. **Known gap:** the *page*
+  itself still answers HTTP 200 (`loading.tsx` commits the status before the API
+  failure is known), so crawlers do not get a real 503 for HTML pages.
 - Every request's D1 cost is summed from `meta.rows_read` and logged once past
   5,000 rows (`withRowBudget`), so a new expensive query shows up in
   `wrangler tail` instead of as a once-a-day outage.
+- **Individual paper availability during an outage** depends on that paper
+  having a durable twin. Since [cache-on-generation](#caching-strategy) writes
+  the twin the moment a summary is ready, this now covers every paper going
+  forward automatically; a background backfill (`kv-backfill.ts`, ~9 days,
+  see [CHANGELOG](CHANGELOG.md)) is catching up the papers that existed before
+  this change. Papers still pending or failed summarisation
+  (`summary_ready ∈ {0, 2}`) are, by design, never cached and will `503` during
+  an outage until a later ingestion run resolves them via the stale-summary
+  backfill.
 
-**If pages load but show no papers**, check the budget first — the API reports the
-truth, the pages swallow it:
+**If pages load but show no papers** (an older deployment, or a page that does not
+yet render `QuotaNotice`), check the budget first — the API reports the truth:
 
 ```bash
 curl -s https://arxiv-api.arxivexplorer.workers.dev/api/stats | head -c 300
@@ -766,8 +788,17 @@ The deployment uses:
 
 ### Caching Strategy
 
-- **Lazy KV writes**: paper detail written to KV on first access, not at ingestion
-- **Query embedding cache**: popular search vectors cached 24 h in KV
+- **Cache-on-generation**: a paper's KV entry and 30-day durable twin are written
+  the moment its summary is ready (`summary_ready = 1`) during ingestion — not on
+  a visitor's first request. This covers new papers, retries, and stale-summary
+  recoveries alike, so a paper doesn't need to be visited once before it becomes
+  cacheable. A one-time backfill twins the papers that predate this change (see
+  [Reliability Notes](#reliability-notes)).
+- **Query embedding cache (cache-after-repeat)**: a query vector is written to KV
+  (24 h) only the *second* time an isolate sees it. Unique-once queries — the
+  crawler pattern — cost no KV write. The tracker is per-isolate, in-memory and
+  capped at 2,000 keys, so an isolate recycle just means a query has to repeat
+  once more. The search *result* cache still writes once per unique search.
 - **Trending KV cache**: 60-minute TTL, auto-invalidated on new papers
 
 ### AI Processing
