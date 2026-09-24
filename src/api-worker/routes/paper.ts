@@ -10,6 +10,7 @@
 import type { Env } from '../../shared/types';
 import { getPaperById } from '../../shared/db';
 import { kvGet, kvPutAsync } from '../cache/kv';
+import { guardedD1, rememberDurable, serveStale, withNotice } from '../cache/durable';
 import { kvPaperFull } from '../cache/keys';
 import { corsHeaders, dbErrorResponse, errorResponse, jsonResponse } from '../../shared/utils';
 import { sanitizeArxivId } from '../../shared/sanitize';
@@ -58,10 +59,15 @@ async function handlePaperInner(
   // 2. D1 — primary source of truth
   let paper;
   try {
-    paper = await getPaperById(env.DB, arxivId);
+    paper = await guardedD1(() => getPaperById(env.DB, arxivId));
   } catch (err) {
     console.error(`[paper] D1 query error for ${arxivId}:`, err);
-    return dbErrorResponse(err, cors, 'paper');
+    // Serve the last complete copy (200 + `cache: 'stale'`). Only complete papers
+    // (summary_ready=1) ever get a twin, so a pending/failed state is never
+    // frozen for 30 days.
+    const stale = await serveStale<Record<string, unknown>>(env, cacheKey, err, cors,
+      (data, notice) => jsonResponse(withNotice(data, notice), cors));
+    return stale ?? dbErrorResponse(err, cors, 'paper');
   }
 
   if (!paper) {
@@ -76,6 +82,8 @@ async function handlePaperInner(
   //                  on the next poll (SummarySection polls every 10 s).
   if (paper.summaryReady === 1) {
     kvPutAsync(ctx, env.CACHE, cacheKey, paper, 7 * 24 * 3600);
+    // 30-day twin for complete papers only; immutable, so at most one write per paper.
+    void rememberDurable(ctx, env, cacheKey, paper);
   } else if (paper.summaryReady === 2) {
     kvPutAsync(ctx, env.CACHE, cacheKey, paper, 3600);
   }

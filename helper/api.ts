@@ -12,6 +12,106 @@ import type { PaperWithSummary, SearchResult, RelatedPaper, Topic } from '../src
 
 const PUBLIC_API = 'https://arxiv-api.arxivexplorer.workers.dev';
 
+/**
+ * Thrown when the API reports that the free-tier daily quota is exhausted
+ * (D1 rows read, 503 + `degraded: true`). Pages catch this to show an explicit
+ * "quota exhausted" notice instead of an empty state, and MUST NOT treat it as
+ * a 404 — the content exists, the database is just switched off until 00:00 UTC.
+ */
+export class QuotaExhaustedError extends Error {
+  readonly retryAfter: number;
+  constructor(retryAfter = 3600, message = 'Daily database quota exhausted') {
+    super(message);
+    this.name = 'QuotaExhaustedError';
+    this.retryAfter = retryAfter;
+  }
+}
+
+/** Type guard that survives bundler/realm boundaries (instanceof can be flaky). */
+export function isQuotaExhausted(err: unknown): err is QuotaExhaustedError {
+  return err instanceof QuotaExhaustedError ||
+    (typeof err === 'object' && err !== null && (err as { name?: string }).name === 'QuotaExhaustedError');
+}
+
+/**
+ * Thrown when the API is reachable but refusing to serve right now for a reason
+ * that is NOT the daily D1 quota: our own rate limiter (429) or any 5xx.
+ *
+ * WHY A SEPARATE TYPE: pages used to catch only QuotaExhaustedError, so a 429 or
+ * an unrecognised D1 failure fell through to `console.error` + an empty state —
+ * the same silent "0 papers" page as the outage this work is fixing. This type
+ * lets a page say "temporarily unavailable" without falsely claiming the quota
+ * is exhausted.
+ */
+export class ServiceUnavailableError extends Error {
+  readonly retryAfter: number;
+  readonly status: number;
+  constructor(status: number, retryAfter = 60, message = 'Service temporarily unavailable') {
+    super(message);
+    this.name = 'ServiceUnavailableError';
+    this.status = status;
+    this.retryAfter = retryAfter;
+  }
+}
+
+export function isServiceUnavailable(err: unknown): err is ServiceUnavailableError {
+  return err instanceof ServiceUnavailableError ||
+    (typeof err === 'object' && err !== null && (err as { name?: string }).name === 'ServiceUnavailableError');
+}
+
+/** Either "outage" state a page should explain instead of rendering empty. */
+export type OutageError = QuotaExhaustedError | ServiceUnavailableError;
+export function isOutage(err: unknown): err is OutageError {
+  return isQuotaExhausted(err) || isServiceUnavailable(err);
+}
+
+/** Seconds until 00:00 UTC — fallback when the API gave no Retry-After. */
+function secondsUntilMidnightUtc(now = new Date()): number {
+  const next = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
+  return Math.max(60, Math.ceil((next - now.getTime()) / 1000));
+}
+
+/**
+ * Best-effort visitor IP for the page render currently in flight.
+ *
+ * WHY: server-rendered pages reach the API worker through the `API` service
+ * binding, which carries no `cf-connecting-ip`. The API then files every visitor
+ * — and every crawler — under one shared `internal` bucket with a 5,000/window
+ * ceiling, so per-IP limits never applied to page views (a bot walking
+ * /search?q=<unique> reached D1 on every request). Forwarding the real IP,
+ * authenticated with INTERNAL_TOKEN, lets the API's existing getClientIP() give
+ * each visitor their own bucket — the same scheme /api/classify-claim uses.
+ *
+ * Returns null whenever the IP is unavailable (build time, no request scope);
+ * callers then forward nothing and the API safely falls back to `internal`.
+ */
+async function currentVisitorIP(): Promise<string | null> {
+  try {
+    const { headers } = await import('next/headers');
+    const h = await headers();
+    return h.get('cf-connecting-ip');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * fetch() that reports a transport failure (DNS, connection reset, worker-to-
+ * worker error) as a ServiceUnavailableError instead of a raw TypeError.
+ *
+ * WHY: a thrown fetch has no HTTP response to classify, so callers saw an
+ * unrecognised error, logged it, and rendered the same silent empty page as the
+ * quota outage. It is an outage from the visitor's point of view, so it is typed
+ * as one.
+ */
+async function networkFetch(url: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch (err) {
+    throw new ServiceUnavailableError(0, 60, `Network error: ${String(err)}`);
+  }
+}
+
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
 
@@ -21,15 +121,25 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
       const { env } = await getCloudflareContext({ async: true });
       const apiBinding = (env as Record<string, { fetch: typeof fetch }>)['API'];
       if (apiBinding?.fetch) {
-        res = await apiBinding.fetch(`https://api-internal${path}`, { ...init, cache: 'no-store' });
+        // Only forward identity when it can be authenticated. Without the shared
+        // secret the API ignores X-Real-IP anyway (anyone could forge it), so
+        // sending it unauthenticated would be pointless and misleading.
+        const internalToken = (env as Record<string, unknown>)['INTERNAL_TOKEN'];
+        const visitorIP = await currentVisitorIP();
+        const headers = new Headers(init?.headers);
+        if (visitorIP && typeof internalToken === 'string' && internalToken.length > 0) {
+          headers.set('X-Real-IP', visitorIP);
+          headers.set('X-Internal-Auth', internalToken);
+        }
+        res = await apiBinding.fetch(`https://api-internal${path}`, { ...init, headers, cache: 'no-store' });
       } else {
-        res = await fetch(`${PUBLIC_API}${path}`, { ...init, cache: 'no-store' });
+        res = await networkFetch(`${PUBLIC_API}${path}`, { ...init, cache: 'no-store' });
       }
     } catch {
-      res = await fetch(`${PUBLIC_API}${path}`, { ...init, cache: 'no-store' });
+      res = await networkFetch(`${PUBLIC_API}${path}`, { ...init, cache: 'no-store' });
     }
   } else {
-    res = await fetch(`${PUBLIC_API}${path}`, {
+    res = await networkFetch(`${PUBLIC_API}${path}`, {
       ...init,
       headers: { 'Content-Type': 'application/json', ...init?.headers },
     });
@@ -37,16 +147,47 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     let detail = '';
+    let degraded = false;
+    let bodyRetryAfter: number | undefined;
     try {
-      const body = await res.json() as { error?: string };
+      const body = await res.json() as { error?: string; degraded?: boolean; retryAfter?: number };
       detail = body.error ?? '';
+      degraded = body.degraded === true;
+      bodyRetryAfter = typeof body.retryAfter === 'number' ? body.retryAfter : undefined;
     } catch {
       detail = await res.text().catch(() => '');
     }
+
+    // 503 + degraded:true is dbErrorResponse()'s "daily D1 quota exhausted" signal.
+    // Surface it as a typed error so pages can explain it instead of going empty.
+    if (res.status === 503 && degraded) {
+      const headerRetry = Number(res.headers.get('Retry-After'));
+      const retryAfter = bodyRetryAfter ?? (Number.isFinite(headerRetry) && headerRetry > 0 ? headerRetry : secondsUntilMidnightUtc());
+      throw new QuotaExhaustedError(retryAfter, detail || undefined);
+    }
+
+    if (res.status === 429 || res.status >= 500) {
+      const headerRetry = Number(res.headers.get('Retry-After'));
+      const retryAfter = bodyRetryAfter ?? (Number.isFinite(headerRetry) && headerRetry > 0 ? headerRetry : 60);
+      throw new ServiceUnavailableError(res.status, retryAfter, detail || undefined);
+    }
+
     throw new Error(`API ${res.status} ${res.statusText}${detail ? `: ${detail}` : ''} — ${PUBLIC_API}${path}`);
   }
 
-  return res.json() as Promise<T>;
+  const data = await res.json() as T & { degraded?: boolean; papers?: unknown[] };
+
+  // /api/search fails soft: HTTP 200 + { papers: [], degraded: true }. An empty
+  // degraded result is a quota/outage symptom, not "no matches" — flag it.
+  // (A degraded response that still has papers is a partial result: keep it.)
+  if (
+    data && typeof data === 'object' && data.degraded === true &&
+    Array.isArray(data.papers) && data.papers.length === 0
+  ) {
+    throw new QuotaExhaustedError(secondsUntilMidnightUtc(), 'Search backend degraded — no results available');
+  }
+
+  return data as T;
 }
 
 export async function searchPapers(
@@ -87,12 +228,23 @@ export async function getRelatedPapers(arxivId: string): Promise<RelatedPaper[]>
   return apiFetch<RelatedPaper[]>(`/api/paper/${encodeURIComponent(arxivId)}/related`);
 }
 
+/**
+ * `stale: true` means the live window was empty (or D1 unavailable) and the API
+ * is serving the LAST FULL list instead; `asOf` is when that list was last seen
+ * live. Callers must not present a stale list as "this week" / "live".
+ */
+export interface TrendingResult {
+  papers: PaperWithSummary[];
+  total: number;
+  window: string;
+  stale?: boolean;
+  asOf?: string;
+}
+
 export async function getTrendingPapers(
   window: 'day' | 'week' | 'month' = 'week'
-): Promise<{ papers: PaperWithSummary[]; total: number; window: string }> {
-  return apiFetch<{ papers: PaperWithSummary[]; total: number; window: string }>(
-    `/api/trending?window=${window}`
-  );
+): Promise<TrendingResult> {
+  return apiFetch<TrendingResult>(`/api/trending?window=${window}`);
 }
 
 export async function getMoreLikeThis(paperId: string): Promise<SearchResult> {

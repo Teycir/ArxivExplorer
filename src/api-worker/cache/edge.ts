@@ -54,17 +54,54 @@ function defaultCache(): CacheLike | null {
   }
 }
 
-/** Cache key: the URL only. Callers pass the already-sanitised request URL. */
-function cacheKey(request: Request): Request {
-  return new Request(request.url, { method: 'GET' });
+/**
+ * Internal response header a handler sets to tell `edgeCachePut` "do not store
+ * this one". Never sent to clients (edgeCachePut strips it).
+ */
+export const NO_EDGE_CACHE_HEADER = 'X-No-Edge-Cache';
+
+/**
+ * Canonical cache key: origin + path + ONLY the allow-listed query params.
+ *
+ * WHY: keying on the raw URL let any caller mint an unlimited number of cache
+ * entries for one logical resource (`/api/topics?cb=1`, `?cb=2`, …). Each one is
+ * a guaranteed miss that falls through to KV and then D1, so a single crawler
+ * could bypass the edge cache entirely. Endpoints that ignore their query
+ * string (topics, stats, sitemap) now key on the path alone; endpoints that read
+ * a parameter (trending → `window`) list it explicitly and everything else is
+ * dropped. Param order is normalised so `?a=1&b=2` and `?b=2&a=1` collide.
+ */
+export type KeyParams =
+  | readonly string[]
+  | Readonly<Record<string, (raw: string | null) => string | null>>;
+
+export function canonicalCacheUrl(rawUrl: string, keyParams: KeyParams = []): string {
+  const u = new URL(rawUrl);
+  const kept = new URLSearchParams();
+  const entries: Array<[string, (raw: string | null) => string | null]> = Array.isArray(keyParams)
+    ? (keyParams as readonly string[]).map(n => [n, (r: string | null) => r] as [string, (r: string | null) => string | null])
+    : Object.entries(keyParams as Record<string, (raw: string | null) => string | null>);
+  for (const [name, normalise] of entries.sort(([a], [b]) => a.localeCompare(b))) {
+    const v = normalise(u.searchParams.get(name));
+    if (v !== null) kept.set(name, v);
+  }
+  const qs = kept.toString();
+  return `${u.origin}${u.pathname}${qs ? `?${qs}` : ''}`;
+}
+
+function cacheKey(request: Request, keyParams: KeyParams = []): Request {
+  return new Request(canonicalCacheUrl(request.url, keyParams), { method: 'GET' });
 }
 
 /** Returns the cached response for this URL, or null on miss/unavailable. */
-export async function edgeCacheGet(request: Request): Promise<Response | null> {
+export async function edgeCacheGet(
+  request: Request,
+  keyParams: KeyParams = []
+): Promise<Response | null> {
   const cache = defaultCache();
   if (!cache) return null;
   try {
-    const hit = await cache.match(cacheKey(request));
+    const hit = await cache.match(cacheKey(request, keyParams));
     return hit ?? null;
   } catch (err) {
     console.warn('[edge-cache] match failed:', err);
@@ -80,10 +117,23 @@ export function edgeCachePut(
   ctx: ExecutionContext,
   request: Request,
   response: Response,
-  ttlSeconds: number
+  ttlSeconds: number,
+  keyParams: KeyParams = []
 ): void {
   const cache = defaultCache();
   if (!cache || response.status !== 200) return;
+
+  // A handler can veto caching for a response that is valid but must not be
+  // remembered — e.g. an empty trending list, which is a symptom (stale ingest,
+  // quota) rather than an answer worth serving for a full TTL. The marker is an
+  // internal signal; it is stripped so it never reaches clients or the cache.
+  if (response.headers.get(NO_EDGE_CACHE_HEADER) !== null) {
+    response.headers.delete(NO_EDGE_CACHE_HEADER);
+    // jsonResponse() stamped `public, s-maxage=…`; without this a downstream CDN
+    // or browser would cache the very answer we just refused to store.
+    response.headers.set('Cache-Control', 'no-store');
+    return;
+  }
 
   const headers = new Headers(response.headers);
   headers.set(
@@ -99,7 +149,7 @@ export function edgeCachePut(
 
   const toStore = new Response(body, { status: response.status, headers });
   ctx.waitUntil(
-    cache.put(cacheKey(request), toStore).catch((err: unknown) => {
+    cache.put(cacheKey(request, keyParams), toStore).catch((err: unknown) => {
       console.warn('[edge-cache] put failed:', err);
     })
   );
@@ -117,9 +167,10 @@ export async function withEdgeCache(
   request: Request,
   ctx: ExecutionContext,
   ttlSeconds: number,
-  handler: () => Promise<Response>
+  handler: () => Promise<Response>,
+  keyParams: KeyParams = []
 ): Promise<Response> {
-  const cached = await edgeCacheGet(request);
+  const cached = await edgeCacheGet(request, keyParams);
   if (cached) {
     const hit = new Response(cached.body, cached);
     hit.headers.set('X-Edge-Cache', 'HIT');
@@ -127,7 +178,7 @@ export async function withEdgeCache(
   }
 
   const response = await handler();
-  edgeCachePut(ctx, request, response, ttlSeconds);
+  edgeCachePut(ctx, request, response, ttlSeconds, keyParams);
   response.headers.set('X-Edge-Cache', 'MISS');
   return response;
 }

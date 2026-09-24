@@ -10,6 +10,7 @@
 import type { Env, PaperWithSummary } from '../../shared/types';
 import { getPapersByAuthor } from '../../shared/db';
 import { kvGet, kvPutAsync } from '../cache/kv';
+import { guardedD1, rememberDurable, serveStale, withNotice } from '../cache/durable';
 import { kvAuthor, TTL_AUTHOR } from '../cache/keys';
 import { corsHeaders, dbErrorResponse, errorResponse, jsonResponse } from '../../shared/utils';
 import { sanitizeAuthor } from '../../shared/sanitize';
@@ -120,10 +121,12 @@ async function handleAuthorInner(
   // 2. D1 fallback — fetch up to 50 papers for stats (but return top 20)
   let papers: PaperWithSummary[];
   try {
-    papers = await getPapersByAuthor(env.DB, decoded, 50);
+    papers = await guardedD1(() => getPapersByAuthor(env.DB, decoded, 50));
   } catch (err) {
     console.error(`[author] D1 query error for "${decoded}":`, err);
-    return dbErrorResponse(err, cors, 'author');
+    const stale = await serveStale<AuthorPayload>(env, cacheKey, err, cors,
+      (data, notice) => jsonResponse(withNotice(data, notice), cors));
+    return stale ?? dbErrorResponse(err, cors, 'author');
   }
 
   const stats = buildAuthorStats(decoded, papers);
@@ -133,7 +136,10 @@ async function handleAuthorInner(
   // 3. Lazy KV write (TTL 6h)
   if (papers.length > 0) {
     kvPutAsync(ctx, env.CACHE, cacheKey, response, TTL_AUTHOR);
+    void rememberDurable(ctx, env, cacheKey, response);
   }
 
   return jsonResponse(response, cors);
 }
+
+type AuthorPayload = { author: string; papers: unknown[]; total: number; stats: unknown };

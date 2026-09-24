@@ -214,8 +214,15 @@ async function runSemanticSearch(
       embedding = cached;
     } else {
       embedding = await generateEmbedding(env, query);
-      // Cache for 24h (fire-and-forget)
-      kvPutAsync(ctx, env.CACHE, embedCacheKey, embedding, TTL_EMBED);
+      // Cache-after-repeat: a query only earns a KV write the SECOND time it is
+      // seen by this isolate. A crawler walking unique queries would otherwise
+      // spend 1 KV write per query against the free tier's 1,000/day, and once
+      // that budget is gone the response cache stops persisting for everyone.
+      // Unique-once queries (the crawler pattern) cost nothing; repeated queries
+      // (real users, popular searches) still get cached on the second sighting.
+      if (seenBefore(embedCacheKey)) {
+        kvPutAsync(ctx, env.CACHE, embedCacheKey, embedding, TTL_EMBED);
+      }
     }
   } catch (err) {
     // Embedding cache error — generate fresh
@@ -239,6 +246,24 @@ async function runSemanticSearch(
     if (paperId) out.push({ paperId, score: m.score * SEMANTIC_WEIGHT });
   }
   return out;
+}
+
+// ─── Cache-after-repeat tracker ────────────────────────────────────────────
+// Per-isolate, in-memory, bounded. Best-effort by design: an isolate recycle just
+// means a query needs to repeat once more before it is cached. Costs no KV I/O.
+const SEEN_MAX = 2_000;
+const seenKeys = new Set<string>();
+
+/** Returns true if `key` was already seen by this isolate; records it either way. */
+export function seenBefore(key: string): boolean {
+  if (seenKeys.has(key)) return true;
+  if (seenKeys.size >= SEEN_MAX) {
+    // Drop the oldest entry (Set preserves insertion order) so memory stays bounded.
+    const oldest = seenKeys.values().next().value;
+    if (oldest !== undefined) seenKeys.delete(oldest);
+  }
+  seenKeys.add(key);
+  return false;
 }
 
 async function generateEmbedding(env: Env, text: string): Promise<number[]> {

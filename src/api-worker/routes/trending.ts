@@ -13,7 +13,8 @@ import type { Env } from '../../shared/types';
 import { getTrendingPapers, type TrendingWindow } from '../../shared/db';
 import { kvGet, kvPutAsync } from '../cache/kv';
 import { withEdgeCache } from '../cache/edge';
-import { kvTrending, TTL_TRENDING_DAY, TTL_TRENDING, TTL_TRENDING_MONTH } from '../cache/keys';
+import { guardedD1, noStore, rememberDurable, serveStale, withNotice, type CacheNotice } from '../cache/durable';
+import { kvTrending, kvTrendingLastFull, TTL_TRENDING_DAY, TTL_TRENDING, TTL_TRENDING_MONTH } from '../cache/keys';
 import { corsHeaders, dbErrorResponse, errorResponse, jsonResponse } from '../../shared/utils';
 import { withRateLimit } from '../middleware/rate-limit';
 
@@ -48,7 +49,9 @@ export async function handleTrending(
     request, env.CACHE,
     { maxRequests: 100, windowSeconds: 60, lockoutSeconds: 120, namespace: 'trending' },
     cors,
-    () => withEdgeCache(request, ctx, ttl, () => handleTrendingInner(request, env, ctx, cors)),
+    () => withEdgeCache(request, ctx, ttl, () => handleTrendingInner(request, env, ctx, cors), {
+      window: (raw) => ((VALID_WINDOWS as string[]).includes(raw ?? '') ? raw : 'week'),
+    }),
     env.RATE_LIMITER,
     env.INTERNAL_TOKEN
   );
@@ -72,24 +75,68 @@ async function handleTrendingInner(
   // step 9), plus the short KV TTLs (10 min / 1 h / 3 h).
   try {
     const cached = await kvGet<{ papers: { id: string }[] }>(env.CACHE, cacheKey);
-    if (cached !== null) return jsonResponse(cached, cors);
+    // An EMPTY cached list is treated as a miss, never a hit: entries written by
+    // older code (which cached `[]` for the full TTL) must not keep blanking the
+    // feed after this fix ships. It falls through to the live query + last-full.
+    if (cached !== null && Array.isArray(cached.papers) && cached.papers.length > 0) {
+      return jsonResponse(cached, cors);
+    }
   } catch (err) {
     console.error('[trending] KV cache read error:', err);
   }
 
-  // 2. D1 fallback
+  // 2. D1 fallback.
+  // While D1 reports its daily quota the breaker (guardedD1) sends requests
+  // straight to the durable twin, so an outage costs zero further D1 reads.
   let papers;
   try {
-    papers = await getTrendingPapers(env.DB, 10, window);
+    papers = await guardedD1(() => getTrendingPapers(env.DB, 10, window));
   } catch (err) {
     console.error('[trending] D1 query error:', err);
-    return dbErrorResponse(err, cors, 'trending');
+    // D1 is refusing (quota) or broken. The last full list is the ONLY thing that
+    // can still be served, and it needs no D1 read at all. Prefer it to an error
+    // page; fall through to the honest 503 only when there is nothing to show.
+    const stale = await serveStale<TrendingPayload>(env, cacheKey, err, cors, staleBody(cors), legacyKey(window));
+    return stale ?? dbErrorResponse(err, cors, 'trending');
   }
 
-  const response = { papers, total: papers.length, window };
+  // 3. Empty live window ⇒ serve the last full list instead of nothing.
+  //
+  // An empty window is not an answer, it is a symptom (summarising stalled, ingest
+  // gap). It must never be cached — neither in KV here nor at the edge — or one
+  // empty read would blank the feed for the whole TTL. D1 is healthy here, so the
+  // reason is `empty_window`, not a D1 error.
+  if (papers.length === 0) {
+    const stale = await serveStale<TrendingPayload>(env, cacheKey, null, cors, staleBody(cors), legacyKey(window));
+    if (stale) return stale;
+    // Nothing to fall back to: answer honestly, but do not remember it.
+    return noStore(jsonResponse({ papers, total: 0, window }, cors));
+  }
 
-  // 3. Fire-and-forget KV write
+  const response: TrendingPayload = { papers, total: papers.length, window };
+
+  // 4. Fire-and-forget KV writes: the short-TTL entry, and the 30-day twin (written
+  // only when the list actually changed — compared by paper id, so a reorder or a
+  // swap is caught too).
   kvPutAsync(ctx, env.CACHE, cacheKey, response, ttl);
+  void rememberDurable(ctx, env, cacheKey, response, (d) => d.papers.length === 0, sameIds, legacyKey(window));
 
   return jsonResponse(response, cors);
 }
+
+type TrendingPayload = { papers: { id: string }[]; total: number; window: string };
+
+/** Old snapshot key (pre-durable.ts). Still read so the switch never blanks a feed. */
+const legacyKey = (window: TrendingWindow) => kvTrendingLastFull(window);
+
+const sameIds = (a: TrendingPayload, b: TrendingPayload) =>
+  a.papers.map(p => p.id).join(',') === b.papers.map(p => p.id).join(',');
+
+/**
+ * The stale body. Trending's pages already read `stale` + `asOf`, so both are kept
+ * alongside the generic notice (`cache`, `reason`, `asOf`, `retryAfter`) that every
+ * other route uses. `stale` + `asOf` let the UI say so honestly instead of passing
+ * old papers off as this week's.
+ */
+const staleBody = (cors: Record<string, string>) => (data: TrendingPayload, notice: CacheNotice): Response =>
+  jsonResponse({ ...withNotice(data, notice), stale: true }, cors);

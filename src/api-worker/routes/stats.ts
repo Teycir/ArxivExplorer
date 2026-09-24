@@ -15,6 +15,7 @@ import type { Env } from '../../shared/types';
 import { getAggregateCounts, getTopicsWithPapers } from '../../shared/db';
 import { kvGet, kvPutAsync } from '../cache/kv';
 import { withEdgeCache } from '../cache/edge';
+import { guardedD1, rememberDurable, serveStale, withNotice } from '../cache/durable';
 import { KV_STATS, TTL_TOPICS } from '../cache/keys';
 import { corsHeaders, jsonResponse, dbErrorResponse } from '../../shared/utils';
 import { withRateLimit } from '../middleware/rate-limit';
@@ -50,10 +51,10 @@ async function handleStatsInner(
   } catch { /* non-fatal */ }
 
   try {
-    const [counts, topics] = await Promise.all([
+    const [counts, topics] = await guardedD1(() => Promise.all([
       getAggregateCounts(env.DB),
       getTopicsWithPapers(env.DB),
-    ]);
+    ]));
 
     const topicCounts: TopicCount[] = topics
       .map(t => ({ slug: t.slug, label: t.label, count: t.paperCount }))
@@ -66,10 +67,17 @@ async function handleStatsInner(
     };
 
     kvPutAsync(ctx, env.CACHE, KV_STATS, payload, TTL_STATS);
+    // An all-zero payload is a symptom, never a twin: it would replace real counts
+    // with "0 papers" for 30 days.
+    void rememberDurable(ctx, env, KV_STATS, payload, (d) => d.totalPapersAll === 0);
     return jsonResponse(payload, cors);
   } catch (err) {
     console.error('[stats] D1 error:', err);
-    return dbErrorResponse(err, cors, 'stats');
+    const stale = await serveStale<StatsPayload>(env, KV_STATS, err, cors,
+      (data, notice) => jsonResponse(withNotice(data, notice), cors));
+    return stale ?? dbErrorResponse(err, cors, 'stats');
   }
 }
+
+type StatsPayload = { totalPapers: number; totalPapersAll: number; topicCounts: TopicCount[] };
 

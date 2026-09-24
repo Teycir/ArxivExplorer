@@ -25,6 +25,17 @@ export const kvTopic = (slug: string) => `kv:topic:${slug}`;
 export const KV_TRENDING = 'kv:trending:week';  // kept for back-compat
 export const kvTrending = (window: 'day' | 'week' | 'month') => `kv:trending:${window}`;
 
+/**
+ * Last NON-EMPTY trending list for a window (TTL 30d).
+ *
+ * Unlike `kvTrending`, this is deliberately NOT deleted by the ingest cron: it is
+ * the fallback served when the live window is empty (ingest/summarising stalled)
+ * or D1 is unavailable, so it must survive exactly the events that clear the
+ * normal cache. Written only when the list changes, to stay inside the 1,000
+ * KV writes/day free tier.
+ */
+export const kvTrendingLastFull = (window: 'day' | 'week' | 'month') => `kv:trending:${window}:lastfull`;
+
 /** Author page results (TTL 6h). */
 export const kvAuthor = (name: string) => `kv:author:${encodeURIComponent(name)}`;
 

@@ -6,6 +6,7 @@
 import type { Env } from '../../shared/types';
 import { getPapersByTopic, getTopicBySlug } from '../../shared/db';
 import { kvGet, kvPutAsync } from '../cache/kv';
+import { guardedD1, rememberDurable, serveStale, withNotice } from '../cache/durable';
 import { kvTopic, TTL_TOPIC } from '../cache/keys';
 import { corsHeaders, dbErrorResponse, errorResponse, jsonResponse } from '../../shared/utils';
 import { sanitizeCategory } from '../../shared/sanitize';
@@ -54,24 +55,22 @@ async function handleTopicInner(
   }
 
   // 2. D1 — topic metadata + papers
+  // Both D1 reads share one fallback: if either fails, serve the durable twin
+  // (200 + `cache: 'stale'`) instead of a 503. A D1 outage is never reported as
+  // "Topic not found" — only a successful read that finds nothing is a 404.
   let topic;
-  try {
-    topic = await getTopicBySlug(env.DB, slug);
-  } catch (err) {
-    console.error(`[topic] D1 topic lookup error for ${slug}:`, err);
-    return dbErrorResponse(err, cors, 'topic');
-  }
-
-  if (!topic) {
-    return errorResponse(`Topic not found: ${slug}`, cors, 404);
-  }
-
   let papers;
   try {
-    papers = await getPapersByTopic(env.DB, slug);
+    topic = await guardedD1(() => getTopicBySlug(env.DB, slug));
+    if (!topic) {
+      return errorResponse(`Topic not found: ${slug}`, cors, 404);
+    }
+    papers = await guardedD1(() => getPapersByTopic(env.DB, slug));
   } catch (err) {
-    console.error(`[topic] D1 papers query error for ${slug}:`, err);
-    return dbErrorResponse(err, cors, 'topic');
+    console.error(`[topic] D1 error for ${slug}:`, err);
+    const stale = await serveStale<TopicPayload>(env, cacheKey, err, cors,
+      (data, notice) => jsonResponse(withNotice(data, notice), cors));
+    return stale ?? dbErrorResponse(err, cors, 'topic');
   }
 
   // A topic with no complete papers is treated as not-found — same guard as
@@ -85,6 +84,9 @@ async function handleTopicInner(
 
   // 3. Lazy KV write (TTL 12h) — only for non-empty results
   kvPutAsync(ctx, env.CACHE, cacheKey, response, TTL_TOPIC);
+  void rememberDurable(ctx, env, cacheKey, response, (d) => d.papers.length === 0);
 
   return jsonResponse(response, cors);
 }
+
+type TopicPayload = { topic: unknown; papers: unknown[]; total: number };

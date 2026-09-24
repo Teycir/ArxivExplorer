@@ -8,6 +8,7 @@
 import type { Env } from '../../shared/types';
 import { getAllAuthors } from '../../shared/db';
 import { kvGet, kvPutAsync } from '../cache/kv';
+import { guardedD1, rememberDurable, serveStale, withNotice } from '../cache/durable';
 import { corsHeaders, dbErrorResponse, errorResponse, jsonResponse } from '../../shared/utils';
 import { withRateLimit } from '../middleware/rate-limit';
 
@@ -54,18 +55,28 @@ async function handleAuthorsInner(
   // D1 query
   let authors;
   try {
-    authors = await getAllAuthors(env.DB, limit, search);
+    authors = await guardedD1(() => getAllAuthors(env.DB, limit, search));
   } catch (err) {
     console.error('[authors] DB error:', err);
+    // Search queries are unbounded, so they never have a twin (same rule as the
+    // KV cache above) and keep the honest 503. The plain list is served stale.
+    if (!search) {
+      const stale = await serveStale<AuthorsPayload>(env, cacheKey, err, cors,
+        (data, notice) => jsonResponse(withNotice(data, notice), cors));
+      if (stale) return stale;
+    }
     return dbErrorResponse(err, cors, 'authors');
   }
 
   const response = { authors, total: authors.length };
 
-  // Cache the full list (no search) for 1 h
+  // Cache the full list (no search) for 1 h, plus the 30-day durable twin.
   if (!search && authors.length > 0) {
     kvPutAsync(ctx, env.CACHE, cacheKey, response, TTL_AUTHORS);
+    void rememberDurable(ctx, env, cacheKey, response, (d) => d.authors.length === 0);
   }
 
   return jsonResponse(response, cors);
 }
+
+type AuthorsPayload = { authors: unknown[]; total: number };

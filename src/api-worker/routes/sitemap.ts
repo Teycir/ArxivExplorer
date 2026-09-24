@@ -13,6 +13,7 @@
 import type { Env } from '../../shared/types';
 import { getAllPaperIds, getAllTopics } from '../../shared/db';
 import { kvGet, kvPutAsync } from '../cache/kv';
+import { guardedD1, rememberDurable, serveStale } from '../cache/durable';
 import { withEdgeCache } from '../cache/edge';
 import { KV_SITEMAP, TTL_SITEMAP } from '../cache/keys';
 import { corsHeaders, errorResponse, dbErrorResponse } from '../../shared/utils';
@@ -56,13 +57,18 @@ async function handleSitemapInner(
   let topics: { slug: string }[];
 
   try {
-    [paperIds, topics] = await Promise.all([
+    [paperIds, topics] = await guardedD1(() => Promise.all([
       getAllPaperIds(env.DB),
       getAllTopics(env.DB),
-    ]);
+    ]));
   } catch (err) {
     console.error('[sitemap] D1 error:', err);
-    return dbErrorResponse(err, cors, 'sitemap');
+    // The payload is XML, so there is no body to flag: the last good sitemap is
+    // served as-is and staleness is reported through X-Data-Source only. Crawlers
+    // get a valid sitemap instead of a 503 that could get URLs dropped.
+    const stale = await serveStale<string>(env, KV_SITEMAP, err, cors,
+      (xml) => xmlResponse(xml, cors));
+    return stale ?? dbErrorResponse(err, cors, 'sitemap');
   }
 
   const now = new Date().toISOString().slice(0, 10);
@@ -88,8 +94,19 @@ ${allUrls.map(url => `  <url>
 
   // 3. Lazy KV write (TTL 24h)
   kvPutAsync(ctx, env.CACHE, KV_SITEMAP, xml, TTL_SITEMAP);
+  // Refresh the 30-day twin. <lastmod> is today's date, so the raw XML differs
+  // every day; comparing it whole would cost one KV write per day for an unchanged
+  // URL set. Compare the <loc> list instead. A sitemap with no paper URLs is a
+  // symptom, never stored.
+  void rememberDurable(ctx, env, KV_SITEMAP, xml, () => paperIds.length === 0, sameLocs);
 
   return xmlResponse(xml, cors);
+}
+
+/** Two sitemaps are "the same" when they list the same URLs, whatever <lastmod> says. */
+function sameLocs(a: string, b: string): boolean {
+  const locs = (xml: string) => xml.match(/<loc>[^<]*<\/loc>/g)?.join('') ?? '';
+  return locs(a) === locs(b);
 }
 
 function xmlResponse(xml: string, cors: Record<string, string>): Response {

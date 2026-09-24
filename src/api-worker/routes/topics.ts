@@ -14,6 +14,7 @@ import type { Env } from '../../shared/types';
 import { getTopicsWithPapers } from '../../shared/db';
 import { kvGet, kvPutAsync } from '../cache/kv';
 import { withEdgeCache } from '../cache/edge';
+import { guardedD1, rememberDurable, serveStale, withNotice } from '../cache/durable';
 import { KV_TOPICS, TTL_TOPICS } from '../cache/keys';
 import { corsHeaders, jsonResponse, dbErrorResponse } from '../../shared/utils';
 import { withRateLimit } from '../middleware/rate-limit';
@@ -49,19 +50,27 @@ async function handleTopicsInner(
     console.error('[topics] KV get error:', err);
   }
 
-  // 2. D1 — one indexed SELECT over the materialized counts
+  // 2. D1 — one indexed SELECT over the materialized counts.
+  // Once D1 has reported its daily quota, don't ask again until midnight UTC:
+  // go straight to the durable twin (zero D1 reads during the outage).
   let topics;
   try {
-    topics = await getTopicsWithPapers(env.DB);
+    topics = await guardedD1(() => getTopicsWithPapers(env.DB));
   } catch (err) {
     console.error('[topics] D1 error:', err);
-    return dbErrorResponse(err, cors, 'topics');
+    // Serve the last good list (200 + `cache: 'stale'` in the body) rather than a 503.
+    const stale = await serveStale<TopicsPayload>(env, KV_TOPICS, err, cors,
+      (data, notice) => jsonResponse(withNotice(data, notice), cors));
+    return stale ?? dbErrorResponse(err, cors, 'topics');
   }
 
   const response = { topics, total: topics.length };
 
-  // 3. Lazy KV write (1h TTL)
+  // 3. Lazy KV write (1h TTL) + refresh the 30-day durable twin (only if changed).
   kvPutAsync(ctx, env.CACHE, KV_TOPICS, response, TTL_TOPICS);
+  void rememberDurable(ctx, env, KV_TOPICS, response, (d) => d.topics.length === 0);
 
   return jsonResponse(response, cors);
 }
+
+type TopicsPayload = { topics: unknown[]; total: number };
