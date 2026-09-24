@@ -4,21 +4,22 @@
  *
  * Provider priority:
  *   1. Ollama (local) — if OLLAMA_BASE is set in env, zero neuron cost
- *   2. Workers AI (remote) — falls through model list; costs ~43 neurons/paper
+ *   2. Workers AI (remote) — cascades through the live model list from
+ *      ../shared/ai-models.ts; costs ~43 neurons/paper
  *
- * If ALL providers fail → throws (caller marks paper summary_ready=2 for retry).
+ * The Workers AI model list is NOT hard-coded here (see the Aug–Sep 2026
+ * outage in ../shared/ai-models.ts's header) — it is discovered from
+ * developers.cloudflare.com/workers-ai/models/index.md, cached in KV, and
+ * tried in order via runCascade. A retired/renamed model degrades this run's
+ * latency, not its correctness, and self-heals on the next discovery refresh.
+ *
+ * If ALL providers fail → throws AllModelsFailedError (or the Ollama error),
+ * which processSinglePaper wraps as PaperFailure so the retry queue and any
+ * log line say exactly which stage and why.
  */
 
 import type { SummaryFields, Env } from '../shared/types';
-import { summaryModel } from '../shared/utils';
-
-// Fallback models in order of preference
-const FALLBACK_MODELS = [
-  '@cf/meta/llama-3.1-8b-instruct',
-  '@cf/mistral/mistral-7b-instruct-v0.1',
-  '@cf/meta/llama-3.2-3b-instruct',
-  '@cf/qwen/qwen1.5-7b-chat-awq',
-];
+import { getTextModelCascade, runCascade } from '../shared/ai-models';
 
 const SYSTEM_PROMPT =
   'You are a research paper summarizer. ' +
@@ -62,32 +63,17 @@ export async function generateSummary(
   }
 
   // ── 2. Workers AI (remote, costs ~43 neurons/paper) ───────────────────────
-  const primaryModel = summaryModel(env);
-  const models = [primaryModel, ...FALLBACK_MODELS.filter(m => m !== primaryModel)];
-  
-  // Try Cloudflare Workers AI models
-  for (let i = 0; i < models.length; i++) {
-    const model = models[i]!;
-    try {
-      const result = await generateSummaryAttempt(abstract, model, env);
-      if (i > 0) {
-        console.info(`[generate-summary] Success with fallback model ${i}: ${model}`);
-      }
-      return result;
-    } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      console.warn(`[generate-summary] Model ${model} failed:`, error.message);
-      await new Promise(resolve => setTimeout(resolve, 500));
-    }
-  }
+  // env.CACHE may be undefined only in ad-hoc scripts; the ingest worker
+  // always binds it. getTextModelCascade tolerates undefined by using the
+  // built-in defaults, so this never throws before the cascade even starts.
+  const { models } = await getTextModelCascade(env.CACHE, env.SUMMARY_MODEL);
 
-  // All models exhausted — throw so processSinglePaper marks the paper as
-  // failed (summary_ready=2) for later retry. Returning fabricated abstract
-  // sentences and writing summary_ready=1 is worse than failing: it makes
-  // garbage data appear as a completed summary with no way to detect it.
-  throw new Error(
-    `[generate-summary] All ${models.length} AI models exhausted — no summary produced`
+  const { value } = await runCascade(
+    'summary',
+    models,
+    (model) => generateSummaryAttempt(abstract, model, env),
   );
+  return value;
 }
 
 // ─── Ollama provider ───────────────────────────────────────────────────────
@@ -166,21 +152,21 @@ async function generateSummaryAttempt(
   try {
     // Aggressive cleaning: strip markdown, code blocks, and common prefixes
     let cleaned = aiResponse.response.trim();
-    
+
     // Remove markdown code fences
     cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
-    
+
     // Remove common LLM preambles
     cleaned = cleaned.replace(/^(?:Here's|Here is|Sure,?|Okay,?)[^{]*/i, '');
-    
+
     // Find first { and last }
     const firstBrace = cleaned.indexOf('{');
     const lastBrace = cleaned.lastIndexOf('}');
-    
+
     if (firstBrace === -1 || lastBrace === -1) {
       throw new Error('No JSON object found in response');
     }
-    
+
     cleaned = cleaned.slice(firstBrace, lastBrace + 1);
     parsed = JSON.parse(cleaned);
   } catch (err) {
@@ -214,6 +200,10 @@ function validateSummaryFields(raw: unknown): SummaryFields {
   const keywords = softStringArray(obj, 'keywords');
   const paper_type = softString(obj, 'paper_type', 'unknown');
   const novelty = softString(obj, 'novelty', '');
+  // Requested by the prompt and persisted by pipeline.ts, but this function used
+  // to drop it, so summaries.problem_statement was NULL for every paper ever
+  // summarised. Optional: an empty string means "model did not provide one".
+  const problem_statement = softString(obj, 'problem_statement', '');
   const applications = softStringArray(obj, 'applications');
   const prerequisites = softStringArray(obj, 'prerequisites');
   const follow_up_questions = softStringArray(obj, 'follow_up_questions');
@@ -224,6 +214,9 @@ function validateSummaryFields(raw: unknown): SummaryFields {
   return {
     tldr, key_contributions, methods, limitations, beginner_explain, technical_summary,
     keywords, paper_type: normalizedType, novelty, applications, prerequisites, follow_up_questions,
+    // Only when non-empty, so `problem_statement ?? null` in pipeline.ts stores
+    // NULL (= "not provided") rather than an empty string.
+    ...(problem_statement ? { problem_statement } : {}),
   };
 }
 

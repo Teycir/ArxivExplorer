@@ -17,14 +17,25 @@
  *
  * KV schema per key:
  *   key:   "retry:{paperId}"
- *   value: JSON { attempts: number, scheduled_after: ISO string }
+ *   value: JSON { attempts, scheduled_after: ISO, reason?: string, deferrals?: number }
  *   TTL:   48h (auto-GC if never processed)
+ *
+ * `reason` is a PaperFailure.reasonKey ("summary:model_deprecated",
+ * "embedding:quota_exhausted", "db_write:d1_quota", ...) — the WHY for this
+ * specific paper's most recent attempt. Informational: it never changes timing.
+ *
+ * `deferrals` counts consecutive INFRASTRUCTURE failures (retired model, spent
+ * quota, rate limit, D1 quota). Those do not spend an attempt — see
+ * handlePaperFailure() — so a multi-day platform outage cannot retire healthy
+ * papers. Capped at MAX_INFRA_DEFERRALS so nothing loops forever.
  */
 
 import type { Env, ArxivEntry } from '../shared/types';
+import { PaperFailure, logEvent, clip, errMessage } from '../shared/ai-errors';
 
 const KEY_PREFIX   = 'retry:';
 const MAX_ATTEMPTS = 3;
+export const MAX_RETRY_ATTEMPTS = MAX_ATTEMPTS;
 const TTL_SECONDS  = 48 * 3600; // 48h auto-expiry
 
 const DELAY_BY_ATTEMPT: Record<number, number> = {
@@ -36,13 +47,57 @@ const DELAY_BY_ATTEMPT: Record<number, number> = {
 export interface RetryRecord {
   attempts: number;
   scheduled_after: string; // ISO
+  reason?: string; // PaperFailure.reasonKey, e.g. "summary:model_deprecated"
+  /** Consecutive infrastructure failures deferred without spending an attempt. */
+  deferrals?: number;
 }
 
-/** Enqueue a paper for retry after the appropriate backoff delay. */
+/** After this many blameless infra deferrals, fall back to spending attempts. */
+export const MAX_INFRA_DEFERRALS = 20;
+
+/**
+ * Re-schedule a paper after an INFRASTRUCTURE failure (retired model, spent
+ * quota, rate limit, D1 quota) without consuming one of its attempts — the
+ * paper did nothing wrong, so a multi-day outage must not retire it.
+ *
+ * Keeps `attempts` unchanged and waits the backoff for the attempt it is on
+ * (minimum the first slot), tracking `deferrals` so it can never loop forever.
+ * Returns false once MAX_INFRA_DEFERRALS is reached: the caller should then
+ * treat the failure like any other and spend an attempt.
+ */
+export async function deferRetry(
+  cache: KVNamespace,
+  paperId: string,
+  currentAttempts: number,
+  reason: string,
+  previousDeferrals = 0,
+): Promise<boolean> {
+  const deferrals = previousDeferrals + 1;
+  if (deferrals > MAX_INFRA_DEFERRALS) return false;
+
+  const slot = Math.min(Math.max(currentAttempts, 1), MAX_ATTEMPTS);
+  const delayMs = DELAY_BY_ATTEMPT[slot]!;
+  const scheduledAfter = new Date(Date.now() + delayMs).toISOString();
+
+  const record: RetryRecord = { attempts: currentAttempts, scheduled_after: scheduledAfter, reason, deferrals };
+  await cache.put(`${KEY_PREFIX}${paperId}`, JSON.stringify(record), { expirationTtl: TTL_SECONDS });
+
+  logEvent('warn', 'retry_deferred_infra', {
+    paper_id: paperId, attempts: currentAttempts, deferrals, scheduled_after: scheduledAfter, reason,
+  });
+  return true;
+}
+
+/**
+ * Enqueue a paper for retry after the appropriate backoff delay.
+ * `reason` (a PaperFailure.reasonKey) is stored alongside the record and
+ * logged as a structured event, so a stuck paper's retry key itself says why.
+ */
 export async function enqueueRetry(
   cache: KVNamespace,
   paperId: string,
   previousAttempts = 0,
+  reason?: string,
 ): Promise<void> {
   const attempts = previousAttempts + 1;
   if (attempts > MAX_ATTEMPTS) return; // let pipeline mark it as permanently failed
@@ -50,12 +105,12 @@ export async function enqueueRetry(
   const delayMs = DELAY_BY_ATTEMPT[attempts] ?? DELAY_BY_ATTEMPT[MAX_ATTEMPTS]!;
   const scheduledAfter = new Date(Date.now() + delayMs).toISOString();
 
-  const record: RetryRecord = { attempts, scheduled_after: scheduledAfter };
+  const record: RetryRecord = { attempts, scheduled_after: scheduledAfter, ...(reason ? { reason } : {}) };
   await cache.put(`${KEY_PREFIX}${paperId}`, JSON.stringify(record), {
     expirationTtl: TTL_SECONDS,
   });
 
-  console.info(`[retry-queue] Enqueued ${paperId} attempt ${attempts}, retry after ${scheduledAfter}`);
+  logEvent('info', 'retry_enqueued', { paper_id: paperId, attempt: attempts, scheduled_after: scheduledAfter, reason });
 }
 
 /** Returns the existing retry record for a paper, or null if not queued. */
@@ -161,4 +216,42 @@ export async function fetchPaperStubs(
   }
 
   return stubs;
+}
+
+/**
+ * Single decision point for "this paper just failed — what happens to it?".
+ * Replaces the enqueueRetry calls that used to be scattered through
+ * processSinglePaper AND the retry loop (which wrote the same key twice).
+ *
+ *   infrastructure failure (blameless) → deferRetry: same attempt, later slot
+ *   anything else, or deferrals capped → spend an attempt via enqueueRetry
+ *
+ * Returns 'exhausted' when the paper has no attempts left, so the caller can
+ * markFailed. Never throws: KV trouble here must not mask the real failure.
+ */
+export type FailureOutcome = 'deferred' | 'rescheduled' | 'exhausted';
+
+export async function handlePaperFailure(
+  cache: KVNamespace,
+  paperId: string,
+  failure: PaperFailure | unknown,
+): Promise<FailureOutcome> {
+  const reasonKey = failure instanceof PaperFailure ? failure.reasonKey : 'unknown:unknown';
+  const blameless = failure instanceof PaperFailure && failure.isInfrastructure;
+
+  try {
+    const record = await getRetryRecord(cache, paperId);
+    const attempts = record?.attempts ?? 0;
+
+    if (blameless && (await deferRetry(cache, paperId, attempts, reasonKey, record?.deferrals ?? 0))) {
+      return 'deferred';
+    }
+    if (attempts >= MAX_RETRY_ATTEMPTS) return 'exhausted';
+
+    await enqueueRetry(cache, paperId, attempts, reasonKey);
+    return 'rescheduled';
+  } catch (err) {
+    logEvent('warn', 'failure_handling_kv_error', { paper_id: paperId, reason: reasonKey, message: clip(errMessage(err)) });
+    return 'rescheduled';
+  }
 }

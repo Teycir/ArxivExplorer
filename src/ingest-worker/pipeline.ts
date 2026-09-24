@@ -12,6 +12,14 @@
  *   4. Dedup against D1 — only truly new IDs proceed
  *   5. INSERT metadata rows to D1
  *   6. Per-paper AI work (embedding → Vectorize, summary → D1), bounded concurrency
+ *   6b. Stale backfill — self-heal old summary_ready IN (0,2) rows with whatever
+ *       quota step 6 left over (see stale-backfill.ts); runs even when steps
+ *       2-6 short-circuit on a quiet arXiv day, since that's when quota is left
+ *   6c. KV cache backfill — write the durable KV twin for historical
+ *       summary_ready=1 papers that predate generation-time caching (see
+ *       kv-backfill.ts). Costs no AI quota (D1 read + KV write only), so it
+ *       runs on every tick regardless of remainingQuota; drains to zero once
+ *       caught up, since new papers are cached immediately going forward.
  *   7. Update daily quota counter in KV
  *   8. Write health-check record to KV
  *   9. Invalidate trending/stats KV cache
@@ -29,10 +37,15 @@ import { generateEmbedding, upsertToVectorize } from './generate-embedding';
 import { generateSummary } from './generate-summary';
 import { computeAndStoreRelated } from './compute-related';
 import { kvDelete } from '../api-worker/cache/kv';
-import { DERIVED_COUNT_KEYS } from '../api-worker/cache/keys';
-import { refreshTopicCounts } from '../shared/db';
+import { kvPaperFull, DERIVED_COUNT_KEYS } from '../api-worker/cache/keys';
+import { writeDurableTwin } from '../api-worker/cache/durable';
+import { refreshTopicCounts, getPaperById } from '../shared/db';
+import { PaperFailure, logEvent, clip, errMessage } from '../shared/ai-errors';
+import { sweepOrphans, type OrphanSweepResult } from './orphan-sweep';
+import { backfillStale, type StaleBackfillResult } from './stale-backfill';
+import { backfillKvCache, type KvBackfillResult } from './kv-backfill';
 import {
-  enqueueRetry,
+  handlePaperFailure,
   getRetryRecord,
   deleteRetryKey,
   getDueRetries,
@@ -79,16 +92,17 @@ export async function runIngestionPipeline(env: Env): Promise<IngestResult> {
         try {
           await processSinglePaper(entry, env);
           await deleteRetryKey(env.CACHE, entry.id);
-          console.info(`[pipeline] Retry succeeded for ${entry.id} (attempt ${prevAttempts})`);
+          logEvent('info', 'retry_succeeded', { paper_id: entry.id, attempt: prevAttempts });
         } catch (err) {
-          console.warn(`[pipeline] Retry failed for ${entry.id} (attempt ${prevAttempts}):`, err);
-          if (prevAttempts >= 3) {
-            // Permanently give up — mark summary_ready = 2 and drop the retry key
-            await markFailed(env.DB, entry.id).catch(() => {});
+          const reasonKey = err instanceof PaperFailure ? err.reasonKey : 'unknown:unknown';
+          logEvent('warn', 'retry_failed', { paper_id: entry.id, attempt: prevAttempts, reason: reasonKey, message: clip(errMessage(err)) });
+          // ONE decision point: infra failures are deferred without spending an
+          // attempt; content failures spend one; 'exhausted' means give up.
+          const outcome = await handlePaperFailure(env.CACHE, entry.id, err);
+          if (outcome === 'exhausted') {
+            await markFailed(env.DB, entry.id, reasonKey, env.CACHE).catch(() => {});
             await deleteRetryKey(env.CACHE, entry.id);
-            console.warn(`[pipeline] Permanently failed ${entry.id} after ${prevAttempts} attempts`);
-          } else {
-            await enqueueRetry(env.CACHE, entry.id, prevAttempts);
+            logEvent('warn', 'retry_permanently_failed', { paper_id: entry.id, attempts: prevAttempts, reason: reasonKey });
           }
         }
       },
@@ -99,6 +113,12 @@ export async function runIngestionPipeline(env: Env): Promise<IngestResult> {
     const retryFailed    = retrySettled.filter(r => r.status === 'rejected').length;
     console.info(`[pipeline] Retry batch done — ${retrySucceeded} succeeded, ${retryFailed} rescheduled/failed`);
   }
+
+  // ── 0b. Orphan sweep — re-adopt summary_ready=0 rows that have no retry key ─
+  // Runs AFTER the retry drain so it never competes with due retries, and only
+  // enqueues (2h backoff) — no AI work here, so it costs zero quota.
+  // Never throws; a sweep failure must not fail the ingestion run.
+  const orphanSweep: OrphanSweepResult = await sweepOrphans(env.DB, env.CACHE);
 
   // ── 1. Daily quota check ───────────────────────────────────────────────────
   const todayKey  = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
@@ -137,7 +157,7 @@ export async function runIngestionPipeline(env: Env): Promise<IngestResult> {
           allEntries.push(...res.value);
           console.info(`[pipeline] ${category}: fetched ${res.value.length}`);
         } else {
-          console.error(`[pipeline] ${category}: fetch failed —`, res.reason);
+          logEvent('error', 'category_fetch_failed', { category, message: clip(errMessage(res.reason)) });
           categoryFetchErrors++;
         }
       }
@@ -148,7 +168,7 @@ export async function runIngestionPipeline(env: Env): Promise<IngestResult> {
       }
     }
   } catch (err) {
-    console.error('[pipeline] Category fetch loop threw unexpectedly:', err);
+    logEvent('error', 'category_fetch_loop_threw', { message: clip(errMessage(err)) });
   } finally {
     result.fetched = allEntries.length;
     console.info(
@@ -159,7 +179,7 @@ export async function runIngestionPipeline(env: Env): Promise<IngestResult> {
 
   if (allEntries.length === 0) {
     console.warn(`[pipeline] Nothing fetched (${categoryFetchErrors}/${categories.length} categories failed)`);
-    return result;
+    return await finishWithStaleBackfill(env, result, remainingQuota, concurrency, todayKey, quotaKey, todayProcessed, orphanSweep);
   }
 
   // ── 3. Drop out-of-scope cross-listed papers ───────────────────────────────
@@ -174,7 +194,7 @@ export async function runIngestionPipeline(env: Env): Promise<IngestResult> {
 
   if (newEntries.length === 0) {
     console.info('[pipeline] No new papers — nothing to do');
-    return result;
+    return await finishWithStaleBackfill(env, result, remainingQuota, concurrency, todayKey, quotaKey, todayProcessed, orphanSweep);
   }
 
   // Cap to remaining quota so we never overshoot the daily limit
@@ -188,14 +208,25 @@ export async function runIngestionPipeline(env: Env): Promise<IngestResult> {
   try {
     await batchInsertPapers(env.DB, toProcess);
   } catch (err) {
-    console.error('[pipeline] Batch insert failed:', err);
+    logEvent('error', 'batch_insert_failed', { count: toProcess.length, message: clip(errMessage(err)) });
     throw err; // Fatal — no point running AI on rows that don't exist
   }
 
   // ── 6. Per-paper AI work ──────────────────────────────────────────────────
+  const failureReasons = new Map<string, number>();
   const settled = await runConcurrent(
     toProcess,
-    (entry) => processSinglePaper(entry, env),
+    async (entry) => {
+      try {
+        await processSinglePaper(entry, env);
+      } catch (err) {
+        // New paper failed: register it in the retry queue (first attempt, or
+        // deferred if the platform is to blame) BEFORE surfacing the failure.
+        // 'exhausted' cannot occur for a paper with no retry record.
+        await handlePaperFailure(env.CACHE, entry.id, err);
+        throw err;
+      }
+    },
     concurrency
   );
 
@@ -204,11 +235,62 @@ export async function runIngestionPipeline(env: Env): Promise<IngestResult> {
       result.summarized++;
     } else {
       result.failed++;
-      console.error('[pipeline] Paper processing failed:', r.reason);
+      const reasonKey = r.reason instanceof PaperFailure ? r.reason.reasonKey : 'unknown:unknown';
+      failureReasons.set(reasonKey, (failureReasons.get(reasonKey) ?? 0) + 1);
+      logEvent('error', 'paper_processing_failed', { reason: reasonKey, message: clip(errMessage(r.reason)) });
     }
   }
 
   result.neuronsEstimate = result.summarized * NEURONS_PER_PAPER;
+
+  return await finishWithStaleBackfill(
+    env, result, remainingQuota, concurrency, todayKey, quotaKey, todayProcessed,
+    orphanSweep, failureReasons, categoryFetchErrors, categories.length,
+  );
+}
+
+/**
+ * Shared tail end of every run, successful or short-circuited: stale backfill
+ * (6b), quota persist (7), health record (8), cache invalidation (9), and
+ * materialized counts (10).
+ *
+ * Called from THREE places — the normal end of the pipeline, and the two
+ * early "nothing new to do" returns (no arXiv results, no new papers after
+ * dedup) — precisely BECAUSE those quiet-day exits are when there is the most
+ * leftover quota to spend healing the historical backlog. Skipping this tail
+ * on a quiet day would mean the backlog only ever drains on busy days, which
+ * is backwards: busy days leave the least quota for it.
+ */
+async function finishWithStaleBackfill(
+  env: Env,
+  result: IngestResult,
+  remainingQuota: number,
+  concurrency: number,
+  todayKey: string,
+  quotaKey: string,
+  todayProcessed: number,
+  orphanSweep: OrphanSweepResult,
+  failureReasons: Map<string, number> = new Map(),
+  categoryFetchErrors = 0,
+  totalCategories = 0,
+): Promise<IngestResult> {
+  // ── 6b. Stale backfill — self-heal the historical backlog ─────────────────
+  // Only what's left of TODAY's quota after new papers above, and capped small
+  // per run (STALE_BACKFILL_CAP) so the free tier is never at risk even when
+  // quota is wide open. Never throws.
+  const quotaAfterNewPapers = remainingQuota - result.summarized;
+  const staleBackfill: StaleBackfillResult = await backfillStale(
+    env, quotaAfterNewPapers, concurrency, processSinglePaper,
+  );
+  result.summarized += staleBackfill.healed;
+  result.neuronsEstimate = result.summarized * NEURONS_PER_PAPER;
+
+  // ── 6c. KV cache backfill — historical catch-up, independent of AI quota ──
+  // No AI call here (D1 read + KV write only), so it does NOT draw on
+  // remainingQuota and runs every tick regardless of how much AI quota is
+  // left. Drains to zero once every summary_ready=1 paper has a twin (new
+  // papers get theirs immediately via primeCacheOnReady). Never throws.
+  const kvBackfill: KvBackfillResult = await backfillKvCache(env);
 
   // ── 7. Update daily quota counter ─────────────────────────────────────────
   const newTotal = todayProcessed + result.summarized;
@@ -217,6 +299,8 @@ export async function runIngestionPipeline(env: Env): Promise<IngestResult> {
   });
 
   // ── 8. Health-check record ────────────────────────────────────────────────
+  // failure_reasons: { "summary:model_deprecated": 3, ... } — so a bad run
+  // explains itself from this ONE KV read instead of a wrangler tail session.
   try {
     await env.CACHE.put('kv:health:last_ingest', JSON.stringify({
       timestamp: new Date().toISOString(),
@@ -224,11 +308,15 @@ export async function runIngestionPipeline(env: Env): Promise<IngestResult> {
       new_papers: result.newPapers,
       summarized: result.summarized,
       failed:    result.failed,
+      failure_reasons: Object.fromEntries(failureReasons),
+      orphan_sweep: orphanSweep,
+      stale_backfill: staleBackfill,
+      kv_backfill: kvBackfill,
       neurons:   result.neuronsEstimate,
       quota: { date: todayKey, used: newTotal, limit: MAX_PAPERS_PER_DAY, remaining: MAX_PAPERS_PER_DAY - newTotal },
     }), { expirationTtl: 86400 });
   } catch (err) {
-    console.warn('[pipeline] Health-check KV write failed:', err);
+    logEvent('warn', 'health_check_kv_write_failed', { error: clip(errMessage(err)) });
   }
 
   // ── 9. Invalidate KV caches ───────────────────────────────────────────────
@@ -241,7 +329,7 @@ export async function runIngestionPipeline(env: Env): Promise<IngestResult> {
         ...DERIVED_COUNT_KEYS.map(key => kvDelete(env.CACHE, key)),
       ]);
     } catch (err) {
-      console.warn('[pipeline] Cache invalidation failed:', err);
+      logEvent('warn', 'cache_invalidation_failed', { message: clip(errMessage(err)) });
     }
   }
 
@@ -255,7 +343,7 @@ export async function runIngestionPipeline(env: Env): Promise<IngestResult> {
   console.info(
     `[pipeline] Done — ${result.summarized} summarized, ${result.failed} failed,` +
     ` ~${result.neuronsEstimate} neurons, quota ${newTotal}/${MAX_PAPERS_PER_DAY}` +
-    (categoryFetchErrors > 0 ? `, ${categoryFetchErrors}/${categories.length} categories failed` : '')
+    (categoryFetchErrors > 0 ? `, ${categoryFetchErrors}/${totalCategories} categories failed` : '')
   );
 
   return result;
@@ -276,10 +364,10 @@ async function processSinglePaper(entry: ArxivEntry, env: Env): Promise<void> {
       'INSERT OR IGNORE INTO embeddings_meta (paper_id, vectorize_id, embedded_at) VALUES (?, ?, ?)'
     ).bind(id, vectorizeId, new Date().toISOString()).run();
   } catch (err) {
-    // Don't permanently mark failed — enqueue for retry with backoff instead
-    const record = await getRetryRecord(env.CACHE, id).catch(() => null);
-    await enqueueRetry(env.CACHE, id, record?.attempts ?? 0).catch(() => {});
-    throw new Error(`Embedding failed for ${id}: ${String(err)}`);
+    // Queue handling is NOT done here: processSinglePaper is shared by new
+    // papers and retries, and handlePaperFailure() (one decision point) is
+    // called by whichever caller owns the paper's retry state.
+    throw new PaperFailure(id, 'embedding', err);
   }
 
   // Summary generation
@@ -287,10 +375,7 @@ async function processSinglePaper(entry: ArxivEntry, env: Env): Promise<void> {
   try {
     summaryFields = await generateSummary(entry.summary, env);
   } catch (err) {
-    // Don't permanently mark failed — enqueue for retry with backoff instead
-    const record = await getRetryRecord(env.CACHE, id).catch(() => null);
-    await enqueueRetry(env.CACHE, id, record?.attempts ?? 0).catch(() => {});
-    throw new Error(`Summary failed for ${id}: ${String(err)}`);
+    throw new PaperFailure(id, 'summary', err);
   }
 
   // Write summary + mark ready in one batch
@@ -325,14 +410,36 @@ async function processSinglePaper(entry: ArxivEntry, env: Env): Promise<void> {
       env.DB.prepare('UPDATE papers SET summary_ready = 1 WHERE id = ?').bind(id),
     ]);
   } catch (err) {
-    throw new Error(`D1 summary write failed for ${id}: ${String(err)}`);
+    // The AI work already succeeded; the caller re-runs it on retry.
+    throw new PaperFailure(id, 'db_write', err);
   }
 
   // Related papers (best-effort, non-fatal)
   try {
     await computeAndStoreRelated(id, embedding!, env);
   } catch (err) {
-    console.warn(`[pipeline] compute-related failed for ${id} (non-fatal):`, err);
+    logEvent('warn', 'related_compute_failed', { paper_id: id, message: clip(errMessage(err)) });
+  }
+
+  // Cache at generation time, not first visitor — so a paper D1 already has
+  // fully summarised is never a 503 when D1's quota later runs out, even if
+  // nobody has looked at it yet. Same key/TTL/twin shape as the lazy write
+  // in api-worker/routes/paper.ts, so a paper cached from either path is
+  // indistinguishable to a later read. Best-effort: a cache-write failure
+  // here must not fail ingestion — the lazy path in paper.ts is still there
+  // as a fallback the next time someone requests this paper while D1 is up.
+  await primeCacheOnReady(id, env);
+}
+
+async function primeCacheOnReady(id: string, env: Env): Promise<void> {
+  try {
+    const paper = await getPaperById(env.DB, id);
+    if (!paper || paper.summaryReady !== 1) return;
+    const cacheKey = kvPaperFull(id);
+    await env.CACHE.put(cacheKey, JSON.stringify(paper), { expirationTtl: 7 * 24 * 3600 });
+    await writeDurableTwin(env, cacheKey, paper);
+  } catch (err) {
+    logEvent('warn', 'cache_prime_failed', { paper_id: id, message: clip(errMessage(err)) });
   }
 }
 
@@ -375,7 +482,7 @@ async function refreshMaterializedCounts(env: Env, force: boolean): Promise<void
       expirationTtl: COUNTS_REFRESH_INTERVAL_S,
     });
   } catch (err) {
-    console.error('[counts] Materialized count refresh failed (non-fatal):', err);
+    logEvent('error', 'materialized_counts_refresh_failed', { message: clip(errMessage(err)) });
   }
 }
 
@@ -431,6 +538,20 @@ async function batchInsertPapers(db: D1Database, entries: ArxivEntry[]): Promise
   }
 }
 
-async function markFailed(db: D1Database, paperId: string): Promise<void> {
+/**
+ * Marks a paper permanently failed (summary_ready = 2) and records WHY, so a
+ * later "why did paper X get retired" question is a KV read, not a code read.
+ * `reason` is a PaperFailure.reasonKey; the KV write is best-effort and never
+ * blocks the D1 update that actually stops the paper from being retried again.
+ */
+async function markFailed(db: D1Database, paperId: string, reason: string, cache?: KVNamespace): Promise<void> {
   await db.prepare('UPDATE papers SET summary_ready = 2 WHERE id = ?').bind(paperId).run();
+  logEvent('error', 'paper_permanently_failed', { paper_id: paperId, reason });
+  if (cache) {
+    await cache.put(
+      `kv:failed:${paperId}`,
+      JSON.stringify({ paper_id: paperId, reason, failed_at: new Date().toISOString() }),
+      { expirationTtl: 30 * 24 * 3600 }, // 30 days — enough to investigate, then auto-GC
+    ).catch(err => logEvent('warn', 'failed_record_kv_write_failed', { paper_id: paperId, error: clip(errMessage(err)) }));
+  }
 }
