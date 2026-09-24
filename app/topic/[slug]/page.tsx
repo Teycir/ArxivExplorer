@@ -1,8 +1,9 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { getTopicPapers } from '@/helper/api';
+import { getTopicPapers, isOutage, isQuotaExhausted } from '@/helper/api';
 import { Navbar } from '../../components/Navbar';
+import { QuotaNotice } from '../../components/QuotaNotice';
 import { PaperCard } from '../../components/PaperCard';
 
 import { TopicActivityTracker } from '../../components/TopicActivityTracker';
@@ -24,6 +25,16 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       description: topic.description ?? `Browse ${topic.label} research papers on ArxivExplorer.`,
     };
   } catch (err) {
+    // An outage is not a missing topic: titling the page "Topic not found" while
+    // the body says "quota exhausted" gets the wrong title indexed for every topic.
+    // Keep the URL's own name, and keep the page out of the index until it can
+    // render real content again.
+    if (isOutage(err)) {
+      return {
+        title: `${slug.replace(/-/g, ' ')} — temporarily unavailable`,
+        robots: { index: false, follow: true },
+      };
+    }
     console.error('[topic/generateMetadata]', slug, err);
     return { title: 'Topic not found' };
   }
@@ -37,6 +48,23 @@ export default async function TopicPage({ params }: Props) {
   try {
     data = await getTopicPapers(slug);
   } catch (err) {
+    // An outage (quota, rate limit, 5xx, network) is NOT a missing topic. Calling
+    // notFound() here would serve a real 404 for every /topic/* URL and get them
+    // de-indexed by crawlers — including the crawler that got rate-limited.
+    if (isOutage(err)) {
+      return (
+        <>
+          <Navbar />
+          <main className="max-w-5xl mx-auto w-full px-4 py-8 flex-1">
+            <QuotaNotice
+              variant="full"
+              kind={isQuotaExhausted(err) ? 'quota' : 'unavailable'}
+              retryAfter={err.retryAfter}
+            />
+          </main>
+        </>
+      );
+    }
     console.error('[topic/page]', slug, err);
     notFound();
   }

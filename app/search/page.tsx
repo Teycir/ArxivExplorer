@@ -9,8 +9,9 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { Suspense } from 'react';
-import { searchPapers, getMoreLikeThis } from '@/helper/api';
+import { searchPapers, getMoreLikeThis, isOutage, isQuotaExhausted } from '@/helper/api';
 import { Navbar } from '../components/Navbar';
+import { QuotaNotice } from '../components/QuotaNotice';
 import { PaperCard } from '../components/PaperCard';
 import { SearchFilters } from '../components/SearchFilters';
 import { CategoryScopeBar } from '../components/CategoryScopeBar';
@@ -61,12 +62,22 @@ async function fetchResults(
     paperType?: string;
     hasCode?: string;
   }
-): Promise<{ data: SearchResult | null; error: string | null }> {
+): Promise<{ data: SearchResult | null; error: string | null; outage: { kind: 'quota' | 'unavailable'; retryAfter: number } | null }> {
   try {
     const data = await searchPapers(query, opts);
-    return { data, error: null };
+    return { data, error: null, outage: null };
   } catch (err) {
-    return { data: null, error: err instanceof Error ? err.message : 'Search failed' };
+    // Any outage (quota, rate limit, 5xx, network) gets the notice. Falling through to
+    // `error` would print the raw API message — which embeds the upstream URL — to
+    // every visitor and crawler.
+    if (isOutage(err)) {
+      return {
+        data: null,
+        error: err.message,
+        outage: { kind: isQuotaExhausted(err) ? 'quota' : 'unavailable', retryAfter: err.retryAfter },
+      };
+    }
+    return { data: null, error: err instanceof Error ? err.message : 'Search failed', outage: null };
   }
 }
 
@@ -78,6 +89,7 @@ async function SearchResults({ searchParams }: SearchPageProps) {
     let result: SearchResult | null = null;
     let error: string | null = null;
     try { result = await searchPapers('', { embedText }); } catch (err) {
+      if (isOutage(err)) return <QuotaNotice variant="full" kind={isQuotaExhausted(err) ? 'quota' : 'unavailable'} retryAfter={err.retryAfter} />;
       error = err instanceof Error ? err.message : 'Failed to search by text';
     }
     if (error || !result) {
@@ -117,6 +129,7 @@ async function SearchResults({ searchParams }: SearchPageProps) {
     let result: SearchResult | null = null;
     let error: string | null = null;
     try { result = await getMoreLikeThis(like); } catch (err) {
+      if (isOutage(err)) return <QuotaNotice variant="full" kind={isQuotaExhausted(err) ? 'quota' : 'unavailable'} retryAfter={err.retryAfter} />;
       error = err instanceof Error ? err.message : 'Failed to fetch similar papers';
     }
     if (error || !result) {
@@ -173,13 +186,18 @@ async function SearchResults({ searchParams }: SearchPageProps) {
 
 
   // ── Server fetch ──────────────────────────────────────────────────────────
-  const { data: result, error } = await fetchResults(query, {
+  const { data: result, error, outage } = await fetchResults(query, {
     ...(category && { category }),
     ...(date && { date }),
     ...(author && { author }),
     ...(paperType && { paperType }),
     ...(hasCode && { hasCode }),
   });
+
+  // ── Outage (not an error in the query, not "no results") ──────────────────
+  if (outage) {
+    return <QuotaNotice variant="full" kind={outage.kind} retryAfter={outage.retryAfter} />;
+  }
 
   // ── Error ─────────────────────────────────────────────────────────────────
   if (error || !result) {

@@ -8,6 +8,24 @@ import type { PaperWithSummary } from '@/src/shared/types';
 
 interface RssAbstractFeedProps {
   papers: PaperWithSummary[];
+  /**
+   * True when `papers` is the API's last-known-full list rather than this week's
+   * live results (the live window was empty or the database was unavailable).
+   * The feed then drops its "live" framing instead of presenting old papers as
+   * current.
+   */
+  stale?: boolean;
+  /** ISO time the stale list was last confirmed live. */
+  asOf?: string | undefined;
+}
+
+/** "17 Aug" — absolute, so it stays correct however long the list stays stale. */
+function formatAsOf(iso: string | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? null
+    : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 }
 
 function formatRelativeDate(dateStr: string): string {
@@ -20,27 +38,33 @@ function formatRelativeDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-export function RssAbstractFeed({ papers }: RssAbstractFeedProps) {
+export function RssAbstractFeed({ papers, stale = false, asOf }: RssAbstractFeedProps) {
   const items = papers.slice(0, 4);
+  const asOfLabel = stale ? formatAsOf(asOf) : null;
 
   return (
-    <section className="flex flex-col gap-4">
+    <section className="flex flex-col gap-4" data-stale={stale ? 'true' : undefined}>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          {/* Live pulse dot */}
-          <span className="relative flex w-2 h-2 flex-shrink-0">
-            <span
-              className="absolute inset-0 rounded-full bg-neon-red opacity-70"
-              style={{ animation: 'dot-ping 1.8s ease-out infinite' }}
-            />
-            <span
-              className="relative rounded-full bg-neon-red w-2 h-2"
-              style={{ boxShadow: '0 0 6px #00ff41' }}
-            />
-          </span>
+          {/* Live pulse dot — only when the list really is live. A pulsing dot over
+              weeks-old papers says the opposite of the truth. */}
+          {stale ? (
+            <span className="flex w-2 h-2 flex-shrink-0 rounded-full bg-neon-red/30" aria-hidden />
+          ) : (
+            <span className="relative flex w-2 h-2 flex-shrink-0">
+              <span
+                className="absolute inset-0 rounded-full bg-neon-red opacity-70"
+                style={{ animation: 'dot-ping 1.8s ease-out infinite' }}
+              />
+              <span
+                className="relative rounded-full bg-neon-red w-2 h-2"
+                style={{ boxShadow: '0 0 6px #00ff41' }}
+              />
+            </span>
+          )}
           <h2 className="text-xs font-mono font-bold text-neon-red/50 uppercase tracking-widest">
-            Live RSS Feed
+            {stale ? 'Latest summarised papers' : 'Live RSS Feed'}
           </h2>
         </div>
 
@@ -63,6 +87,13 @@ export function RssAbstractFeed({ papers }: RssAbstractFeedProps) {
           </Link>
         </div>
       </div>
+
+      {stale && (
+        <p className="text-[10px] font-mono text-neon-red/40 leading-relaxed" role="note">
+          Showing the most recent list
+          {asOfLabel ? `, last updated ${asOfLabel}` : ''} — this week&apos;s results aren&apos;t available right now.
+        </p>
+      )}
 
       {/* Paper list */}
       <div className="flex flex-col gap-2">

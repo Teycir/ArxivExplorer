@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { getTrendingPapers, getStats } from '@/helper/api';
+import { getTrendingPapers, getStats, isOutage, isQuotaExhausted } from '@/helper/api';
+import { QuotaNotice } from './components/QuotaNotice';
 import { AnimatedTagline } from './components/AnimatedTagline';
 import { BackgroundBeams } from './components/ui/background-beams';
 import { SearchBoxHome } from './components/SearchBoxHome';
@@ -18,16 +19,40 @@ export const metadata: Metadata = {
 export const revalidate = 600;
 
 export default async function HomePage() {
-  const [weekPapers, stats] = await Promise.all([
+  // Each leg reports its own quota state as data. Track quota exhaustion
+  // separately from "no data" so an outage renders an explicit message instead
+  // of a bare "Index Stats" pill and an empty feed.
+  type OutageState = { kind: 'quota' | 'unavailable'; retryAfter: number } | null;
+  const outageOf = (err: unknown): OutageState =>
+    isOutage(err) ? { kind: isQuotaExhausted(err) ? 'quota' : 'unavailable', retryAfter: err.retryAfter } : null;
+
+  const [trendingLeg, statsLeg] = await Promise.all([
     getTrendingPapers('week')
-      .then(d => d.papers ?? [] as PaperWithSummary[])
-      .catch((err) => { console.error('[home] getTrendingPapers failed:', err); return [] as PaperWithSummary[]; }),
+      .then(d => ({
+        papers: d.papers ?? ([] as PaperWithSummary[]),
+        stale: d.stale === true,
+        asOf: d.asOf,
+        outage: null as OutageState,
+      }))
+      .catch((err): { papers: PaperWithSummary[]; stale: boolean; asOf?: string | undefined; outage: OutageState } => {
+        const outage = outageOf(err);
+        if (!outage) console.error('[home] getTrendingPapers failed:', err);
+        return { papers: [], stale: false, asOf: undefined, outage };
+      }),
     getStats()
-      .catch((err) => { console.error('[home] getStats failed:', err); return { totalPapers: 0 }; }),
+      .then(s => ({ totalPapers: s.totalPapers ?? 0, outage: null as OutageState }))
+      .catch((err): { totalPapers: number; outage: OutageState } => {
+        const outage = outageOf(err);
+        if (!outage) console.error('[home] getStats failed:', err);
+        return { totalPapers: 0, outage };
+      }),
   ]);
 
-  const totalPapers = stats.totalPapers;
-  const rssPapers = weekPapers.slice(0, 4);
+  // A confirmed quota exhaustion outranks a generic outage when the legs disagree.
+  const legs = [statsLeg.outage, trendingLeg.outage].filter((o): o is NonNullable<OutageState> => o !== null);
+  const quota: OutageState = legs.find(o => o.kind === 'quota') ?? legs[0] ?? null;
+  const totalPapers = statsLeg.totalPapers;
+  const rssPapers = trendingLeg.papers.slice(0, 4);
 
   return (
     <main className="flex-1 flex flex-col">
@@ -57,7 +82,26 @@ export default async function HomePage() {
                 {totalPapers.toLocaleString()} papers
               </span>
             )}
+            {totalPapers === 0 && quota && (
+              <span className="text-[10px] font-mono text-neon-red/50
+                border-l border-neon-red/20 pl-2">
+                {quota.kind === 'quota' ? 'quota exhausted' : 'unavailable'}
+              </span>
+            )}
+            {/* The badge is never bare. A healthy 200 with a zero count (counters
+                table empty, e.g. before the first cron refresh) is not an outage
+                and must not be labelled as one — but it must not render empty
+                either. */}
+            {totalPapers === 0 && !quota && (
+              <span className="text-[10px] font-mono text-neon-red/50
+                border-l border-neon-red/20 pl-2">
+                count pending
+              </span>
+            )}
           </Link>
+
+          {/* Explicit outage message — replaces the silent empty state */}
+          {quota && <QuotaNotice kind={quota.kind} retryAfter={quota.retryAfter} className="w-full max-w-xl" />}
 
           {/* Logo */}
           <div className="flex items-center gap-2 mb-1">
@@ -113,7 +157,7 @@ export default async function HomePage() {
         <FeatureCards />
 
         {/* ── RSS feed (full width now) ──────────────────────────── */}
-        <RssAbstractFeed papers={rssPapers} />
+        <RssAbstractFeed papers={rssPapers} stale={trendingLeg.stale} asOf={trendingLeg.asOf} />
 
         {/* ── Personalized feed ─────────────────────────────────── */}
         <PersonalizedFeed />

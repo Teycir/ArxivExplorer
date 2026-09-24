@@ -20,9 +20,11 @@ interface Props {
   sortedTopics: Topic[];
   topTopics: Topic[];
   trendingPapers: Paper[];
+  /** True when `trendingPapers` is the API's last-known-full list, not this week's. */
+  trendingStale?: boolean;
 }
 
-export function ExploreClient({ totalPapers, allTopics, sortedTopics, trendingPapers }: Props) {
+export function ExploreClient({ totalPapers, allTopics, sortedTopics, trendingPapers, trendingStale = false }: Props) {
   const [hovered, setHovered] = useState<string | null>(null);
   const max = sortedTopics[0]?.paperCount ?? 1;
 
@@ -137,11 +139,17 @@ export function ExploreClient({ totalPapers, allTopics, sortedTopics, trendingPa
           {trendingPapers.length > 0 && (
             <section>
               <div className="flex items-center gap-2 mb-3">
-                <p className="text-neon-red/40 text-[10px] uppercase tracking-widest">Trending this week</p>
-                <span className="relative flex h-1.5 w-1.5 ml-auto shrink-0">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-neon-red opacity-60" />
-                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-neon-red" />
-                </span>
+                <p className="text-neon-red/40 text-[10px] uppercase tracking-widest">
+                  {trendingStale ? 'Latest summarised' : 'Trending this week'}
+                </p>
+                {trendingStale ? (
+                  <span className="flex h-1.5 w-1.5 ml-auto shrink-0 rounded-full bg-neon-red/30" aria-hidden />
+                ) : (
+                  <span className="relative flex h-1.5 w-1.5 ml-auto shrink-0">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-neon-red opacity-60" />
+                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-neon-red" />
+                  </span>
+                )}
               </div>
               <div className="space-y-px">
                 {trendingPapers.map((p, i) => (
