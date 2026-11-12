@@ -76,6 +76,15 @@ contract. The write budget is bounded in `kvPutAsync` instead. Author twins
   (the previous version produced `KV put() limit exceeded`).
 - Remaining `503`s are the D1 breaker while the daily quota stays exhausted;
   they clear at 00:00 UTC.
+- CI green on `0883a17` (run `43302121377`, workflow_dispatch; the concurrent
+  push run was cancelled by the workflow's `cancel-in-progress` group).
+- Deployed: `arxiv-api` `a5a3fa6a-85f5-4ba6-864d-d96b9e974206`,
+  `arxiv-ingest` `0350449e-d685-45e5-9db4-18e5655e990f`, site (Pages) uploaded
+  from the same commit.
+- Live spot-check at 20:41Z: `/api/stats` → `totalPapers: 8913`,
+  `totalPapersAll: 22054`; `/api/search` returns `degraded: true` with
+  `keyword_search_failed: D1 ... row read limit`, i.e. the breaker, not a
+  search bug. `kv:health:cron_last_run` = `status: error`, same D1 quota cause.
 
 ### Known follow-up
 
