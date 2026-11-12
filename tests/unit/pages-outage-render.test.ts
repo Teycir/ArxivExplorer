@@ -7,7 +7,8 @@
  */
 import { describe, it, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { renderToStaticMarkup } from 'react-dom/server';
+import type { ReactElement } from 'react';
+import { renderWithRouter } from '../helpers/render-with-router.js';
 
 const realFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = realFetch; });
@@ -27,16 +28,14 @@ const FLAVOURS: Array<[string, () => Response, RegExp, RegExp]> = [
 ];
 
 async function renderTopic(slug = 'machine-learning'): Promise<string> {
-  await import('../helpers/render-stubs.mjs');
   const mod = await import('../../app/topic/[slug]/page.js');
   const tree = await (mod.default as (p: unknown) => Promise<unknown>)({ params: Promise.resolve({ slug }) });
-  return renderToStaticMarkup(tree as Parameters<typeof renderToStaticMarkup>[0]);
+  return renderWithRouter(tree as ReactElement);
 }
 async function renderExplore(): Promise<string> {
-  await import('../helpers/render-stubs.mjs');
   const mod = await import('../../app/explore/page.js');
   const tree = await (mod.default as () => Promise<unknown>)();
-  return renderToStaticMarkup(tree as Parameters<typeof renderToStaticMarkup>[0]);
+  return renderWithRouter(tree as ReactElement);
 }
 
 describe('/topic/[slug] during an outage', () => {
@@ -68,13 +67,12 @@ describe('/explore during an outage', () => {
 
 describe('/search during an outage', () => {
   async function renderSearch(q = 'transformers'): Promise<string> {
-    await import('../helpers/render-stubs.mjs');
-  const mod = await import('../../app/search/page.js');
+    const mod = await import('../../app/search/page.js');
     const tree = await (mod.default as (p: unknown) => Promise<unknown>)({
       searchParams: Promise.resolve({ q }),
     });
     // Suspense boundary: resolve the async inner component ourselves.
-    return renderToStaticMarkup(tree as Parameters<typeof renderToStaticMarkup>[0]);
+    return renderWithRouter(tree as ReactElement);
   }
   it('does not leak the upstream URL into the page on a 429', async () => {
     mockAll(RATE);
