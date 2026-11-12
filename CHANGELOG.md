@@ -85,6 +85,10 @@ contract. The write budget is bounded in `kvPutAsync` instead. Author twins
   `totalPapersAll: 22054`; `/api/search` returns `degraded: true` with
   `keyword_search_failed: D1 ... row read limit`, i.e. the breaker, not a
   search bug. `kv:health:cron_last_run` = `status: error`, same D1 quota cause.
+- Latency note: the first `/api/{topics,trending,sitemap}` request in a fresh
+  isolate costs ~15 s while the quota is gone (D1 rejects slowly); after the
+  per-isolate breaker trips (`exhaustedUntil`) the same route answers in
+  ~0.25 s. No code change — expected cold-start behaviour during the outage.
 
 ### Known follow-up
 
