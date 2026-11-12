@@ -59,16 +59,15 @@ for (const file of files) {
     'npx',
     // register-stubs stubs only Next router-bound components/next/link for the
     // page render tests; it is inert for every other test file.
+    // The render tests register the Next stub loader themselves (in-process),
+    // so nothing here depends on flags surviving tsx's re-spawn of node.
     ['tsx', '--test', file],
     {
       cwd: ROOT,
       stdio: 'inherit',
       env: {
         ...process.env,
-        // The stub loader must travel in NODE_OPTIONS: tsx re-spawns node for
-        // `--test`, and a CLI-only `--import` is not always forwarded (Node 22
-        // on CI dropped it, so pages rendered against the real next/navigation).
-        NODE_OPTIONS: '--import ./tests/helpers/register-stubs.mjs --experimental-vm-modules',
+        NODE_OPTIONS: '--experimental-vm-modules',
         // Suppress noisy experimental warnings
         NODE_NO_WARNINGS: '1',
       },

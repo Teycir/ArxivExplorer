@@ -27,11 +27,13 @@ const FLAVOURS: Array<[string, () => Response, RegExp, RegExp]> = [
 ];
 
 async function renderTopic(slug = 'machine-learning'): Promise<string> {
+  await import('../helpers/render-stubs.mjs');
   const mod = await import('../../app/topic/[slug]/page.js');
   const tree = await (mod.default as (p: unknown) => Promise<unknown>)({ params: Promise.resolve({ slug }) });
   return renderToStaticMarkup(tree as Parameters<typeof renderToStaticMarkup>[0]);
 }
 async function renderExplore(): Promise<string> {
+  await import('../helpers/render-stubs.mjs');
   const mod = await import('../../app/explore/page.js');
   const tree = await (mod.default as () => Promise<unknown>)();
   return renderToStaticMarkup(tree as Parameters<typeof renderToStaticMarkup>[0]);
@@ -66,7 +68,8 @@ describe('/explore during an outage', () => {
 
 describe('/search during an outage', () => {
   async function renderSearch(q = 'transformers'): Promise<string> {
-    const mod = await import('../../app/search/page.js');
+    await import('../helpers/render-stubs.mjs');
+  const mod = await import('../../app/search/page.js');
     const tree = await (mod.default as (p: unknown) => Promise<unknown>)({
       searchParams: Promise.resolve({ q }),
     });

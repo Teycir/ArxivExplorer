@@ -27,6 +27,7 @@ const QUOTA_503 = () =>
   json({ error: 'Database read budget exhausted', degraded: true, retryAfter: 3600 }, 503, { 'Retry-After': '3600' });
 
 async function renderHome(): Promise<string> {
+  await import('../helpers/render-stubs.mjs');
   const mod = await import('../../app/page.js');
   const tree = await (mod.default as () => Promise<unknown>)();
   return renderToStaticMarkup(tree as Parameters<typeof renderToStaticMarkup>[0]);
