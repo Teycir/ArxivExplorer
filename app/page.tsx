@@ -79,7 +79,7 @@ export default async function HomePage() {
             {totalPapers > 0 && (
               <span className="text-[10px] font-mono text-neon-red/35 animate-count-slide
                 border-l border-neon-red/20 pl-2 group-hover:text-neon-red/60 transition-colors duration-200">
-                {totalPapers.toLocaleString()} papers
+                {totalPapers.toLocaleString('en-US')} papers
               </span>
             )}
             {totalPapers === 0 && quota && (

@@ -81,8 +81,11 @@ async function fetchResults(
   }
 }
 
-async function SearchResults({ searchParams }: SearchPageProps) {
-  const { q, like, embedText, category, date, author, paperType, hasCode } = await searchParams;
+async function SearchResults(props: SearchPageProps) {
+  // ponytail: React DEV probes components with no args to build stack frames; that
+  // rejected promise surfaced as an unhandledRejection in the render tests.
+  if (!props?.searchParams) return null;
+  const { q, like, embedText, category, date, author, paperType, hasCode } = await props.searchParams;
 
   // ── "Abstract search" mode ────────────────────────────────────────────────
   if (embedText) {

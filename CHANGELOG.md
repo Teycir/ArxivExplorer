@@ -2,11 +2,90 @@
 
 All notable changes to ArxivExplorer are documented in this file.
 
-**Version:** 1.4.0  
+**Version:** 1.4.1  
 **Development Period:** June 7, 2026  
 **License:** BSL 1.1 (converts to MIT on 2029-06-01)
 
 ---
+
+## [1.4.1] - 2026-11-12
+
+### Fixed — KV write amplification + D1 read instrumentation
+
+**Symptom.** Ingestion froze at **8,913 papers** for 5+ days. The hourly
+`arxiv-ingest` cron aborted on its first query with `D1_ERROR: ... exceeded D1's
+free tier daily row read limit` (`code 7500`), so no new papers were added.
+
+**Measured cause (production analytics).**
+
+| Metric | Observed | Free-tier limit |
+| --- | ---: | ---: |
+| D1 rows read / day (11-08 … 11-12) | 7.39M, 7.45M, 10.02M, 7.67M, 8.36M | 5.0M |
+| D1 rows read in hour 00 (11-12) | 4.30M across 1,318 queries | — |
+| D1 rows read in hour 01 (11-12) | 1.76M | — |
+| KV writes / day (11-06 … 11-12) | 1,195 – 1,298 | 1,000 |
+
+**Secondary cause: the cache was writing twice and caching the wrong things.**
+Every cold paper view wrote a 7-day entry **and** a 30-day "durable twin";
+ingestion did the same for each new paper. That pushed KV past its 1,000/day
+write cap, after which every write failed and **every** cache stayed empty.
+Inventory of the namespace told the rest: **923 of 924 keys were
+`kv:author:*:durable`** — zero paper, search, sitemap, or trending keys. The
+budget was being spent on author twins, leaving the read-heavy endpoints with no
+cache at all. Rejected writes also surfaced as request exceptions
+(`KV put() limit exceeded for the day`), not as silent cache misses.
+
+A midnight TTL herd was ruled out: only 34 keys expire within 48 h, so the
+hour-00 read spike is API traffic, not cache invalidation.
+
+### Changes
+
+- **`src/api-worker/cache/kv.ts`** — `kvPutAsync()` enforces a per-isolate
+  `WRITE_BUDGET` of 800 writes/day (headroom under the 1,000 cap) with UTC day
+  rollover, and attaches `.catch()` to the `waitUntil` promise so a quota
+  rejection is logged (`[kv] put failed: ...`) instead of becoming a request
+  exception.
+- **`src/api-worker/cache/durable.ts`** — `guardedD1()` emits
+  `[d1-reads] rows=<n> at <call site>` for reads above 1,000 rows. Cloudflare
+  exposes no per-query attribution on the free tier, so this is how the
+  remaining row-read budget gets traced.
+- **`app/page.tsx`** — index count formatted with `toLocaleString('en-US')`.
+  The unpinned locale rendered `1 234 papers` under a non-English runtime
+  locale, breaking the render assertions and making SSR output host-dependent.
+- **`app/search/page.tsx`** — `SearchResults` no longer destructures props in
+  its parameter list and returns `null` when invoked without `searchParams`.
+  React DEV probes function components with **no arguments** to build component
+  stack frames (`describeNativeComponentFrame`); the resulting rejected promise
+  surfaced as an `unhandledRejection` and failed the outage render suite.
+- **`tests/unit/revisions.test.ts`** — 14 `TS2532` errors from
+  `noUncheckedIndexedAccess` fixed with non-null assertions after the length
+  assertions. `tsc --noEmit` is now clean repo-wide.
+
+**Not changed (evaluated, rejected).** Removing the durable-twin writes in
+`routes/paper.ts` and `pipeline.ts` traded a write for a 503: the twin is the
+quota-survival layer, and `tests/unit/durable-routes.test.ts` encodes that
+contract. The write budget is bounded in `kvPutAsync` instead. Author twins
+(923 keys) remain the dominant writer and the next lever.
+
+### Verification (2026-11-12T20:30Z)
+
+- `npm test` — exit 0, **all test files pass** (49 tests across the unit suites,
+  0 failures, 0 unhandled rejections).
+- `npx tsc --noEmit` — **0 errors**.
+- Post-deploy `wrangler tail`: requests `outcome: ok`, zero exceptions
+  (the previous version produced `KV put() limit exceeded`).
+- Remaining `503`s are the D1 breaker while the daily quota stays exhausted;
+  they clear at 00:00 UTC.
+
+### Known follow-up
+
+- Author twins are still the dominant writer (923 keys). Gating or removing them
+  frees the write budget for paper/search/sitemap caches; deferred until the
+  post-reset measurement shows which reads actually cost the 5M rows.
+- Read attribution is collected at 00:03Z, 00:10Z and 01:05Z after the reset via
+  `[d1-reads]` log lines and `kv:health:cron_last_run`.
+
+> Rollback: redeploy the previous worker versions, or `git revert` this commit.
 
 ## [Unreleased] — Post-mortem: D1 free-tier row-read exhaustion (2026-09-23)
 

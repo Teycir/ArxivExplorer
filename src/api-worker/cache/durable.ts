@@ -59,10 +59,25 @@ export function d1BreakerError(): Error {
 export async function guardedD1<T>(read: () => Promise<T>): Promise<T> {
   if (d1Exhausted()) throw d1BreakerError();
   try {
-    return await read();
+    const result = await read();
+    logHeavyRead(result);
+    return result;
   } catch (err) {
     if (isD1QuotaError(err)) markD1Exhausted();
     throw err;
+  }
+}
+
+/**
+ * Emits one log line per D1 read above `threshold`. Cloudflare does not expose
+ * per-query attribution, so this is the only way to find which endpoint eats
+ * the 5M rows/day free budget. Costs nothing when reads are cheap.
+ */
+function logHeavyRead(result: unknown, threshold = 1_000): void {
+  const rows = (result as { meta?: { rows_read?: number } } | null)?.meta?.rows_read;
+  if (typeof rows === 'number' && rows > threshold) {
+    const site = new Error().stack?.split('\n')[2]?.trim() ?? 'unknown';
+    console.log(`[d1-reads] rows=${rows} at ${site}`);
   }
 }
 /** Test hook. */

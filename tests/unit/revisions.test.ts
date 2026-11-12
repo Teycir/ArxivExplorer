@@ -23,8 +23,8 @@ describe('wordDiff', () => {
 
     assert.equal(removed.length, 0);
     assert.equal(added.length, 2); // 'quick' and the space ' '
-    assert.equal(added[0].value, 'quick');
-    assert.equal(added[1].value, ' ');
+    assert.equal(added[0]!.value, 'quick');
+    assert.equal(added[1]!.value, ' ');
   });
 
   it('detects a single word deletion in the middle', () => {
@@ -34,8 +34,8 @@ describe('wordDiff', () => {
 
     assert.equal(added.length, 0);
     assert.equal(removed.length, 2); // 'quick' and the space ' '
-    assert.equal(removed[0].value, 'quick');
-    assert.equal(removed[1].value, ' ');
+    assert.equal(removed[0]!.value, 'quick');
+    assert.equal(removed[1]!.value, ' ');
   });
 
   it('detects a word substitution', () => {
@@ -44,10 +44,10 @@ describe('wordDiff', () => {
     const removed = res.filter(d => d.removed);
 
     assert.equal(removed.length, 1);
-    assert.equal(removed[0].value, 'green');
+    assert.equal(removed[0]!.value, 'green');
 
     assert.equal(added.length, 1);
-    assert.equal(added[0].value, 'red');
+    assert.equal(added[0]!.value, 'red');
   });
 
   it('handles front insertion correctly', () => {
@@ -57,8 +57,8 @@ describe('wordDiff', () => {
 
     assert.equal(removed.length, 0);
     assert.equal(added.length, 2);
-    assert.equal(added[0].value, 'quick');
-    assert.equal(added[1].value, ' ');
+    assert.equal(added[0]!.value, 'quick');
+    assert.equal(added[1]!.value, ' ');
   });
 
   it('handles end insertion correctly', () => {
@@ -68,8 +68,8 @@ describe('wordDiff', () => {
 
     assert.equal(removed.length, 0);
     assert.equal(added.length, 2);
-    assert.equal(added[0].value, ' ');
-    assert.equal(added[1].value, 'fox');
+    assert.equal(added[0]!.value, ' ');
+    assert.equal(added[1]!.value, 'fox');
   });
 
   it('handles front deletion correctly', () => {
@@ -79,8 +79,8 @@ describe('wordDiff', () => {
 
     assert.equal(added.length, 0);
     assert.equal(removed.length, 2);
-    assert.equal(removed[0].value, 'quick');
-    assert.equal(removed[1].value, ' ');
+    assert.equal(removed[0]!.value, 'quick');
+    assert.equal(removed[1]!.value, ' ');
   });
 
   it('handles end deletion correctly', () => {
@@ -90,8 +90,8 @@ describe('wordDiff', () => {
 
     assert.equal(added.length, 0);
     assert.equal(removed.length, 2);
-    assert.equal(removed[0].value, ' ');
-    assert.equal(removed[1].value, 'fox');
+    assert.equal(removed[0]!.value, ' ');
+    assert.equal(removed[1]!.value, 'fox');
   });
 
   it('handles multiple edits correctly', () => {

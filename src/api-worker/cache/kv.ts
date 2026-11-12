@@ -23,6 +23,10 @@ export async function kvGet<T>(kv: KVNamespace, key: string): Promise<T | null> 
   }
 }
 
+const WRITE_BUDGET = 800;
+let writesToday = 0;
+let writeDay = new Date().toISOString().slice(0, 10);
+
 /**
  * Writes a value to KV without awaiting (fire-and-forget).
  * The caller must pass `ctx.waitUntil` to ensure the write completes
@@ -37,9 +41,21 @@ export function kvPutAsync(
   value: unknown,
   expirationTtl?: number
 ): void {
+  const day = new Date().toISOString().slice(0, 10);
+  if (day !== writeDay) {
+    writeDay = day;
+    writesToday = 0;
+  }
+  if (writesToday >= WRITE_BUDGET) return;
+  writesToday++;
+
   const serialized = JSON.stringify(value);
   const options = expirationTtl != null ? { expirationTtl } : undefined;
-  ctx.waitUntil(kv.put(key, serialized, options));
+  ctx.waitUntil(
+    kv.put(key, serialized, options).catch((err: unknown) => {
+      console.warn('[kv] put failed:', (err as Error)?.message ?? err);
+    })
+  );
 }
 
 /**
