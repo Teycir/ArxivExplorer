@@ -235,18 +235,22 @@ export async function getPapersByAuthor(
   limit = 20
 ): Promise<PaperWithSummary[]> {
   const fetchLimit = limit * 2;
-  const normalized = name.toLowerCase().trim();
-  
-  // Use authors_normalized for faster indexed search
+
+  // FTS phrase match, not `authors LIKE '%name%'`: the LIKE form scanned the
+  // whole table (7.52M rows read in 1,995 calls on 2026-11-14, 83% of the daily
+  // budget, starving the ingest cron). See CHANGELOG 1.4.1 follow-up.
+  const phrase = `"${name.trim().replace(/"/g, '""')}"`;
+
   const { results } = await db.prepare(`
     SELECT ${PAPER_SELECT}
-    FROM papers p
+    FROM papers_fts f
+    JOIN papers p ON p.id = f.paper_id
     LEFT JOIN summaries s ON s.paper_id = p.id
-    WHERE p.summary_ready = 1 
-      AND (p.authors_normalized LIKE ? OR p.authors LIKE ?)
+    WHERE papers_fts MATCH ?
+      AND p.summary_ready = 1
     ORDER BY p.published_at DESC
     LIMIT ?
-  `).bind(`%${normalized}%`, `%${name}%`, fetchLimit).all<PaperRow>();
+  `).bind(phrase, fetchLimit).all<PaperRow>();
 
   return results.map(rowToPaper).filter(isPaperComplete).slice(0, limit);
 }

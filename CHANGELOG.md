@@ -8,6 +8,54 @@ All notable changes to ArxivExplorer are documented in this file.
 
 ---
 
+## [1.4.2] - 2026-11-14
+
+### Fixed — author pages were 83% of the daily D1 row-read budget
+
+**Symptom.** Papers still frozen at 8,913; `kv:health:cron_last_run` = `error`
+with `D1_ERROR ... exceeded D1's free tier daily row read limit`.
+`kv:topic_counts:last_refresh` was missing, so the materialized counters never
+refreshed and the site badge stayed at 8,913.
+
+**Measured cause.** `wrangler d1 insights --sort-by=reads --timePeriod=1d`:
+
+| Query | Runs/day | Avg rows | Rows/day |
+| --- | ---: | ---: | ---: |
+| `getPapersByAuthor` (`shared/db.ts`) | 1,995 | 3,770 | 7,522,986 |
+| `SELECT COUNT(*) FROM papers` | 10 | 23,253 | 232,530 |
+
+`getPapersByAuthor` matched with `authors_normalized LIKE '%name%' OR authors
+LIKE '%name%'`. A leading wildcard cannot use `idx_papers_authors_norm`, so
+every call scanned the whole table — ~30% of all row reads in one endpoint, and
+output quality was poor: `/api/author/Jing%20Wang` also returned `Guangjing
+Wang`, `Jingjing Wang`, `Zijing Wang`.
+
+**Fix.** `getPapersByAuthor` now uses the existing `papers_fts` index
+(`papers_fts.authors` has been populated since migration 0003) with a quoted
+phrase query and `JOIN papers ON p.id = f.paper_id`. No migration, no backfill,
+no new table.
+
+**Evidence (local dump, `arxiv-explorer-20260921T011532Z.sqlite`).**
+
+- `EXPLAIN QUERY PLAN`: `SCAN p` → `SCAN f VIRTUAL TABLE INDEX 0:M4` +
+  `SEARCH p USING INDEX sqlite_autoindex_papers_1 (id=?)`.
+- 300 random distinct authors: FTS returned **0** misses against an exact
+  `json_each(p.authors)` membership oracle; 4/300 returned an extra paper whose
+  author string tokenizes identically (`Li Yuan` vs `Li Yuan ` spacing).
+- Regression test: `tests/unit/author-fts.test.ts` asserts the query uses
+  `MATCH` and never `LIKE`, and that embedded quotes are doubled.
+
+**Deployed** `arxiv-api` v`6c24b270-a5dc-442a-852e-776ea2d40efe`, then
+re-uploaded as v`93d87871-ab9e-47cc-81c5-2c14a306dffb` (same source; Wrangler's
+framework autoconfig had to be disabled — it crashed on stale local Miniflare D1
+state before it ever reached the API worker).
+
+**Still open.** Raw Workers AI failure strings (`embedding:unknown`,
+`summary:unknown`) remain unclassified — the cron aborts before AI runs once the
+quota is gone; capture with `wrangler tail arxiv-ingest` on the 00:00 UTC cron.
+`getAllAuthors` (`?search=`) still samples 5,000 rows uncached: same class of
+flaw, below the top-3 cut-off, not yet fixed.
+
 ## [1.4.1] - 2026-11-12
 
 ### Fixed — KV write amplification + D1 read instrumentation
