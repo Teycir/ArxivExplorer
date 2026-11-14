@@ -58,14 +58,21 @@ async function main() {
   // Drop FTS triggers for bulk insert
   db.exec(`DROP TRIGGER IF EXISTS papers_fts_insert; DROP TRIGGER IF EXISTS papers_fts_update; DROP TRIGGER IF EXISTS papers_fts_delete;`);
 
-  const cols = (obj: any) => Object.keys(obj);
-  const placeholders = (obj: any) => cols(obj).map(() => '?').join(',');
-  const vals = (obj: any) => Object.values(obj).map(v => v === undefined ? null : v as any);
+  // Remote D1 can carry columns that no migration ever recorded (production had
+  // seven such papers columns). Copy only what the local schema has, instead of
+  // failing the whole pull on a column the code never reads.
+  const localColumns = (table: string) =>
+    new Set((db.prepare(`PRAGMA table_info(${table})`).all() as any[]).map(c => c.name));
+  const cols = (table: string, obj: any) => Object.keys(obj).filter(k => localColumns(table).has(k));
+  const vals = (keys: string[], obj: any) => keys.map(k => (obj[k] === undefined ? null : obj[k]));
 
   const insert = (table: string, rows: any[]) => {
     if (!rows.length) return;
-    const stmt = db.prepare(`INSERT OR REPLACE INTO ${table} (${cols(rows[0]).join(',')}) VALUES (${placeholders(rows[0])})`);
-    db.transaction(() => { for (const r of rows) stmt.run(...vals(r)); })();
+    const keys = cols(table, rows[0]);
+    const dropped = Object.keys(rows[0]).filter(k => !keys.includes(k));
+    if (dropped.length) console.log(`  ${table}: ignoring remote-only column(s): ${dropped.join(', ')}`);
+    const stmt = db.prepare(`INSERT OR REPLACE INTO ${table} (${keys.join(',')}) VALUES (${keys.map(() => '?').join(',')})`);
+    db.transaction(() => { for (const r of rows) stmt.run(...vals(keys, r)); })();
     console.log(`  ${table}: ${rows.length} rows ✓`);
   };
 

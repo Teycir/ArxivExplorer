@@ -38,7 +38,17 @@ CREATE TABLE IF NOT EXISTS papers (
   publisher                  TEXT,
   license                    TEXT,
   funders                    TEXT,
-  crossref_enriched_at       TEXT
+  crossref_enriched_at       TEXT,
+  -- Present in production but never captured in a migration (added ad-hoc by
+  -- enrichment jobs). Kept here so scripts/pull-remote-to-local.ts can insert
+  -- the remote rows verbatim; nothing in the codebase reads them.
+  oa_license                 TEXT,
+  oa_version                 TEXT,
+  unpaywall_enriched_at      TEXT,
+  oc_citation_count          INTEGER DEFAULT 0,
+  oc_reference_count         INTEGER DEFAULT 0,
+  opencitations_enriched_at  TEXT,
+  openc_itations_enriched_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS summaries (
@@ -57,7 +67,10 @@ CREATE TABLE IF NOT EXISTS summaries (
   novelty           TEXT,
   applications      TEXT,
   prerequisites     TEXT,
-  follow_up_questions TEXT
+  follow_up_questions TEXT,
+  -- Added by 0012_summaries_extended.sql; kept here so a database created
+  -- from this file (scripts/pull-remote-to-local.ts) matches production.
+  problem_statement TEXT
 );
 
 CREATE TABLE IF NOT EXISTS related_papers (
