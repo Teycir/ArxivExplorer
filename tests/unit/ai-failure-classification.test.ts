@@ -2,7 +2,8 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { PaperFailure, BadModelOutputError, AllModelsFailedError } from '../../src/shared/ai-errors.js';
-import { generateSummary } from '../../src/ingest-worker/generate-summary.js';
+import { generateSummary, repairJsonEscapes } from '../../src/ingest-worker/generate-summary.js';
+import { selectTextCards } from '../../src/shared/ai-models.js';
 import { handlePaperFailure } from '../../src/ingest-worker/retry-queue.js';
 import type { Env } from '../../src/shared/types.js';
 
@@ -99,6 +100,29 @@ describe('generateSummary provider output handling', () => {
     assert.ok(err instanceof AllModelsFailedError, `expected AllModelsFailedError, got ${String(err)}`);
     assert.equal((err as AllModelsFailedError).dominantCode, 'bad_output');
     assert.equal(new PaperFailure('2611.16404', 'summary', err).reasonKey, 'summary:bad_output');
+  });
+
+  it('repairs LaTeX backslashes instead of failing the paper (2611.12872)', async () => {
+    // Exactly the shape that failed all three cascade models in production:
+    // the model echoes \mathcal / \textbf into JSON strings, and a backslash
+    // that is not a legal escape makes JSON.parse throw.
+    const raw = '{"tldr":"A \\mathcal{X} method","key_contributions":["Uses \\sigma_{i}"],"methods":["m"],"limitations":["l"],"beginner_explain":"b","technical_summary":"t"}';
+    const fields = await generateSummary('An abstract.', envWithAI(raw));
+    assert.equal(fields.tldr, 'A \\mathcal{X} method');
+    assert.deepEqual(fields.key_contributions, ['Uses \\sigma_{i}']);
+  });
+
+  it('leaves legal JSON escapes untouched', () => {
+    const valid = '{"a":"line\\nbreak \\"quoted\\" \\\\ backslash \\u00e9"';
+    assert.equal(repairJsonEscapes(valid), valid);
+  });
+
+  it('excludes the licence-gated vision model from the cascade', () => {
+    const kept = selectTextCards([
+      { name: 'llama-3.2-11b-vision-instruct', url: '', task: 'Text Generation', flags: [] },
+      { name: 'llama-3.1-8b-instruct-fp8', url: '', task: 'Text Generation', flags: [] },
+    ]).map(c => c.name);
+    assert.deepEqual(kept, ['llama-3.1-8b-instruct-fp8']);
   });
 
   it('marks JSON missing required fields as bad_output', async () => {

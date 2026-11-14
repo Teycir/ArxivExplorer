@@ -115,7 +115,7 @@ async function generateSummaryOllama(
   const first = cleaned.indexOf('{');
   const last  = cleaned.lastIndexOf('}');
   if (first === -1 || last === -1) throw new BadModelOutputError('No JSON object in Ollama response');
-  cleaned = cleaned.slice(first, last + 1);
+  cleaned = repairJsonEscapes(cleaned.slice(first, last + 1));
 
   let parsed: unknown;
   try {
@@ -174,7 +174,7 @@ async function generateSummaryAttempt(
       throw new BadModelOutputError('No JSON object found in response');
     }
 
-    cleaned = cleaned.slice(firstBrace, lastBrace + 1);
+    cleaned = repairJsonEscapes(cleaned.slice(firstBrace, lastBrace + 1));
     parsed = JSON.parse(cleaned);
   } catch (err) {
     // The model answered but not with usable JSON: that is bad OUTPUT, not an
@@ -187,6 +187,42 @@ async function generateSummaryAttempt(
   }
 
   return validateSummaryFields(parsed);
+}
+
+/**
+ * Models copy LaTeX out of the abstract into JSON strings, and a backslash that
+ * is not a legal JSON escape makes JSON.parse throw. That is not hypothetical:
+ * 2611.12872 failed every cascade model with "Bad escaped character in JSON",
+ * and because the message was unclassified the paper was retired as
+ * `summary:unknown`.
+ *
+ * A regex cannot do this: escaping every backslash that is not followed by a
+ * valid escape character corrupts an existing escaped-backslash pair, whose
+ * second backslash is followed by a space. This scans left to right, copying
+ * real escape sequences through untouched and doubling the rest, so the LaTeX
+ * the model meant survives as a literal backslash.
+ *
+ * Limitation, deliberate: a LaTeX command whose first letter is itself a valid
+ * escape letter (textbf starts with t) still parses as that escape character.
+ * Silently mangled prose beats breaking every genuine newline escape.
+ */
+export function repairJsonEscapes(text: string): string {
+  let out = '';
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]!;
+    if (ch !== '\\') { out += ch; continue; }
+    const next = text[i + 1];
+    if (next === undefined) { out += '\\\\'; continue; }
+    if (next === 'u') {
+      const hex = text.slice(i + 2, i + 6);
+      if (/^[0-9a-fA-F]{4}$/.test(hex)) { out += '\\u' + hex; i += 5; }
+      else { out += '\\\\u'; i += 1; }
+      continue;
+    }
+    if ('"\\/bfnrt'.includes(next)) { out += '\\' + next; i += 1; continue; }
+    out += '\\\\';
+  }
+  return out;
 }
 
 function validateSummaryFields(raw: unknown): SummaryFields {

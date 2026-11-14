@@ -51,12 +51,53 @@ attempts spent (asserted against the KV write), Vectorize →
 `summary:bad_output` via the real cascade with a stub AI binding, plus a valid
 control. `npx tsc --noEmit` clean; all 28 test files pass.
 
-**Deployed** `arxiv-ingest` v`06033c69-f0c7-43c1-84f1-adbae40af41d` and
+### Fixed — LaTeX in model output made the summary unparseable (the real cause)
+
+**Origin, reproduced against the live service.** `wrangler tail` on the deployed
+API named the text model:
+
+    AiError: 5028: @cf/meta/infire-llama-3.1-8b-instruct was deprecated on 2026-05-30
+
+That is `SUMMARY_MODEL` (`@cf/meta/llama-3.1-8b-instruct`) in
+`wrangler.ingest.toml` and the hard-coded model in `routes/claim.ts`. Calling
+each cascade model directly through a temporary Worker with an `AI` binding
+showed `llama-3.1-8b-instruct-fp8`, `llama-3.2-3b-instruct`,
+`llama-3.2-1b-instruct` and `gpt-oss-20b` all answering normally, and
+`@cf/baai/bge-base-en-v1.5` returning 768-dim vectors for inputs from 40 to 4000
+characters — so neither the embedding model nor input length was the cause.
+
+Running the real `generateSummary()` against the live models for papers that had
+failed produced the actual failure:
+
+    llama-3.1-8b-instruct-fp8 -> bad_output: Summary JSON parse error:
+    SyntaxError: Bad escaped character in JSON at position 73
+
+The model copies LaTeX out of the abstract into JSON strings (`\mathcal`,
+`\sigma`); a backslash that is not a legal JSON escape makes `JSON.parse`
+throw, so 2611.12872 failed all three cascade models and was on its way to
+`summary_ready = 2`.
+
+**Fix.** `repairJsonEscapes()` scans the JSON once, copies legal escape
+sequences through untouched and doubles the rest. The same paper now summarises
+against the live models with its LaTeX intact, as do the other three previously
+failed papers. Discovery also excludes licence-gated vision models by name:
+`llama-3.2-11b-vision-instruct` ranks second on the models page but answers 5016
+until its licence is accepted.
+
+**Not changed.** `SUMMARY_MODEL` still names the retired model in
+`wrangler.ingest.toml`; the cascade ignores it (absent from the discovered list)
+and logs `ai_model_configured_unavailable` once per isolate. `kv:ai:text-models`
+is absent in production because `refreshTextModels()` has no caller outside
+tests, so the cascade uses `DEFAULT_TEXT_MODELS` — all three of which work.
+Wiring that refresh into the cron would pick up model retirements automatically.
+
+**Deployed** `arxiv-ingest` v`06033c69-f0c7-43c1-84f1-adbae40af41d` (failure
+classification) and v`b2a34ddf-81ff-4160-aacf-cf424aac99aa` (LaTeX repair);
 `arxiv-api` v`93d87871-ab9e-47cc-81c5-2c14a306dffb`.
 
-**Still open.** Which specific provider condition produced the original
-failures is still unidentified — but the next cron run that fails will record a
-concrete reason key and the raw message instead of `unknown`.
+**Still open.** The 16 `embedding:unknown` records predate the stage split, so
+they cannot be re-attributed after the fact; the next failing run reports which
+stage and subsystem failed, and whether it was deferred rather than retired.
 
 ## [1.4.2] - 2026-11-14
 

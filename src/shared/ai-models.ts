@@ -100,7 +100,10 @@ export function parseModelsIndex(markdown: string): ModelCard[] {
 const EXCLUDED_FLAGS = new Set(['reasoning', 'vision', 'beta', 'partner', 'deprecated']);
 // "-lora" suffix = a LoRA-only variant. (The page's "LoRA" badge on a normal
 // model such as llama-3.2-3b-instruct only means it accepts adapters.)
-const EXCLUDED_NAME = /(^|[-_.])(guard|coder?|embed\w*|rerank\w*)([-_.]|$)|-lora$/i;
+// `vision` is excluded by NAME as well as by badge: the models page does not
+// always carry the badge, and llama-3.2-11b-vision-instruct sits behind a
+// 5016 licence-acceptance gate, so every cascade that reached it failed.
+const EXCLUDED_NAME = /(^|[-_.])(guard|coder?|embed\w*|rerank\w*|vision\w*)([-_.]|$)|-lora$/i;
 
 export function selectTextCards(cards: readonly ModelCard[]): ModelCard[] {
   return cards.filter(c =>
