@@ -143,8 +143,8 @@ export class AllModelsFailedError extends Error {
 
 // ── Per-paper failure ────────────────────────────────────────────────────────
 
-export type FailureStage = 'embedding' | 'summary' | 'db_write';
-export type FailureCode = AiErrorCode | 'd1_quota' | 'db_error';
+export type FailureStage = 'embedding' | 'vectorize' | 'summary' | 'db_write';
+export type FailureCode = AiErrorCode | 'd1_quota' | 'db_error' | 'vectorize_error';
 
 /**
  * A single paper failing at a known stage. `reasonKey` ("summary:model_deprecated")
@@ -158,7 +158,11 @@ export class PaperFailure extends Error {
   private readonly cascadeIsInfra: boolean | undefined;
 
   constructor(paperId: string, stage: FailureStage, cause: unknown) {
-    const label = stage === 'embedding' ? 'Embedding' : stage === 'summary' ? 'Summary' : 'D1 summary write';
+    const label =
+      stage === 'embedding' ? 'Embedding' :
+      stage === 'vectorize' ? 'Vectorize upsert' :
+      stage === 'summary'   ? 'Summary' :
+      'D1 write';
     super(`${label} failed for ${paperId}: ${errMessage(cause)}`);
     this.name = 'PaperFailure';
     this.paperId = paperId;
@@ -168,7 +172,16 @@ export class PaperFailure extends Error {
   }
 
   private static codeFor(stage: FailureStage, cause: unknown): FailureCode {
-    if (stage === 'db_write') return isD1QuotaError(cause) ? 'd1_quota' : 'db_error';
+    // A spent D1 budget is the platform's fault wherever it surfaces. The
+    // embeddings_meta INSERT used to sit inside the embedding try-block, so a
+    // quota rejection became `embedding:unknown` — not recognised as
+    // infrastructure, it spent one of the paper's three attempts and helped
+    // retire healthy papers. Check the cause, not the stage.
+    if (isD1QuotaError(cause)) return 'd1_quota';
+    if (stage === 'db_write') return 'db_error';
+    // Vectorize is platform infrastructure: an unavailable index or a rejected
+    // upsert says nothing about the paper, so it must not spend an attempt.
+    if (stage === 'vectorize') return 'vectorize_error';
     if (cause instanceof AllModelsFailedError) return cause.dominantCode;
     return classifyAiError(cause);
   }
@@ -185,6 +198,7 @@ export class PaperFailure extends Error {
    */
   get isInfrastructure(): boolean {
     if (this.code === 'd1_quota') return true;
+    if (this.code === 'vectorize_error') return true;
     if (this.code === 'db_error') return false;
     // A cascade is only blameless if EVERY model failed for a platform reason;
     // one bad_output among the attempts means the content itself is suspect.

@@ -48,6 +48,12 @@ export interface RetryRecord {
   attempts: number;
   scheduled_after: string; // ISO
   reason?: string; // PaperFailure.reasonKey, e.g. "summary:model_deprecated"
+  /**
+   * The raw (clipped) error message behind `reason`. The reason key alone forced
+   * a guessing game: `embedding:unknown` could be Workers AI, Vectorize or D1,
+   * and the only copy of the real message was in logs that had already rotated.
+   */
+  message?: string;
   /** Consecutive infrastructure failures deferred without spending an attempt. */
   deferrals?: number;
 }
@@ -71,6 +77,7 @@ export async function deferRetry(
   currentAttempts: number,
   reason: string,
   previousDeferrals = 0,
+  message?: string,
 ): Promise<boolean> {
   const deferrals = previousDeferrals + 1;
   if (deferrals > MAX_INFRA_DEFERRALS) return false;
@@ -79,7 +86,10 @@ export async function deferRetry(
   const delayMs = DELAY_BY_ATTEMPT[slot]!;
   const scheduledAfter = new Date(Date.now() + delayMs).toISOString();
 
-  const record: RetryRecord = { attempts: currentAttempts, scheduled_after: scheduledAfter, reason, deferrals };
+  const record: RetryRecord = {
+    attempts: currentAttempts, scheduled_after: scheduledAfter, reason, deferrals,
+    ...(message ? { message } : {}),
+  };
   await cache.put(`${KEY_PREFIX}${paperId}`, JSON.stringify(record), { expirationTtl: TTL_SECONDS });
 
   logEvent('warn', 'retry_deferred_infra', {
@@ -98,6 +108,7 @@ export async function enqueueRetry(
   paperId: string,
   previousAttempts = 0,
   reason?: string,
+  message?: string,
 ): Promise<void> {
   const attempts = previousAttempts + 1;
   if (attempts > MAX_ATTEMPTS) return; // let pipeline mark it as permanently failed
@@ -105,7 +116,11 @@ export async function enqueueRetry(
   const delayMs = DELAY_BY_ATTEMPT[attempts] ?? DELAY_BY_ATTEMPT[MAX_ATTEMPTS]!;
   const scheduledAfter = new Date(Date.now() + delayMs).toISOString();
 
-  const record: RetryRecord = { attempts, scheduled_after: scheduledAfter, ...(reason ? { reason } : {}) };
+  const record: RetryRecord = {
+    attempts, scheduled_after: scheduledAfter,
+    ...(reason ? { reason } : {}),
+    ...(message ? { message } : {}),
+  };
   await cache.put(`${KEY_PREFIX}${paperId}`, JSON.stringify(record), {
     expirationTtl: TTL_SECONDS,
   });
@@ -239,16 +254,18 @@ export async function handlePaperFailure(
   const reasonKey = failure instanceof PaperFailure ? failure.reasonKey : 'unknown:unknown';
   const blameless = failure instanceof PaperFailure && failure.isInfrastructure;
 
+  const message = clip(errMessage(failure), 300);
+
   try {
     const record = await getRetryRecord(cache, paperId);
     const attempts = record?.attempts ?? 0;
 
-    if (blameless && (await deferRetry(cache, paperId, attempts, reasonKey, record?.deferrals ?? 0))) {
+    if (blameless && (await deferRetry(cache, paperId, attempts, reasonKey, record?.deferrals ?? 0, message))) {
       return 'deferred';
     }
     if (attempts >= MAX_RETRY_ATTEMPTS) return 'exhausted';
 
-    await enqueueRetry(cache, paperId, attempts, reasonKey);
+    await enqueueRetry(cache, paperId, attempts, reasonKey, message);
     return 'rescheduled';
   } catch (err) {
     logEvent('warn', 'failure_handling_kv_error', { paper_id: paperId, reason: reasonKey, message: clip(errMessage(err)) });

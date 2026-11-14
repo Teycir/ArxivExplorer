@@ -20,6 +20,7 @@
 
 import type { SummaryFields, Env } from '../shared/types';
 import { getTextModelCascade, runCascade } from '../shared/ai-models';
+import { BadModelOutputError } from '../shared/ai-errors';
 
 const SYSTEM_PROMPT =
   'You are a research paper summarizer. ' +
@@ -113,10 +114,16 @@ async function generateSummaryOllama(
     .replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
   const first = cleaned.indexOf('{');
   const last  = cleaned.lastIndexOf('}');
-  if (first === -1 || last === -1) throw new Error('No JSON object in Ollama response');
+  if (first === -1 || last === -1) throw new BadModelOutputError('No JSON object in Ollama response');
   cleaned = cleaned.slice(first, last + 1);
 
-  return validateSummaryFields(JSON.parse(cleaned));
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch (err) {
+    throw new BadModelOutputError(`Ollama JSON parse error: ${String(err)} — raw response: ${data.response.slice(0, 300)}`);
+  }
+  return validateSummaryFields(parsed);
 }
 
 // ─── Workers AI provider ───────────────────────────────────────────────────
@@ -164,13 +171,17 @@ async function generateSummaryAttempt(
     const lastBrace = cleaned.lastIndexOf('}');
 
     if (firstBrace === -1 || lastBrace === -1) {
-      throw new Error('No JSON object found in response');
+      throw new BadModelOutputError('No JSON object found in response');
     }
 
     cleaned = cleaned.slice(firstBrace, lastBrace + 1);
     parsed = JSON.parse(cleaned);
   } catch (err) {
-    throw new Error(
+    // The model answered but not with usable JSON: that is bad OUTPUT, not an
+    // unclassifiable provider error. Throwing BadModelOutputError is what makes
+    // reasonKey `summary:bad_output` instead of the useless `summary:unknown`.
+    if (err instanceof BadModelOutputError) throw err;
+    throw new BadModelOutputError(
       `Summary JSON parse error: ${String(err)} — raw response: ${aiResponse.response.slice(0, 300)}`
     );
   }
@@ -180,7 +191,7 @@ async function generateSummaryAttempt(
 
 function validateSummaryFields(raw: unknown): SummaryFields {
   if (typeof raw !== 'object' || raw === null) {
-    throw new Error('Summary response is not an object');
+    throw new BadModelOutputError('Summary response is not an object');
   }
 
   const obj = raw as Record<string, unknown>;
@@ -223,7 +234,7 @@ function validateSummaryFields(raw: unknown): SummaryFields {
 function assertString(obj: Record<string, unknown>, key: string): string {
   const v = obj[key];
   if (typeof v !== 'string' || !v.trim()) {
-    throw new Error(`Summary field "${key}" is missing or not a non-empty string`);
+    throw new BadModelOutputError(`Summary field "${key}" is missing or not a non-empty string`);
   }
   return v.trim();
 }
@@ -231,17 +242,17 @@ function assertString(obj: Record<string, unknown>, key: string): string {
 function assertStringArray(obj: Record<string, unknown>, key: string, minLength = 1): string[] {
   const v = obj[key];
   if (!Array.isArray(v)) {
-    throw new Error(`Summary field "${key}" is not an array`);
+    throw new BadModelOutputError(`Summary field "${key}" is not an array`);
   }
   const arr = v.map((item, i) => {
     if (typeof item !== 'string') {
-      throw new Error(`Summary field "${key}[${i}]" is not a string`);
+      throw new BadModelOutputError(`Summary field "${key}[${i}]" is not a string`);
     }
     return item.trim();
   }).filter(Boolean);
 
   if (arr.length < minLength) {
-    throw new Error(`Summary field "${key}" has ${arr.length} items, expected at least ${minLength}`);
+    throw new BadModelOutputError(`Summary field "${key}" has ${arr.length} items, expected at least ${minLength}`);
   }
   return arr;
 }

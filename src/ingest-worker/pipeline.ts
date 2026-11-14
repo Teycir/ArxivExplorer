@@ -100,7 +100,7 @@ export async function runIngestionPipeline(env: Env): Promise<IngestResult> {
           // attempt; content failures spend one; 'exhausted' means give up.
           const outcome = await handlePaperFailure(env.CACHE, entry.id, err);
           if (outcome === 'exhausted') {
-            await markFailed(env.DB, entry.id, reasonKey, env.CACHE).catch(() => {});
+            await markFailed(env.DB, entry.id, reasonKey, env.CACHE, clip(errMessage(err), 300)).catch(() => {});
             await deleteRetryKey(env.CACHE, entry.id);
             logEvent('warn', 'retry_permanently_failed', { paper_id: entry.id, attempts: prevAttempts, reason: reasonKey });
           }
@@ -356,18 +356,34 @@ async function processSinglePaper(entry: ArxivEntry, env: Env): Promise<void> {
   const text    = `${entry.title}\n${entry.summary}`;
   let embedding: number[];
 
-  // Embedding + Vectorize upsert
+  // Embedding, Vectorize upsert and the embeddings_meta write are THREE
+  // different failure domains and must not share one label: this used to be a
+  // single try-block, so a D1 quota rejection or a Vectorize outage surfaced as
+  // `embedding:unknown` — unclassified, therefore not infrastructure, therefore
+  // it spent one of the paper's three attempts.
+  //
+  // Queue handling is NOT done here: processSinglePaper is shared by new papers
+  // and retries, and handlePaperFailure() (one decision point) is called by
+  // whichever caller owns the paper's retry state.
   try {
     embedding = await generateEmbedding(text, env);
-    const vectorizeId = await upsertToVectorize(env, id, entry.published, entry.categories, embedding);
+  } catch (err) {
+    throw new PaperFailure(id, 'embedding', err);
+  }
+
+  let vectorizeId: string;
+  try {
+    vectorizeId = await upsertToVectorize(env, id, entry.published, entry.categories, embedding);
+  } catch (err) {
+    throw new PaperFailure(id, 'vectorize', err);
+  }
+
+  try {
     await env.DB.prepare(
       'INSERT OR IGNORE INTO embeddings_meta (paper_id, vectorize_id, embedded_at) VALUES (?, ?, ?)'
     ).bind(id, vectorizeId, new Date().toISOString()).run();
   } catch (err) {
-    // Queue handling is NOT done here: processSinglePaper is shared by new
-    // papers and retries, and handlePaperFailure() (one decision point) is
-    // called by whichever caller owns the paper's retry state.
-    throw new PaperFailure(id, 'embedding', err);
+    throw new PaperFailure(id, 'db_write', err);
   }
 
   // Summary generation
@@ -544,13 +560,19 @@ async function batchInsertPapers(db: D1Database, entries: ArxivEntry[]): Promise
  * `reason` is a PaperFailure.reasonKey; the KV write is best-effort and never
  * blocks the D1 update that actually stops the paper from being retried again.
  */
-async function markFailed(db: D1Database, paperId: string, reason: string, cache?: KVNamespace): Promise<void> {
+async function markFailed(
+  db: D1Database,
+  paperId: string,
+  reason: string,
+  cache?: KVNamespace,
+  message?: string,
+): Promise<void> {
   await db.prepare('UPDATE papers SET summary_ready = 2 WHERE id = ?').bind(paperId).run();
-  logEvent('error', 'paper_permanently_failed', { paper_id: paperId, reason });
+  logEvent('error', 'paper_permanently_failed', { paper_id: paperId, reason, message });
   if (cache) {
     await cache.put(
       `kv:failed:${paperId}`,
-      JSON.stringify({ paper_id: paperId, reason, failed_at: new Date().toISOString() }),
+      JSON.stringify({ paper_id: paperId, reason, ...(message ? { message } : {}), failed_at: new Date().toISOString() }),
       { expirationTtl: 30 * 24 * 3600 }, // 30 days — enough to investigate, then auto-GC
     ).catch(err => logEvent('warn', 'failed_record_kv_write_failed', { paper_id: paperId, error: clip(errMessage(err)) }));
   }

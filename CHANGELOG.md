@@ -8,6 +8,56 @@ All notable changes to ArxivExplorer are documented in this file.
 
 ---
 
+## [1.4.3] - 2026-11-14
+
+### Fixed — AI failures could not be diagnosed, and quota errors retired healthy papers
+
+**Symptom.** After 1.4.2 the retry and failure records still said only
+`embedding:unknown` (16 papers) and `summary:unknown` (3 retrying, 8
+permanently failed). The raw message existed only in `wrangler tail` output
+that had already rotated, so every investigation of "why do papers stop
+arriving" dead-ended at `unknown`.
+
+**Ruled out, with evidence.** The 19 affected abstracts were fetched from arXiv
+and run through the real `generateEmbedding()`/`generateSummary()` against local
+Ollama: 216–492 estimated tokens each (under bge-base's 512-token window), all
+produced 768-dim vectors and summaries passing `validateSummaryFields` and
+`isPaperComplete`. Parsing, validation and input length are not the cause.
+
+**Three defects, all in the failure-reporting path:**
+
+1. **`bad_output` was unreachable.** `BadModelOutputError` was defined and
+   classified, but nothing ever threw it — `generate-summary.ts` raised plain
+   `Error`s for "no JSON object", JSON parse failures and every
+   `validateSummaryFields` assertion. All of them therefore classified as
+   `unknown`. They now throw `BadModelOutputError`.
+2. **The embedding step lumped three subsystems together.**
+   `processSinglePaper` wrapped Workers AI embedding, the Vectorize upsert and
+   the `embeddings_meta` INSERT in one try-block labelled `embedding`. A D1
+   quota rejection there became `embedding:unknown` — not infrastructure — so it
+   spent one of the paper's three attempts and helped push rows to
+   `summary_ready = 2` (7,095 such rows in the local dump). Each stage now has
+   its own try-block (`embedding`, `vectorize`, `db_write`), `codeFor()` checks
+   `isD1QuotaError()` before the stage, and the new `vectorize_error` code is
+   infrastructure, so platform faults are deferred instead of consumed.
+3. **The raw message was thrown away.** `RetryRecord` and `kv:failed:*` now
+   carry a clipped `message` next to `reason`, so the next failure names itself
+   without a live tail session.
+
+**Verification.** `tests/unit/ai-failure-classification.test.ts` (8 tests): D1
+quota in the embedding stage → `embedding:d1_quota` + infrastructure + zero
+attempts spent (asserted against the KV write), Vectorize →
+`vectorize:vectorize_error`, chatty/missing-field model output →
+`summary:bad_output` via the real cascade with a stub AI binding, plus a valid
+control. `npx tsc --noEmit` clean; all 28 test files pass.
+
+**Deployed** `arxiv-ingest` v`06033c69-f0c7-43c1-84f1-adbae40af41d` and
+`arxiv-api` v`93d87871-ab9e-47cc-81c5-2c14a306dffb`.
+
+**Still open.** Which specific provider condition produced the original
+failures is still unidentified — but the next cron run that fails will record a
+concrete reason key and the raw message instead of `unknown`.
+
 ## [1.4.2] - 2026-11-14
 
 ### Fixed — author pages were 83% of the daily D1 row-read budget
