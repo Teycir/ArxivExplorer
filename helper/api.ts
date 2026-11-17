@@ -3,12 +3,13 @@
  * Client-side API fetch helpers for the Next.js app.
  * All functions throw on non-2xx responses — never silently return null.
  *
- * On the server (SSR/RSC) we use the `API` Cloudflare service binding so that
- * the request goes directly to the api-worker without leaving the Cloudflare
- * edge network.  On the client we use the public API URL.
+ * On the server (SSR/RSC) the api-worker's fetch handler runs IN-PROCESS inside
+ * the page's own invocation (see loadInProcessApi), so a page view is one
+ * Workers request instead of two. If that cannot load we fall back to the `API`
+ * service binding, then to the public URL.  On the client we use the public API URL.
  */
 
-import type { PaperWithSummary, SearchResult, RelatedPaper, Topic } from '../src/shared/types';
+import type { PaperWithSummary, SearchResult, RelatedPaper, Topic, Env } from '../src/shared/types';
 
 const PUBLIC_API = 'https://arxiv-api.arxivexplorer.workers.dev';
 
@@ -156,6 +157,34 @@ export function clearServerMemoryCache(): void {
   serverMemoryCache.clear();
 }
 
+type InProcessApi = {
+  fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response>;
+};
+let inProcessApi: InProcessApi | null | undefined;
+
+/** The front worker owns the same D1/KV bindings the API handlers need. */
+function hasApiBindings(env: unknown): boolean {
+  const e = env as Record<string, unknown> | null | undefined;
+  return Boolean(e && e['DB'] && e['CACHE']);
+}
+
+/**
+ * Lazily load the API worker's fetch handler so SSR can call it directly
+ * instead of going through the `API` service binding. Returns null (and callers
+ * fall back to the binding, then the public URL) if the module cannot load.
+ */
+async function loadInProcessApi(): Promise<InProcessApi | null> {
+  if (inProcessApi !== undefined) return inProcessApi;
+  try {
+    const mod = await import('../src/api-worker/index');
+    inProcessApi = mod.default as InProcessApi;
+  } catch (err) {
+    console.error('[api] in-process API handler unavailable, using service binding:', err);
+    inProcessApi = null;
+  }
+  return inProcessApi;
+}
+
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const isGet = !init?.method || init.method.toUpperCase() === 'GET';
 
@@ -171,19 +200,33 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   if (typeof window === 'undefined') {
     try {
       const { getCloudflareContext } = await import('@opennextjs/cloudflare');
-      const { env } = await getCloudflareContext({ async: true });
+      const { env, ctx } = await getCloudflareContext({ async: true });
       const apiBinding = (env as Record<string, { fetch: typeof fetch }>)['API'];
-      if (apiBinding?.fetch) {
-        // Only forward identity when it can be authenticated. Without the shared
-        // secret the API ignores X-Real-IP anyway (anyone could forge it), so
-        // sending it unauthenticated would be pointless and misleading.
-        const internalToken = (env as Record<string, unknown>)['INTERNAL_TOKEN'];
-        const visitorIP = await currentVisitorIP();
-        const headers = new Headers(init?.headers);
-        if (visitorIP && typeof internalToken === 'string' && internalToken.length > 0) {
-          headers.set('X-Real-IP', visitorIP);
-          headers.set('X-Internal-Auth', internalToken);
-        }
+
+      // Only forward identity when it can be authenticated. Without the shared
+      // secret the API ignores X-Real-IP anyway (anyone could forge it), so
+      // sending it unauthenticated would be pointless and misleading.
+      const internalToken = (env as Record<string, unknown>)['INTERNAL_TOKEN'];
+      const visitorIP = await currentVisitorIP();
+      const headers = new Headers(init?.headers);
+      if (visitorIP && typeof internalToken === 'string' && internalToken.length > 0) {
+        headers.set('X-Real-IP', visitorIP);
+        headers.set('X-Internal-Auth', internalToken);
+      }
+
+      const inProcess = hasApiBindings(env) ? await loadInProcessApi() : null;
+      if (inProcess) {
+        // Run the API handlers inside THIS invocation. A service-binding call is a
+        // second Worker invocation. On 2026-11-17 the account hit the Workers Free
+        // 100,000 requests/day wall when front (~54.7k) + api (~45.6k) invocations
+        // summed to ~100k, i.e. a page view cost about two requests. Same code,
+        // same bindings, roughly half the budget.
+        res = await inProcess.fetch(
+          new Request(`https://api-internal${path}`, { ...init, headers }),
+          env as unknown as Env,
+          ctx,
+        );
+      } else if (apiBinding?.fetch) {
         res = await apiBinding.fetch(`https://api-internal${path}`, { ...init, headers });
       } else {
         res = await networkFetch(`${PUBLIC_API}${path}`, init);

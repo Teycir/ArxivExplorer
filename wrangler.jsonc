@@ -36,6 +36,17 @@
     "binding": "AI"
   },
 
+  // The API handlers now run in-process inside page renders (helper/api.ts), so
+  // this worker needs the same native rate-limit binding as wrangler.api.toml.
+  // Without it the per-route limiter falls back to KV writes (1,000/day free).
+  "ratelimits": [
+    {
+      "name": "RATE_LIMITER",
+      "namespace_id": "1001",
+      "simple": { "limit": 120, "period": 60 }
+    }
+  ],
+
   "services": [
     {
       "binding": "API",
@@ -45,6 +56,7 @@
 
   "vars": {
     "API_BASE": "https://arxiv-api.arxivexplorer.workers.dev",
+    "ALLOWED_ORIGIN": "https://arxivexplorer.arxivexplorer.workers.dev",
     "ARXIV_FETCH_CATEGORIES": "cs.LG,cs.CL,cs.CV,stat.ML",
     "SUMMARY_MODEL": "@cf/meta/llama-3.1-8b-instruct",
     "EMBEDDING_MODEL": "@cf/baai/bge-base-en-v1.5",

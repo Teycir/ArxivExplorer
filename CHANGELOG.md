@@ -8,6 +8,42 @@ All notable changes to ArxivExplorer are documented in this file.
 
 ---
 
+## [1.4.5] - 2026-11-18
+
+### Changed — one Workers request per page view (stay on the free plan)
+
+**Why.** On 2026-11-17 the account hit the Workers Free 100,000 requests/day
+wall with front (~54.7k) + api (~45.6k) invocations. Server-rendered pages
+reached the API through the `API` service binding, and a service-binding call is
+a second Worker invocation, so one page view cost about two requests. Blocking
+bots (1.4.4) cannot fix that on a free `workers.dev` Worker, because a blocked
+request still counts as an invocation.
+
+**Changes.**
+
+- `helper/api.ts`: SSR now runs the api-worker's `fetch` handler **in-process**
+  inside the page's own invocation (lazy `import('../src/api-worker/index')`).
+  Fallback order if that cannot load: `API` service binding, then the public API
+  URL. Same code and bindings, roughly half the request budget.
+- `wrangler.jsonc`: the front worker gets the native `RATE_LIMITER` binding
+  (120/60s, same as `wrangler.api.toml`) and the `ALLOWED_ORIGIN` var the API
+  handlers read. Without `RATE_LIMITER` the limiter falls back to KV writes,
+  which are capped at 1,000/day on the free plan.
+- Tests: `tests/unit/inprocess-api.test.ts` fails if the in-process path, its
+  fallbacks, or any binding the API handlers need is removed from the front
+  worker.
+
+**Verified.** `tsc --noEmit` clean, 27 unit test files pass, OpenNext build
+clean, front bundle 1.52 MB gzipped (Workers Free limit: 3 MiB).
+
+**Known limits.** In-process API calls still pass through the API worker's own
+95,000 in-memory breaker, so a page view that makes several API calls advances
+that counter several times inside the same isolate. The counter is per isolate,
+so this only makes the guard slightly more eager. It is not a global total.
+
+**Deploy note.** `wrangler deploy` 4.86 hands off to `opennextjs-cloudflare` and
+crashes on Miniflare unless `--x-autoconfig=false` is passed.
+
 ## [1.4.4] - 2026-11-18
 
 ### Fixed — Cloudflare Workers 100,000 requests/day wall (429s)
