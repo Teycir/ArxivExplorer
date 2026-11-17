@@ -8,6 +8,33 @@ All notable changes to ArxivExplorer are documented in this file.
 
 ---
 
+## [1.4.4] - 2026-11-18
+
+### Fixed — Cloudflare Workers 100,000 requests/day wall (429s)
+
+**Symptom.** The site and API returned `429` once the account exhausted the free
+tier's 100,000 Worker requests/day. AI-training crawlers were the bulk of the
+traffic (ClaudeBot + GPTBot alone: >29,600 requests in one day).
+
+**Changes.**
+
+- `robots.txt`: disallow `/` and `/api/` for AI-training and SEO crawlers;
+  `/search`, `/diff/`, `/claim`, `/compare` closed to everyone else.
+- Next.js `middleware.ts` (front worker) and `src/api-worker/index.ts` (API
+  worker): reject known scraper user agents with a cacheable `403` before any
+  SSR, D1, KV or AI work runs.
+- Daily circuit breaker at **95,000 requests** in both workers: past it, a
+  `429` + `Retry-After: 3600` is returned instead of letting Cloudflare hit the
+  hard 100,000 wall. Resets at UTC midnight.
+- Per-IP limit in the front worker: 40 requests/minute.
+- `helper/api.ts`: server-side in-memory TTL cache for GET calls to the API
+  worker (60 s–15 min depending on route), skipped for degraded responses.
+- Tests: `tests/unit/middleware.test.ts` (bot blocking, per-IP limit, breaker).
+
+**Limit.** The counters live in each Worker isolate's memory, so the 95,000
+ceiling is per isolate, not a global total. It is a best-effort guard, not a hard
+cap; Cloudflare's own enforcement remains the real wall.
+
 ## [1.4.3] - 2026-11-14
 
 ### Fixed — AI failures could not be diagnosed, and quota errors retired healthy papers

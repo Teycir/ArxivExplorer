@@ -19,6 +19,12 @@ import { handleVectorizeUpsert, handleEmbedAndUpsert, handleRetryFailed, handleB
 import { handleTopics } from './routes/topics';
 import { handleStats } from './routes/stats';
 
+const BLOCKED_BOTS = /ClaudeBot|GPTBot|ChatGPT-User|Bytespider|CCBot|PerplexityBot|SemrushBot|AhrefsBot|MJ12bot|DotBot|PetalBot|SERankingBacklinksBot|Reflectionbot|Diffbot|FacebookBot|Google-Extended|cohere-ai/i;
+
+const DAILY_API_BUDGET = 95_000;
+let apiRequestsToday = 0;
+let apiRequestDay = new Date().toISOString().slice(0, 10);
+
 export default {
   async fetch(request: Request, rawEnv: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
@@ -30,6 +36,29 @@ export default {
     // free-tier quota rejection (the Sept 2026 outage mode).
     const env: Env = { ...rawEnv, DB: withRowBudget(rawEnv.DB, path) };
     const cors = corsHeaders(env);
+
+    // 1. Immediately drop aggressive AI scrapers/bots before executing routes
+    const userAgent = request.headers.get('user-agent') || '';
+    if (BLOCKED_BOTS.test(userAgent)) {
+      return new Response(
+        JSON.stringify({ error: 'Automated crawlers and scrapers are not permitted.' }),
+        { status: 403, headers: { 'Content-Type': 'application/json', ...cors, 'Cache-Control': 'public, max-age=86400' } }
+      );
+    }
+
+    // 2. Daily request budget circuit breaker (stop before hitting Cloudflare 100k daily hard wall)
+    const today = new Date().toISOString().slice(0, 10);
+    if (today !== apiRequestDay) {
+      apiRequestDay = today;
+      apiRequestsToday = 0;
+    }
+    apiRequestsToday++;
+    if (apiRequestsToday > DAILY_API_BUDGET) {
+      return new Response(
+        JSON.stringify({ error: 'Daily request capacity reached. Please try again tomorrow.', retryAfter: 3600 }),
+        { status: 429, headers: { 'Content-Type': 'application/json', ...cors, 'Retry-After': '3600', 'Cache-Control': 'no-store' } }
+      );
+    }
 
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: cors });
