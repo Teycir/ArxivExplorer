@@ -118,9 +118,13 @@ _Scan the QR code or copy the wallet address above._
 - **Sitemap.xml** — Auto-generated sitemap: `app/sitemap.ts` emits the static
   routes plus topic URLs (topics come from `/api/topics`), while the api-worker
   `GET /api/sitemap` emits the full paper list. Revalidates daily.
-- **Robots.txt** — Search engine crawler configuration: every user-agent group,
-  including all AI crawlers, disallows `/api/`. The JSON API is intentionally
-  off-limits to crawlers.
+- **Robots.txt** — Search engine crawler configuration (`app/robots.ts`). Every
+  user-agent group disallows `/api/`, and the generic group also closes `/search`,
+  `/diff/`, `/claim` and `/compare`. Known AI-training crawlers and SEO scrapers
+  (GPTBot, ClaudeBot, PerplexityBot, Bytespider, CCBot, SemrushBot, AhrefsBot, …)
+  are disallowed from `/` entirely, and the front and API workers also answer
+  them with `403` (see [Security](#security)). The reason is the Workers Free
+  100,000 requests/day budget, not secrecy.
 - **Structured Data** — JSON-LD schema markup for papers and authors
 - **SSR Content** — Server-side rendered pages with full content for crawlers
 - **Canonical URLs** — Proper canonical tags to prevent duplicate content
@@ -148,12 +152,22 @@ _Scan the QR code or copy the wallet address above._
   approves via the native `RATE_LIMITER` binding (per-route `${namespace}:${ip}`
   key, zero KV writes; KV sliding window only as fallback). Identity comes from
   the edge-set `cf-connecting-ip`; forwarded IPs need a matching
-  `X-Internal-Auth` secret (`INTERNAL_TOKEN`). Server-rendered page views reach
-  the API through a service binding that carries no client IP, so
-  `helper/api.ts` forwards the visitor's IP with that secret and each visitor
-  gets their own bucket. **This only works once `INTERNAL_TOKEN` is set on both
-  workers**; without it, all page-view traffic shares the single `internal`
-  bucket and per-visitor limits do not apply to it.
+  `X-Internal-Auth` secret (`INTERNAL_TOKEN`). Server-rendered page views call
+  the API handlers **in-process** (see [Architecture](#architecture)), so they
+  carry no client IP of their own; `helper/api.ts` forwards the visitor's IP with
+  that secret and each visitor gets their own bucket. In-process, both sides read
+  the same `INTERNAL_TOKEN` from the front worker's env. **It must be set on the
+  front worker**, and also on the API worker for the service-binding and
+  public-URL fallbacks; without it, all page-view traffic shares the single
+  `internal` bucket and per-visitor limits do not apply to it.
+- **Bot & Quota Guards** — Known AI-training crawlers and SEO scrapers get a
+  cacheable `403` from both the front worker (`middleware.ts`) and the API worker
+  before any SSR, D1, KV or AI work runs. The front worker also limits each IP to
+  40 requests/minute, and both workers answer `429` + `Retry-After` past a
+  95,000-requests/day breaker. These are **best-effort**: the counters live in each
+  isolate's memory (not a global total), and a blocked request is still a Worker
+  invocation, so only bots obeying `robots.txt` reduce the request count.
+  Cloudflare's own 100,000/day wall remains the real limit.
 - **SQL Injection Protection** — 100% parameterized queries via D1 `.prepare().bind()`
 - **Input Sanitization** — Strict validation on all user inputs (control chars, length limits, allowlists)
 - **Timing-Safe Auth** — Admin endpoints use `crypto.timingSafeEqual` (no timing oracles)
@@ -168,7 +182,12 @@ See [SECURITY.md](SECURITY.md) for full details.
 Built on Cloudflare's edge platform for global performance:
 
 - **Frontend**: Next.js deployed as a **Cloudflare Worker** (via OpenNext + `main` + `assets` mode)
-- **API**: Cloudflare Workers
+- **API**: Cloudflare Workers. Server-rendered pages run the API worker's `fetch`
+  handler **in-process** inside the page's own invocation (`helper/api.ts`), so a
+  page view is one Workers request instead of two. The standalone `arxiv-api`
+  Worker still serves browser-side calls, and is the fallback if the in-process
+  handler cannot load (order: in-process, then the `API` service binding, then the
+  public URL).
 - **Database**: Cloudflare D1 (SQLite)
 - **Vector Search**: Cloudflare Vectorize
 - **Cache**: Cloudflare KV
@@ -178,16 +197,24 @@ Built on Cloudflare's edge platform for global performance:
 > per-request nonce injection that Pages unconditionally adds to `script-src`, which breaks the
 > app's CSP.
 
+> **Why in-process**: on the Workers Free plan every invocation counts toward the
+> 100,000 requests/day account limit, and a service-binding call is a second
+> invocation. The front worker therefore declares the same `DB`, `CACHE`,
+> `VECTORIZE`, `AI` and `RATE_LIMITER` bindings and `ALLOWED_ORIGIN` var as the API
+> worker (`wrangler.jsonc`); `tests/unit/inprocess-api.test.ts` fails if one is
+> removed. A missing `RATE_LIMITER` would silently push rate limiting onto KV
+> writes (1,000/day on free).
+
 ### System Design
 
 ```
-Browser → Next.js Worker → API Worker → KV Cache → D1 Database
-                                            ↓
-                                       Vectorize
-                                            ↑
-                                  Ingest Worker (Cron)
-                                            ↑
-                              Workers AI  /  local Ollama
+Browser (page view) → Next.js Worker ─ in-process API handlers → KV Cache → D1 Database
+Browser (client JS) → API Worker ───────────────────────────────↗     ↓
+                                                                  Vectorize
+                                                                       ↑
+                                                             Ingest Worker (Cron)
+                                                                       ↑
+                                                         Workers AI  /  local Ollama
 ```
 
 ## Data Pipeline
@@ -301,6 +328,12 @@ npm run deploy:ingest   # Ingest worker
 
 # Note: deploy.sh does NOT deploy ingest worker
 # Deploy ingest worker manually when needed
+
+# Known issue: wrangler 4.86 hands `wrangler deploy` off to opennextjs-cloudflare,
+# which crashes on Miniflare. Pass --x-autoconfig=false to the deploy step, e.g.
+#   npx wrangler deploy --config wrangler.jsonc --x-autoconfig=false
+#   npx wrangler deploy --config wrangler.api.toml --x-autoconfig=false
+# (the npm scripts above do not pass it yet)
 
 # IMPORTANT — when this change ships a migration, run it BEFORE the API deploy:
 npx wrangler d1 execute arxiv-explorer --remote --file=migrations/0017_topic_paper_counts.sql
@@ -725,10 +758,20 @@ This section is deliberately short — the full incident history lives in the
 [CHANGELOG post-mortem](CHANGELOG.md#unreleased--post-mortem-d1-free-tier-row-read-exhaustion-2026-09-23).
 
 **Free-tier budgets are the hard limits the system is designed around:**
-D1 allows 5,000,000 rows read/day, KV allows 1,000 writes/day. Everything
+D1 allows 5,000,000 rows read/day, KV allows 1,000 writes/day, and the Workers Free
+plan allows **100,000 requests/day per account** across every Worker. Past that last
+limit Cloudflare itself answers every request with its own `429` page (error 1027)
+before our code runs, until 00:00 UTC. Everything
 expensive is therefore *precomputed* (topic counts, aggregate counters — see
 [Database Schema](#database-schema)) or *cached* before it ever reaches a user:
 
+- **Workers requests/day** is spent in three ways, each handled differently: crawler
+  traffic (blocked by UA with `403` and disallowed in `robots.txt`, which only
+  helps when bots obey it), the double invocation of a page view plus its API call
+  (removed: the API handlers run in-process, see [Architecture](#architecture)),
+  and genuine visitors. The 95,000/day breaker in each worker is per isolate, so it
+  softens the failure but is not a hard cap. A true global cap would need a shared
+  counter, which costs extra requests or writes.
 - Read endpoints cascade through two caches before D1: the per-colo edge cache
   (`X-Edge-Cache: HIT|MISS` header on every response) and KV.
 - Rate limiting runs on the native `RATE_LIMITER` binding and costs zero KV writes.

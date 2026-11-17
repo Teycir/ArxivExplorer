@@ -2,7 +2,7 @@
 
 ## Rate Limiting
 
-All public API endpoints implement per-IP rate limiting via Cloudflare KV:
+All public API endpoints implement per-IP rate limiting. Requests are approved by the native Workers `RATE_LIMITER` binding (zero KV writes); a Cloudflare KV sliding window is used only as a fallback when that binding is absent. The binding must be declared in **both** `wrangler.api.toml` and `wrangler.jsonc`, because the front worker runs the API handlers in-process for server-rendered pages. Without it in the front worker, limiting falls back to KV writes (1,000/day on the free plan).
 
 | Endpoint | Limit | Window | Lockout |
 |---|---|---|---|
@@ -16,6 +16,16 @@ Rate limits are enforced using a token bucket algorithm with sliding windows. On
 - HTTP 429 response with `Retry-After` header
 - Lockout period triggers after exceeding limit
 - KV failures fail open (don't block traffic on infrastructure issues)
+
+## Bot and Quota Guards
+
+The Workers Free plan allows 100,000 requests/day per account. Past that, Cloudflare answers every request itself with a `429` before any of our code runs, so abusive crawlers are an availability risk, not just a nuisance.
+
+- **Crawler blocking**: known AI-training crawlers and SEO scrapers (matched by `User-Agent`) receive a cacheable `403` from both the front worker (`middleware.ts`) and the API worker (`src/api-worker/index.ts`) before any SSR, D1, KV or AI work. `robots.txt` also disallows them from `/`.
+- **Per-IP limit (front worker)**: 40 requests/minute per IP, in isolate memory.
+- **Daily breaker**: both workers return `429` + `Retry-After: 3600` past 95,000 requests/day (UTC).
+
+Limits of these guards: user-agent matching is trivially spoofed, the counters are per isolate (not a global total), and a blocked request is still a Worker invocation that counts toward the 100,000. They protect D1, KV and AI quota and soften the failure; they are not a hard cap. Stronger options (Bot Fight Mode, WAF rate-limit rules in front of the Worker) require a custom domain on Cloudflare. The `X-Real-IP` identity header is honoured only with a matching `X-Internal-Auth` (`INTERNAL_TOKEN`), so clients cannot forge it.
 
 ## Input Validation
 
@@ -99,6 +109,8 @@ Before deploying:
 - [ ] Admin secret set in production: `wrangler secret put ADMIN_SECRET`
 - [ ] `ALLOWED_ORIGIN` updated to production domain in `wrangler.api.toml`
 - [ ] Rate limiting KV namespace properly bound in `wrangler.api.toml`
+- [ ] `RATE_LIMITER` rate-limit binding declared in both `wrangler.api.toml` and `wrangler.jsonc`
+- [ ] `INTERNAL_TOKEN` set on the front worker (and on the API worker for the fallback paths)
 - [ ] All external API keys stored as secrets (not in code)
 - [ ] Error logging enabled for 500 errors
 - [ ] KV and D1 bindings verified in production

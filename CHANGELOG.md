@@ -2,7 +2,7 @@
 
 All notable changes to ArxivExplorer are documented in this file.
 
-**Version:** 1.4.1  
+**Version:** 1.4.5  
 **Development Period:** June 7, 2026  
 **License:** BSL 1.1 (converts to MIT on 2029-06-01)
 
