@@ -413,7 +413,7 @@ async function processSinglePaper(entry: ArxivEntry, env: Env): Promise<void> {
         summaryFields.beginner_explain,
         summaryFields.technical_summary,
         new Date().toISOString(),
-        env.SUMMARY_MODEL ?? '@cf/meta/llama-3.1-8b-instruct',
+        env.SUMMARY_MODEL ?? '@cf/meta/llama-3.1-8b-instruct-fp8',
         JSON.stringify(summaryFields.keywords),
         JSON.stringify([]),
         summaryFields.paper_type,

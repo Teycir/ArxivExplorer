@@ -90,6 +90,9 @@ export async function handleClassifyClaim(
     );
   }
 
+  // Shared per-UTC-day flag: after quota exhaustion every call is a wasted AI round-trip.
+  const quotaKey = `ai:quota:${new Date().toISOString().slice(0, 10)}`;
+
   try {
     const body = await request.json() as { claim: string; abstract: string; tldr: string };
     
@@ -114,6 +117,10 @@ export async function handleClassifyClaim(
     // Model names rotate (llama-3.1-8b-instruct was retired 2026-05-30, error
     // 5028), so never hard-code one: use the shared cascade, which skips retired
     // models and falls through to the next working one.
+    if (await env.CACHE.get(quotaKey).catch(() => null)) {
+      return jsonResponse({ error: 'AI daily capacity reached. Try again after 00:00 UTC.', retryAfter: 3600 }, cors, 429);
+    }
+
     const { models } = await getTextModelCascade(env.CACHE, env.SUMMARY_MODEL);
     const { value: response } = await runCascade(
       'classify-claim',
@@ -158,6 +165,9 @@ export async function handleClassifyClaim(
     if (err instanceof AllModelsFailedError) {
       const code = err.dominantCode;
       if (code === 'quota_exhausted' || code === 'rate_limited') {
+        if (code === 'quota_exhausted') {
+          await env.CACHE.put(quotaKey, '1', { expirationTtl: 86400 }).catch(() => {});
+        }
         return jsonResponse({
           error: 'AI service temporarily unavailable due to high demand. Please try again in a few minutes.',
           retryAfter: 120

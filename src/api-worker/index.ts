@@ -64,10 +64,6 @@ export default {
       return new Response(null, { status: 204, headers: cors });
     }
 
-    if (path === '/api/classify-claim' && request.method === 'POST') {
-      return handleClassifyClaim(request, env);
-    }
-
     if (request.method !== 'GET' && !path.startsWith('/admin/')) {
       return new Response(JSON.stringify({ error: 'Method not allowed' }), {
         status: 405,
@@ -76,6 +72,10 @@ export default {
     }
 
     try {
+      // Must stay inside this try: outside it, a throw is a scriptThrewException.
+      if (path === '/api/classify-claim' && request.method === 'POST') {
+        return await handleClassifyClaim(request, env);
+      }
       if (path === '/api/topics')    return handleTopics(request, env, ctx);
       if (path === '/api/stats')     return handleStats(request, env, ctx);
       if (path === '/api/search')    return handleSearch(request, env, ctx);

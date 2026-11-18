@@ -68,7 +68,7 @@ export function embeddingModel(env: { EMBEDDING_MODEL?: string }): string {
 
 /** Resolves the summary model from env or falls back to the spec default. */
 export function summaryModel(env: { SUMMARY_MODEL?: string }): string {
-  return env.SUMMARY_MODEL ?? '@cf/meta/llama-3.1-8b-instruct';
+  return env.SUMMARY_MODEL ?? '@cf/meta/llama-3.1-8b-instruct-fp8';
 }
 
 /** Returns the arXiv categories to ingest as an array (from ARXIV_FETCH_CATEGORIES env var). */

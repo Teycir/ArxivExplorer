@@ -32,7 +32,6 @@ simple = { limit = 120, period = 60 }
 
 [vars]
 ARXIV_FETCH_CATEGORIES = "cs.LG,cs.CL,cs.CV,stat.ML"
-SUMMARY_MODEL = "@cf/meta/llama-3.1-8b-instruct"
 EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5"
 CACHE_TTL_SEARCH_SECONDS = "7200"
 CACHE_TTL_TRENDING_SECONDS = "3600"

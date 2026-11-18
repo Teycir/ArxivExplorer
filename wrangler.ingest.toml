@@ -57,7 +57,6 @@ binding = "AI"
 # stat.ML → Efficient ML
 ARXIV_FETCH_CATEGORIES = "cs.AI,cs.AR,cs.CC,cs.CL,cs.CR,cs.CV,cs.DC,cs.DM,cs.DS,cs.HC,cs.IR,cs.IT,cs.LG,cs.MA,cs.NE,cs.NI,cs.OS,cs.PL,cs.RO,cs.SD,cs.SE,eess.AS,eess.SP,stat.ML"
 
-SUMMARY_MODEL    = "@cf/meta/llama-3.1-8b-instruct"
 EMBEDDING_MODEL  = "@cf/baai/bge-base-en-v1.5"
 INGEST_MAX_CONCURRENT = "1"
 POLITE_EMAIL     = "teycircoder12@gmail.com"
