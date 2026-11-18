@@ -10,6 +10,152 @@ const SOFT_LIMIT_PER_MINUTE = 80;   // Start silent progressive slowdown (traffi
 const MAX_REQUESTS_PER_MINUTE = 150; // Hard ceiling to stop abusive floods
 const ipBuckets = new Map<string, { count: number; windowStart: number }>();
 
+// --- Turnstile gate -------------------------------------------------------
+// Anonymous clients get one challenge, then a signed 30-day cookie. Crawlers
+// that do not run JS never get past their first URL. Fails open when unset.
+const TS_COOKIE = 'ts_pass';
+const TS_TTL_S = 30 * 24 * 3600;
+const TS_VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
+// Real search engines must stay crawlable or the site loses its only organic traffic.
+const SEARCH_ENGINES = /Googlebot|bingbot|DuckDuckBot|Applebot|YandexBot|Baiduspider|Slurp/i;
+// One-request-per-bot endpoints; challenging these only breaks crawlers.
+const TS_EXEMPT = /^\/(robots\.txt|sitemap\.xml|rss\.xml|llms\.txt|ai\.txt)$/;
+// Served by the assets layer before the worker; never worth a challenge.
+const TS_STATIC = /\.(svg|png|jpe?g|gif|webp|avif|ico|css|js|mjs|map|woff2?|ttf|otf|eot|mp4|webm)$/i;
+
+async function hmacHex(key: string, msg: string): Promise<string> {
+  const k = await crypto.subtle.importKey(
+    'raw', new TextEncoder().encode(key),
+    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+  );
+  const sig = await crypto.subtle.sign('HMAC', k, new TextEncoder().encode(msg));
+  return Array.from(new Uint8Array(sig), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+function timingSafeEq(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let d = 0;
+  for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return d === 0;
+}
+
+async function validPass(cookie: string, secret: string): Promise<boolean> {
+  const [exp, sig] = cookie.split('.');
+  if (!exp || !sig) return false;
+  const expN = Number(exp);
+  if (!Number.isFinite(expN) || expN * 1000 < Date.now()) return false;
+  return timingSafeEq(sig, await hmacHex(secret, `v1.${exp}`));
+}
+
+async function verifyTurnstile(secret: string, token: string, ip: string): Promise<boolean> {
+  try {
+    const body = new URLSearchParams({ secret, response: token });
+    if (ip && ip !== 'unknown') body.set('remoteip', ip);
+    const r = await fetch(TS_VERIFY_URL, { method: 'POST', body });
+    const j = (await r.json()) as { success?: boolean };
+    return j.success === true;
+  } catch {
+    return false;
+  }
+}
+
+function challengeHtml(siteKey: string, failed: boolean): string {
+  const key = siteKey.replace(/[^A-Za-z0-9_-]/g, '');
+  return `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="robots" content="noindex"/>
+<title>Verify — ArxivCSExplorer</title>
+<style>
+body{background:#050505;color:#e4e4e7;font-family:ui-monospace,Menlo,monospace;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
+.c{max-width:24rem;text-align:center;border:1px solid #27272a;border-radius:.75rem;padding:2rem 1.5rem;background:#0c0c0f}
+h1{font-size:1.05rem;margin:0 0 .5rem}p{font-size:.72rem;color:#8a8a93;line-height:1.6;margin:0 0 1.25rem}
+.e{color:#ef4444;font-size:.7rem;margin:0 0 .75rem}
+</style></head>
+<body><div class="c">
+<h1>Quick check</h1>
+${failed ? '<p class="e">Verification failed. Try again.</p>' : ''}
+<p>Bots are eating this site's free daily quota. One check, then 30 days of normal access.</p>
+<script>function tsPass(t){var u=new URL(location.href);u.searchParams.set('cf-turnstile-response',t);location.replace(u.toString())}</script>
+<div class="cf-turnstile" data-sitekey="${key}" data-callback="tsPass" data-theme="dark"></div>
+</div>
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+</body></html>`;
+}
+
+async function turnstileGate(request: NextRequest): Promise<NextResponse | null> {
+  const siteKey = process.env.TURNSTILE_SITE_KEY || '';
+  const secret = process.env.TURNSTILE_SECRET || '';
+  if (!siteKey || !secret) return null; // not configured yet: no-op
+
+  const path = request.nextUrl.pathname;
+  if (TS_EXEMPT.test(path)) return null;
+  if (SEARCH_ENGINES.test(request.headers.get('user-agent') || '')) return null;
+
+  // Gate navigations by default: a client that omits Accept is not a browser.
+  const isStatic = TS_STATIC.test(path);
+  const isRsc = request.headers.has('rsc') || request.nextUrl.searchParams.has('_rsc');
+  const wantsApi = path.startsWith('/api/');
+  if (isStatic && !wantsApi) return null;
+
+  const cookie = request.cookies.get(TS_COOKIE)?.value || '';
+  if (cookie && (await validPass(cookie, secret))) return null;
+
+  const isPrefetch =
+    request.headers.get('purpose') === 'prefetch' ||
+    request.headers.get('x-purpose') === 'prefetch' ||
+    request.headers.get('next-router-prefetch') === '1' ||
+    request.headers.get('sec-purpose') === 'prefetch';
+  // Speculative fetches from unverified clients are dropped, never charged a challenge.
+  if (isPrefetch) {
+    return new NextResponse(null, { status: 204, headers: { 'Cache-Control': 'no-store' } });
+  }
+
+  const token = request.nextUrl.searchParams.get('cf-turnstile-response');
+  if (token && request.method === 'GET') {
+    const ip = request.headers.get('cf-connecting-ip') || 'unknown';
+    if (await verifyTurnstile(secret, token, ip)) {
+      const url = new URL(request.url);
+      url.searchParams.delete('cf-turnstile-response');
+      const exp = Math.floor(Date.now() / 1000) + TS_TTL_S;
+      const sig = await hmacHex(secret, `v1.${exp}`);
+      return new NextResponse(null, {
+        status: 303,
+        headers: {
+          Location: url.toString(),
+          'Set-Cookie': `${TS_COOKIE}=${exp}.${sig}; Path=/; Max-Age=${TS_TTL_S}; HttpOnly; Secure; SameSite=Lax`,
+          'Cache-Control': 'no-store',
+        },
+      });
+    }
+  }
+
+  if (wantsApi || isRsc) {
+    return new NextResponse(JSON.stringify({ error: 'challenge_required' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'X-Challenge': 'turnstile' },
+    });
+  }
+
+  return new NextResponse(challengeHtml(siteKey, Boolean(token)), {
+    status: 403,
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'Retry-After': '3600',
+      'X-Robots-Tag': 'noindex',
+      // api.js contains the regional/fed alternates, so allow them too:
+      // challenges.cloudflare-cn.com and challenges.fed.cloudflare.com.
+      'Content-Security-Policy':
+        "default-src 'none'; " +
+        "script-src 'unsafe-inline' https://challenges.cloudflare.com https://challenges.cloudflare-cn.com https://challenges.fed.cloudflare.com; " +
+        "frame-src https://challenges.cloudflare.com https://challenges.cloudflare-cn.com https://challenges.fed.cloudflare.com; " +
+        "connect-src https://challenges.cloudflare.com https://challenges.cloudflare-cn.com https://challenges.fed.cloudflare.com; " +
+        "style-src 'unsafe-inline'; base-uri 'none'; form-action 'self'",
+    },
+  });
+}
+
 // Daily request circuit breaker to prevent exceeding Cloudflare's 100,000 req/day limit
 const DAILY_MAX_REQUESTS = 95_000;
 let dailyRequestCount = 0;
@@ -163,7 +309,11 @@ export async function middleware(request: NextRequest) {
     );
   }
 
-  // 3. Disallow search crawling if detected as a generic bot
+  // 3. Turnstile: anonymous HTML/API clients prove once, then carry a signed cookie
+  const tsGate = await turnstileGate(request);
+  if (tsGate) return tsGate;
+
+  // 4. Disallow search crawling if detected as a generic bot
   const path = request.nextUrl.pathname;
   if (path.startsWith('/search') && /bot|crawl|spider|slurp/i.test(userAgent) && !/Googlebot|bingbot/i.test(userAgent)) {
     return new NextResponse(
@@ -175,7 +325,7 @@ export async function middleware(request: NextRequest) {
     );
   }
 
-  // 4. Per-IP Rate Limiting & Traffic Shaping (Silent Slowing Down)
+  // 5. Per-IP Rate Limiting & Traffic Shaping (Silent Slowing Down)
   // Check if this is an automatic background prefetch from Next.js Link
   const isPrefetch =
     request.headers.get('purpose') === 'prefetch' ||

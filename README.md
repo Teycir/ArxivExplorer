@@ -792,8 +792,8 @@ expensive is therefore *precomputed* (topic counts, aggregate counters — see
 [Database Schema](#database-schema)) or *cached* before it ever reaches a user:
 
 - **Workers requests/day** is spent in three ways, each handled differently: crawler
-  traffic (blocked by UA with `403` and disallowed in `robots.txt`, which only
-  helps when bots obey it), the double invocation of a page view plus its API call
+  traffic (UA blocklist, `robots.txt`, and the [Turnstile gate](#bot-gate-turnstile)),
+  the double invocation of a page view plus its API call
   (removed: the API handlers run in-process, see [Architecture](#architecture)),
   and genuine visitors. The 95,000/day breaker in each worker is per isolate, so it
   softens the failure but is not a hard cap. A true global cap would need a shared
@@ -822,6 +822,39 @@ expensive is therefore *precomputed* (topic counts, aggregate counters — see
   (`summary_ready ∈ {0, 2}`) are, by design, never cached and will `503` during
   an outage until a later ingestion run resolves them via the stale-summary
   backfill.
+
+### Bot Gate (Turnstile)
+
+Crawler traffic used to be answered with a `403` — cheap, but it does not make a
+crawler stop, and the requests still count. Anonymous clients now have to solve a
+[Turnstile](https://developers.cloudflare.com/turnstile/) widget once; the cookie it
+earns (`ts_pass`, HMAC-SHA256 over the expiry, 30 days, `HttpOnly`, `Secure`) then
+skips the gate for every later request.
+
+- **Configuration:** `TURNSTILE_SITE_KEY` is a plain var in `wrangler.jsonc`; the
+  secret is `npx wrangler secret put TURNSTILE_SECRET`. If either is empty the gate
+  is a no-op, which is also the rollback.
+- **Exempt:** `robots.txt`, `sitemap.xml`, `rss.xml`, `llms.txt`, `ai.txt`, static
+  assets, and allowlisted search-engine UAs (`SEARCH_ENGINES`) so indexing and SEO
+  keep working. The UA allowlist is spoofable by design — the alternative, checking
+  the crawler's source IP, needs reverse DNS per request.
+- **API and RSC without a cookie** get `403 {"error":"challenge_required"}` with
+  `X-Challenge: turnstile`; cookieless speculative prefetches get `204`, never a
+  challenge. The challenge page answers `403` with `Retry-After: 3600` and
+  `X-Robots-Tag: noindex`, so crawlers back off instead of indexing the widget.
+- **CSP:** the page's own `script-src` does not allow `challenges.cloudflare.com`, so
+  the challenge response carries its own CSP that does.
+- **Known limit:** this is per-request quota, not an edge block. `*.workers.dev` has
+  no zone, so there is no WAF/Bot Fight/Cache Rule to stop traffic before the worker
+  runs; a crawler that walks N URLs still costs N invocations, the first one of which
+  now requires JavaScript. Only an edge filter (custom domain + WAF) removes that cost.
+- **Verify after 00:00 UTC** (the gate cannot answer while error 1027 is in effect):
+
+```bash
+curl -sI https://arxivexplorer.arxivexplorer.workers.dev/ | head -3        # 403 + Retry-After
+curl -s https://arxivexplorer.arxivexplorer.workers.dev/ | grep -c cf-turnstile  # 1
+curl -s https://arxivexplorer.arxivexplorer.workers.dev/api/stats         # 403 challenge_required
+```
 
 **If pages load but show no papers** (an older deployment, or a page that does not
 yet render `QuotaNotice`), check the budget first — the API reports the truth:

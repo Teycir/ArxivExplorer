@@ -62,6 +62,10 @@
     "EMBEDDING_MODEL": "@cf/baai/bge-base-en-v1.5",
     "CACHE_TTL_SEARCH_SECONDS": "7200",
     "CACHE_TTL_TRENDING_SECONDS": "3600",
-    "CACHE_TTL_EMBED_SECONDS": "86400"
+    "CACHE_TTL_EMBED_SECONDS": "86400",
+    // Public by design: this value is served in the page HTML to every browser,
+    // so committing it leaks nothing. The credential is TURNSTILE_SECRET
+    // (`wrangler secret put`), never a var. Either empty => gate fails open.
+    "TURNSTILE_SITE_KEY": "0x4AAAAAAGGu6a6NDEiSX031"
   }
 }
