@@ -2,9 +2,83 @@
 
 All notable changes to ArxivExplorer are documented in this file.
 
-**Version:** 1.4.6  
+**Version:** 1.4.7  
 **Development Period:** June 7, 2026  
 **License:** BSL 1.1 (converts to MIT on 2029-06-01)
+
+---
+
+## [1.4.7] - 2026-11-18
+
+### Fixed — Claim Tracker failed for every paper (retired Workers AI model)
+
+**Symptom.** `/claim` showed "Classification failed for all papers
+(Classification service temporarily unavailable)" for every claim, after a
+single request.
+
+**Origin, reproduced against the live service.** `wrangler tail arxiv-api` while
+posting to `/api/classify-claim`:
+
+    AiError: 5028: @cf/meta/infire-llama-3.1-8b-instruct was deprecated on 2026-05-30
+
+`routes/claim.ts` hard-coded `@cf/meta/llama-3.1-8b-instruct`. The 1.4.2 entry
+moved the ingest summaries onto the model cascade (`src/shared/ai-models.ts`)
+but left this route behind, so the Claim Tracker had been failing since the
+model was retired. It was not a quota problem (that is error 4006, not 5028);
+the route's catch-all turned the 5028 into a bare `500` that the UI reported as
+a temporary outage.
+
+**Fix.** `routes/claim.ts` now takes its models from `getTextModelCascade()` and
+calls them through `runCascade()`, exactly like `generate-summary.ts`: a retired
+model is skipped and the next working one answers (`llama-3.1-8b-instruct-fp8`
+first). When every model fails, `AllModelsFailedError` is mapped by its dominant
+cause — `429` + `retryAfter` for quota / rate limit, `503` otherwise — and is
+handled before the legacy substring checks, because the error message lists each
+model's text and could otherwise be misread as "input too long".
+
+**Verified live** after deploy: `/api/classify-claim` on the API worker returned
+`200` for a supporting abstract (`support`) and an unrelated one (`neutral`), and
+through the Next.js proxy (service binding) `200` `support`; the tail showed no
+`5028`.
+
+**Not changed.**
+
+- `SUMMARY_MODEL` in the three wrangler configs still names the retired model.
+  The cascade ignores it and logs `ai_model_configured_unavailable` once per
+  isolate; remove the variable when convenient.
+- The tail still shows `KV put() limit exceeded for the day` (the free-tier KV
+  write cap from the 2026-09-23 incident). The per-route limiter falls back to
+  its in-memory limiter, so requests succeed, with a weaker per-IP limit until
+  the quota resets.
+
+### Added — release version in the footer, and a release workflow
+
+**Why.** After a deploy there was no way to tell from the site which release was
+live. `package.json` had also fallen behind (`1.4.1` while this changelog was at
+`1.4.6`).
+
+**Changes.**
+
+- `next.config.ts` reads the version from `package.json` and inlines it as
+  `NEXT_PUBLIC_APP_VERSION`; `app/components/Footer.tsx` shows it as `vX.Y.Z`,
+  linking to this file, with `id="app-version" data-version="X.Y.Z"` as a stable
+  hook for scripts. `package.json` is the single source of truth.
+- `package.json`, `package-lock.json` and `catalog.json` are brought to `1.4.7`.
+- `tests/unit/version-sync.test.ts`: fails if `package.json`, `catalog.json`,
+  the CHANGELOG header and the newest `## [x.y.z]` section disagree, or if the
+  footer stops rendering the version.
+- `scripts/verify-deploy.sh` (`npm run verify:deploy`): after a deploy, waits for
+  the footer on the live site to show `package.json`'s version, then checks the
+  API worker and runs a classify-claim smoke test through the site proxy.
+- `deploy.sh`: runs the version-sync test first (refuses to deploy a release
+  without a CHANGELOG entry) and `verify-deploy.sh` last.
+- `README.md` "Release workflow": bump version → CHANGELOG entry → deploy →
+  verify → `git push`.
+
+**Deployed** `arxiv-api` v`72c16d48-b82c-43f3-9a4c-4726043d8c23` and
+`arxivexplorer` (site) v`06cb24cd-e84a-47ea-bccb-5de43bc58c7f` with
+`./deploy.sh`; `npm run verify:deploy` passed (footer `v1.4.7`, API `/api/stats`
+200, claim classification `support`).
 
 ---
 

@@ -4,6 +4,11 @@ import { VelocityTracker } from './VelocityTracker';
 
 const SITE_URL = 'https://arxivexplorer.arxivexplorer.workers.dev';
 
+// Inlined at build time from package.json (see next.config.ts). Compared against
+// package.json / CHANGELOG by scripts/verify-deploy.sh after every deploy.
+const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? 'dev';
+const CHANGELOG_URL = 'https://github.com/teycir/ArxivExplorer/blob/master/CHANGELOG.md';
+
 export function Footer() {
   return (
     <footer className="relative bottom-0 left-0 right-0 p-4 bg-dark-bg/90 backdrop-blur-sm border-t border-neon-red/10 mt-16">
@@ -46,6 +51,18 @@ export function Footer() {
             </a>
             <span className="hidden sm:inline">•</span>
             <VelocityTracker />
+            <span className="hidden sm:inline">•</span>
+            <a
+              id="app-version"
+              data-version={APP_VERSION}
+              href={CHANGELOG_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Release notes"
+              className="hover:text-neon-red transition-colors"
+            >
+              v{APP_VERSION}
+            </a>
           </div>
         </div>
         <div className="flex gap-3 items-center">

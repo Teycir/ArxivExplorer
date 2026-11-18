@@ -344,6 +344,26 @@ npx wrangler d1 execute arxiv-explorer --remote --file=migrations/0017_topic_pap
 # (ADD-only migration for materialized topic counts; see CHANGELOG "Deploy checklist")
 ```
 
+### Release workflow
+
+The footer of every page shows the deployed release (`vX.Y.Z`, linking to the
+CHANGELOG). The number comes from `package.json` and is inlined at build time by
+`next.config.ts`, so it only changes when you bump it. Every release follows the
+same order:
+
+1. **Bump the version** — `npm version <x.y.z> --no-git-tag-version`, then set the
+   same number in `catalog.json` and the `**Version:**` line of `CHANGELOG.md`.
+2. **Write the CHANGELOG entry** — a new `## [x.y.z] - YYYY-MM-DD` section at the
+   top. `npm test -- version-sync` fails if `package.json`, `catalog.json` and
+   the CHANGELOG disagree.
+3. **Deploy** — `./deploy.sh` (version-sync pre-flight, build, API worker, site
+   worker). The ingest worker is separate: `npm run deploy:ingest`.
+4. **Check** — `npm run verify:deploy` (run automatically by `./deploy.sh`): the
+   live footer must show the new version, the API worker must answer, and a
+   claim classification must succeed end to end. Add `SKIP_AI=1` to skip the AI
+   call.
+5. **`git push`** — only after the check passes.
+
 ## Project Structure
 
 ```

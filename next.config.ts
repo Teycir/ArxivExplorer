@@ -1,11 +1,23 @@
 import type { NextConfig } from 'next'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { initOpenNextCloudflareForDev } from '@opennextjs/cloudflare'
 
 if (process.env.NODE_ENV === 'development') {
   initOpenNextCloudflareForDev()
 }
 
+// Single source of truth for the release number: package.json. It is inlined at
+// build time so the footer shows exactly which release is deployed (read only
+// the version — importing the whole package.json would bundle it into the app).
+const APP_VERSION: string = JSON.parse(
+  readFileSync(join(process.cwd(), 'package.json'), 'utf8'),
+).version
+
 const nextConfig: NextConfig = {
+  env: {
+    NEXT_PUBLIC_APP_VERSION: APP_VERSION,
+  },
   typescript: {
     ignoreBuildErrors: true,
   },

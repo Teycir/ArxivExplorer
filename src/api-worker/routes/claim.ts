@@ -7,6 +7,8 @@ import type { Env } from '../../shared/types';
 import { corsHeaders, jsonResponse, errorResponse } from '../../shared/utils';
 import { sanitizeQuery } from '../../shared/sanitize';
 import { checkRateLimit, getClientIP, INTERNAL_BUCKET } from '../middleware/rate-limit';
+import { getTextModelCascade, runCascade } from '../../shared/ai-models';
+import { AllModelsFailedError } from '../../shared/ai-errors';
 
 const SYSTEM_PROMPT = 'You are a research paper classifier. Analyze if a paper supports, contradicts, or is neutral to a given claim. Think step-by-step before concluding. Return ONLY valid JSON.';
 
@@ -109,13 +111,21 @@ export async function handleClassifyClaim(
       .replace('{abstract}', safeAbstract)
       .replace('{tldr}', safeTldr);
 
-    const response = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: prompt }
-      ],
-      max_tokens: 400,
-    }) as { response: string };
+    // Model names rotate (llama-3.1-8b-instruct was retired 2026-05-30, error
+    // 5028), so never hard-code one: use the shared cascade, which skips retired
+    // models and falls through to the next working one.
+    const { models } = await getTextModelCascade(env.CACHE, env.SUMMARY_MODEL);
+    const { value: response } = await runCascade(
+      'classify-claim',
+      models,
+      (model) => env.AI.run(model as Parameters<typeof env.AI.run>[0], {
+        messages: [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user', content: prompt }
+        ],
+        max_tokens: 400,
+      }) as Promise<{ response: string }>,
+    );
 
     let parsed;
     try {
@@ -141,6 +151,20 @@ export async function handleClassifyClaim(
     console.error('[classify-claim] Error:', err);
     
     const errStr = String(err);
+
+    // Every model in the cascade failed: map by the dominant cause. Handled
+    // first because the message lists each model's error text, which would
+    // otherwise trip the substring checks below ("token", "length", ...).
+    if (err instanceof AllModelsFailedError) {
+      const code = err.dominantCode;
+      if (code === 'quota_exhausted' || code === 'rate_limited') {
+        return jsonResponse({
+          error: 'AI service temporarily unavailable due to high demand. Please try again in a few minutes.',
+          retryAfter: 120
+        }, cors, 429);
+      }
+      return errorResponse('Classification service temporarily unavailable', cors, 503);
+    }
     
     // Check for rate limit / token exhaustion
     if (errStr.includes('rate limit') || errStr.includes('quota') || errStr.includes('429')) {
