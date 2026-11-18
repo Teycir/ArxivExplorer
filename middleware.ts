@@ -249,6 +249,13 @@ function buildHtmlPacingPage(retryAfter = 5): string {
 }
 
 export async function middleware(request: NextRequest) {
+  // /_next/image is unused (no <Image> in app/) and is an unauthenticated,
+  // unbounded, CPU-heavy URL surface: url= + w= are attacker-controlled.
+  // It is excluded from the matcher's auth paths, so kill it here, cheaply.
+  if (request.nextUrl.pathname.startsWith('/_next/image')) {
+    return new Response(null, { status: 404 });
+  }
+
   const now = Date.now();
   const day = new Date().toISOString().slice(0, 10);
 
@@ -432,10 +439,9 @@ export const config = {
     /*
      * Match all request paths except for the ones starting with:
      * - _next/static (static files)
-     * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      * - static assets
      */
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
+    '/((?!_next/static|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
   ],
 };

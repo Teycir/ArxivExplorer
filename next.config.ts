@@ -23,9 +23,7 @@ const nextConfig: NextConfig = {
   },
   transpilePackages: ['framer-motion', 'motion-dom', 'motion-utils'],
   images: {
-    remotePatterns: [
-      { protocol: 'https', hostname: 'arxiv.org' },
-    ],
+    unoptimized: true, // no <Image> in app/; disable the /_next/image optimizer surface
   },
 
   async headers() {
