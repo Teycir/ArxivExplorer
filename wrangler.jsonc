@@ -54,6 +54,10 @@
     }
   ],
 
+  "observability": {
+    "enabled": true
+  },
+
   "vars": {
     "API_BASE": "https://arxiv-api.arxivexplorer.workers.dev",
     "ALLOWED_ORIGIN": "https://arxivexplorer.arxivexplorer.workers.dev",

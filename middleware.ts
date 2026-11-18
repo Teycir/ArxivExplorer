@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { getCloudflareContext } from '@opennextjs/cloudflare';
+import { logAttack, type AttackLogContext, type Decision } from './log/attack-log';
 
 // Known aggressive crawlers, AI training scrapers, and SEO bots that exhaust Workers free tier
 const BLOCKED_BOTS = /ClaudeBot|GPTBot|ChatGPT-User|Bytespider|CCBot|PerplexityBot|SemrushBot|AhrefsBot|MJ12bot|DotBot|PetalBot|SERankingBacklinksBot|Reflectionbot|Diffbot|FacebookBot|Google-Extended|cohere-ai/i;
@@ -268,15 +270,46 @@ function buildHtmlPacingPage(retryAfter = 5): string {
 }
 
 export async function middleware(request: NextRequest) {
+  const startedAt = Date.now();
+
+  let cfCtx: AttackLogContext | null = null;
+  try {
+    cfCtx = getCloudflareContext({ async: false }) as unknown as AttackLogContext;
+  } catch {
+    cfCtx = null;
+  }
+
+  const now = startedAt;
+  const day = new Date().toISOString().slice(0, 10);
+  const path = request.nextUrl.pathname;
+  const userAgent = request.headers.get('user-agent') || '';
+  const clientIP = (request.headers.get('cf-connecting-ip') ||
+                    (request.headers.get('x-forwarded-for') || '').split(',')[0]?.trim() ||
+                    '');
+
+  const logExit = (
+    decision: Decision,
+    status: number,
+    extra: Partial<{ score: number; count: number }> = {}
+  ) =>
+    logAttack(cfCtx, {
+      decision,
+      ip: clientIP,
+      method: request.method,
+      path: path + request.nextUrl.search,
+      ua: userAgent,
+      status,
+      ms: Date.now() - startedAt,
+      ...extra,
+    });
+
   // /_next/image is unused (no <Image> in app/) and is an unauthenticated,
   // unbounded, CPU-heavy URL surface: url= + w= are attacker-controlled.
   // It is excluded from the matcher's auth paths, so kill it here, cheaply.
-  if (request.nextUrl.pathname.startsWith('/_next/image')) {
+  if (path.startsWith('/_next/image')) {
+    logExit('image_404', 404);
     return new Response(null, { status: 404 });
   }
-
-  const now = Date.now();
-  const day = new Date().toISOString().slice(0, 10);
 
   // UTC day rollover
   if (day !== currentDay) {
@@ -286,15 +319,11 @@ export async function middleware(request: NextRequest) {
     blockedIps.clear();
   }
 
-  const userAgent = request.headers.get('user-agent') || '';
-  const clientIP = (request.headers.get('cf-connecting-ip') ||
-                    (request.headers.get('x-forwarded-for') || '').split(',')[0]?.trim() ||
-                    '');
-
   // 0. Blocked-IP fast path: one map lookup, no SSR, no subrequest.
   if (clientIP) {
     const until = blockedIps.get(clientIP);
     if (until && until > now) {
+      logExit('blocked_ip', 403);
       return new NextResponse(null, {
         status: 403,
         headers: { 'Retry-After': '3600', 'Cache-Control': 'no-store' },
@@ -306,6 +335,7 @@ export async function middleware(request: NextRequest) {
   // 1. Daily safety circuit breaker (stop before Cloudflare 100k hard 429 lockout)
   dailyRequestCount++;
   if (dailyRequestCount > DAILY_MAX_REQUESTS) {
+    logExit('daily_429', 429);
     const acceptsHtml = request.headers.get('accept')?.includes('text/html');
     if (acceptsHtml) {
       return new NextResponse(
@@ -338,6 +368,7 @@ export async function middleware(request: NextRequest) {
 
   // 2. Reject aggressive AI scrapers and crawlers before running SSR or subrequests
   if (BLOCKED_BOTS.test(userAgent)) {
+    logExit('bot_ua', 403);
     return new NextResponse(
       JSON.stringify({
         error: 'Automated AI training scrapers and aggressive crawlers are not permitted.',
@@ -354,11 +385,14 @@ export async function middleware(request: NextRequest) {
 
   // 3. Turnstile: anonymous HTML/API clients prove once, then carry a signed cookie
   const tsGate = await turnstileGate(request);
-  if (tsGate) return tsGate;
+  if (tsGate) {
+    logExit('ts_challenge', tsGate.status);
+    return tsGate;
+  }
 
   // 4. Disallow search crawling if detected as a generic bot
-  const path = request.nextUrl.pathname;
   if (path.startsWith('/search') && /bot|crawl|spider|slurp/i.test(userAgent) && !/Googlebot|bingbot/i.test(userAgent)) {
+    logExit('bot_ua', 403);
     return new NextResponse(
       JSON.stringify({ error: 'Search crawling disallowed for automated agents.' }),
       {
@@ -394,6 +428,7 @@ export async function middleware(request: NextRequest) {
           if (blockedIps.size > 2000) {
             for (const [ip, t] of blockedIps) if (t <= now) blockedIps.delete(ip);
           }
+          logExit('bot_burst', 403, { score, count: bucket.count });
           return new NextResponse(null, {
             status: 403,
             headers: { 'Retry-After': '3600', 'Cache-Control': 'no-store' },
@@ -423,6 +458,7 @@ export async function middleware(request: NextRequest) {
           });
         }
 
+        logExit('rate_429', 429, { count: bucket.count });
         const isRsc = request.headers.has('rsc') || request.nextUrl.searchParams.has('_rsc');
         const acceptsHtml = request.headers.get('accept')?.includes('text/html');
 
@@ -477,6 +513,8 @@ export async function middleware(request: NextRequest) {
       }
     }
   }
+
+  if (Math.random() < 0.02) logExit('ok_sample', 200);
 
   return NextResponse.next();
 }
