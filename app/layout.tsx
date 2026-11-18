@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { Footer } from './components/Footer';
+import { OfflineSupport } from './components/OfflineSupport';
 import { ScrollProgress } from './components/ScrollProgress';
 
 export const metadata: Metadata = {
@@ -40,6 +41,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className="dark">
       <body className="bg-dark-bg text-white font-mono antialiased min-h-screen flex flex-col">
+        <OfflineSupport />
         <ScrollProgress />
         {/* Subtle background grid */}
         <div className="fixed inset-0 bg-grid pointer-events-none" aria-hidden="true" />

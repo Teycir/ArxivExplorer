@@ -344,6 +344,25 @@ npx wrangler d1 execute arxiv-explorer --remote --file=migrations/0017_topic_pap
 # (ADD-only migration for materialized topic counts; see CHANGELOG "Deploy checklist")
 ```
 
+#### Degraded mode when the account cap is hit (Error 1027)
+
+1027 is enforced at the edge before the Worker runs, so no server-side code can
+answer a cold request. `/sw.js` (service worker) therefore keeps a copy of
+visited pages and successful `GET /api/*` responses, and `/offline.html` (served as `/offline`, Workers Assets strips the
+`.html`) is a static asset that still loads under 1027 (same asset path as `robots.txt`).
+
+- Navigation: network first (4s timeout), then the cached page → cached `/` →
+  `/offline` (asset is `public/offline.html`).
+- `GET /api/*`: network first; on 429/network failure the cached JSON is served
+  with `X-SW-Cache: stale`, otherwise `503 {error:'compute_unavailable'}`.
+- Non-GET: passed through; a 429 becomes `503 compute_unavailable` JSON and a
+  `quota-exceeded` message to the page, which shows a dismissible banner.
+- Local data (bookmarks, history, achievements) is unaffected — it never leaves
+  the browser.
+
+Limits: a first-time visitor with no service worker and no cache still gets the
+edge error page; only repeat visitors are rescued.
+
 #### Crawler-facing text files are static assets
 
 `robots.txt`, `ai.txt` and `llms.txt` live in `public/` and are served from the

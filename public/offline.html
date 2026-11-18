@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" />
+<title>Compute paused — ArxivCSExplorer</title>
+<style>
+  :root { --bg:#0a0a0a; --panel:#111312; --line:#1f2a22; --fg:#e6e6e6; --muted:#8b948c; --green:#00ff41; }
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+         background:var(--bg); color:var(--fg); font:15px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace; padding:24px; }
+  main { width:100%; max-width:620px; border:1px solid var(--line); background:var(--panel); border-radius:10px; padding:32px; }
+  h1 { margin:0 0 8px; font-size:22px; letter-spacing:-0.01em; }
+  .badge { display:inline-block; font-size:11px; text-transform:uppercase; letter-spacing:.14em;
+           color:var(--green); border:1px solid rgba(0,255,65,.35); border-radius:999px; padding:3px 10px; margin-bottom:18px; }
+  p { margin:0 0 14px; color:var(--muted); }
+  strong { color:var(--fg); font-weight:600; }
+  ul { margin:0 0 22px; padding-left:18px; color:var(--muted); }
+  li { margin-bottom:6px; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; }
+  a.btn, button { font:inherit; border-radius:7px; padding:10px 16px; cursor:pointer; text-decoration:none; }
+  a.primary, button.primary { background:var(--green); color:#04140a; border:1px solid var(--green); font-weight:600; }
+  a.ghost { background:transparent; color:var(--fg); border:1px solid var(--line); }
+  footer { margin-top:22px; padding-top:16px; border-top:1px solid var(--line); font-size:12px; color:var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <span class="badge">Degraded mode</span>
+  <h1>Live compute is paused</h1>
+  <p>
+    The site reached its <strong>Cloudflare free-tier daily request limit</strong> at the
+    edge, so search, summaries and claim checks are unavailable until the quota resets at
+    <strong>00:00 UTC</strong>.
+  </p>
+  <p><strong>What still works</strong></p>
+  <ul>
+    <li>Pages you visited recently (served from this browser's cache)</li>
+    <li>Your bookmarks and local history (stored in this browser)</li>
+    <li>Previously loaded papers and summaries</li>
+    <li>The latest-articles RSS snapshot</li>
+  </ul>
+  <div class="row">
+    <button class="primary" onclick="location.reload()">Retry</button>
+    <a class="ghost" href="/bookmarks">Open bookmarks</a>
+    <a class="ghost" href="/rss.xml">RSS feed</a>
+    <a class="ghost" href="/">Try home page</a>
+  </div>
+  <footer>
+    This page is a static file, so it loads even while the edge is rate limiting the site.
+  </footer>
+</main>
+</body>
+</html>
