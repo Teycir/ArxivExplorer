@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Activity } from 'lucide-react';
+import { getStats } from '@/helper/api';
 
 export function VelocityTracker() {
   const [velocity, setVelocity] = useState<number | null>(null);
@@ -31,11 +32,10 @@ export function VelocityTracker() {
 
   // Fetch current count and update history
   useEffect(() => {
-    fetch('/api/stats')
-      .then(r => r.json())
-      .then((data: unknown) => {
-        if (typeof data !== 'object' || !data || !('totalPapers' in data)) return;
-        const { totalPapers } = data as { totalPapers: number };
+    getStats()
+      .then((data) => {
+        if (!data || typeof data !== 'object' || typeof data.totalPapers !== 'number') return;
+        const { totalPapers } = data;
         
         const now = Date.now();
         const stored = localStorage.getItem('velocity:history');

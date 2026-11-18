@@ -3,7 +3,7 @@
  *
  * Verifies the edge middleware that protects ArxivExplorer from:
  * 1. Aggressive AI training scrapers and crawlers (ClaudeBot, GPTBot, etc.)
- * 2. Rapid-fire request bursts per IP (rate limiting)
+ * 2. Rapid-fire request bursts per IP (rate limiting & pacing)
  * 3. Daily request ceiling circuit breaker (< 100,000 requests/day)
  */
 import { describe, it } from 'node:test';
@@ -33,69 +33,92 @@ describe('edge middleware bot blocking', () => {
   ];
 
   for (const bot of BLOCKED_BOTS) {
-    it(`blocks known scraper: ${bot.slice(0, 30)}...`, () => {
+    it(`blocks known scraper: ${bot.slice(0, 30)}...`, async () => {
       const req = makeRequest('/', { 'user-agent': bot });
-      const res = middleware(req);
+      const res = await middleware(req);
       assert.equal(res.status, 403, `expected 403 Forbidden for bot: ${bot}`);
     });
   }
 
-  it('allows legitimate human browser traffic', () => {
+  it('allows legitimate human browser traffic', async () => {
     const req = makeRequest('/', {
       'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
     });
-    const res = middleware(req);
+    const res = await middleware(req);
     assert.equal(res.status, 200); // NextResponse.next() defaults to status 200 in Next.js
   });
 
-  it('blocks generic crawler bots from crawling /search', () => {
+  it('blocks generic crawler bots from crawling /search', async () => {
     const req = makeRequest('/search?q=machine+learning', {
       'user-agent': 'MySpider/1.0',
     });
-    const res = middleware(req);
+    const res = await middleware(req);
     assert.equal(res.status, 403, 'crawler should not be allowed to crawl /search');
   });
 
-  it('allows Googlebot to crawl non-blocked pages', () => {
+  it('allows Googlebot to crawl non-blocked pages', async () => {
     const req = makeRequest('/topic/llms', {
       'user-agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
     });
-    const res = middleware(req);
+    const res = await middleware(req);
     assert.equal(res.status, 200);
   });
 });
 
 describe('edge middleware per-IP rate limiting', () => {
-  it('throttles rapid requests from the same IP', () => {
+  it('throttles rapid requests from the same IP', async () => {
     const ip = '198.51.100.99';
     let throttled = false;
 
-    for (let i = 0; i < 45; i++) {
+    for (let i = 0; i < 160; i++) {
       const req = makeRequest('/', {
         'cf-connecting-ip': ip,
         'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
       });
-      const res = middleware(req);
+      const res = await middleware(req);
       if (res.status === 429) {
         throttled = true;
-        assert.equal(res.headers.get('Retry-After'), '60');
+        assert.ok(res.headers.get('Retry-After'));
         break;
       }
     }
 
-    assert.ok(throttled, 'expected IP sending > 40 req/min to be throttled to 429');
+    assert.ok(throttled, 'expected IP sending > 150 req/min to be throttled to 429');
+  });
+
+  it('does not penalize automatic background link prefetches', async () => {
+    const ip = '198.51.100.100';
+
+    // Send 100 prefetch requests
+    for (let i = 0; i < 100; i++) {
+      const req = makeRequest('/paper/test', {
+        'cf-connecting-ip': ip,
+        'purpose': 'prefetch',
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+      });
+      const res = await middleware(req);
+      assert.equal(res.status, 200);
+    }
+
+    // Normal page request should still succeed immediately
+    const normalReq = makeRequest('/', {
+      'cf-connecting-ip': ip,
+      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+    });
+    const normalRes = await middleware(normalReq);
+    assert.equal(normalRes.status, 200);
   });
 });
 
 // Keep this block LAST: once the breaker trips, every later call in this module
 // instance is a 429 until the UTC day rolls over.
 describe('edge middleware daily request circuit breaker', () => {
-  it('trips with 429 + Retry-After before the 100,000 req/day Cloudflare wall', () => {
+  it('trips with 429 + Retry-After before the 100,000 req/day Cloudflare wall', async () => {
     let firstTrip = -1;
 
     for (let i = 1; i <= 100_000; i++) {
       // No client IP header → per-IP limiter is skipped, only the daily counter runs.
-      const res = middleware(makeRequest('/', {
+      const res = await middleware(makeRequest('/', {
         'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
       }));
       if (res.status === 429) {

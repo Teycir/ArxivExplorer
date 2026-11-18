@@ -67,6 +67,7 @@ for (const file of files) {
       stdio: 'inherit',
       env: {
         ...process.env,
+        NODE_ENV: 'test',
         NODE_OPTIONS: '--experimental-vm-modules',
         // Suppress noisy experimental warnings
         NODE_NO_WARNINGS: '1',
