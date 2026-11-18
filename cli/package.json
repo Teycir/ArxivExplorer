@@ -1,7 +1,7 @@
 {
   "name": "arxiv-cli",
   "version": "1.0.0",
-  "description": "CLI tool for AI assistants to search arXiv papers",
+  "description": "Terminal client to search arXiv papers (personal use; not for AI agents or automated access)",
   "bin": {
     "arxiv-cli": "./arxiv-cli.js"
   },

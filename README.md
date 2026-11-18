@@ -110,7 +110,9 @@ _Scan the QR code or copy the wallet address above._
 - **RSS Feed** — `/rss.xml` with 20 recent papers (1h cache)
 
 ### Developer Tools
-- **CLI Interface** — `arxiv-cli` for AI assistants (search, trending, topics, authors)
+- **CLI Interface** — `arxiv-cli`, a terminal client for a person's own use (search,
+  trending, topics, authors). Not for AI agents or automated crawling; see
+  [AI.md](AI.md).
 - **Admin API** — Vectorize bulk operations, maintenance endpoints, enrichment triggers
 
 ### SEO & Discoverability
@@ -128,9 +130,11 @@ _Scan the QR code or copy the wallet address above._
 - **Structured Data** — JSON-LD schema markup for papers and authors
 - **SSR Content** — Server-side rendered pages with full content for crawlers
 - **Canonical URLs** — Proper canonical tags to prevent duplicate content
-- **AI Agent Discovery** — `/ai.txt` and `/llms.txt` routes describe the corpus for
-  LLMs and point aggregators to the RSS feed. The raw JSON API is deliberately
-  not advertised.
+- **AI Access Policy** — `/ai.txt` and `/llms.txt` state that automated AI access
+  (agents, training and RAG crawlers, scrapers, bulk clients) is not permitted,
+  including the JSON API, and point people who need the data to arXiv's own API
+  and bulk data. `robots.txt` and the worker `403`s enforce it. See
+  [AI.md](AI.md).
 
 ### Performance
 - **Two-layer caching** — The per-colo edge cache (Cache API, quota-free) sits in
@@ -359,9 +363,9 @@ npx wrangler d1 execute arxiv-explorer --remote --file=migrations/0017_topic_pap
 │   ├── how-to-use/            # User guide
 │   ├── rss.xml/               # RSS feed route
 │   │   └── route.ts
-│   ├── ai.txt/                # LLM discovery route
+│   ├── ai.txt/                # Automated-access policy route (no AI access)
 │   │   └── route.ts
-│   ├── llms.txt/              # LLM discovery route
+│   ├── llms.txt/              # Automated-access policy route (no AI access)
 │   │   └── route.ts
 │   └── components/            # React components
 │       ├── SummarySection.tsx
@@ -641,9 +645,11 @@ cd scripts
 ./test-api-deep.sh         # Deep API endpoint testing
 ```
 
-## CLI Tool for AI Assistants
+## CLI Tool
 
-A command-line interface designed for AI assistants (Claude Code, ChatGPT, etc.) to programmatically search and explore papers.
+A command-line client for the site's JSON API, for a person using their own
+terminal. It is **not** for AI agents, scheduled jobs, scraping or bulk queries:
+automated access is not permitted and is rate limited (see [AI.md](AI.md)).
 
 ### Installation
 
@@ -679,7 +685,7 @@ arxiv-cli author "Yann LeCun" 10
 
 ### Output Format
 
-Clean, structured text optimized for AI parsing:
+Plain structured text:
 
 ```
 ID: 2605.30353

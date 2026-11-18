@@ -2,11 +2,46 @@
 
 All notable changes to ArxivExplorer are documented in this file.
 
-**Version:** 1.4.5  
+**Version:** 1.4.6  
 **Development Period:** June 7, 2026  
 **License:** BSL 1.1 (converts to MIT on 2029-06-01)
 
 ---
+
+## [1.4.6] - 2026-11-18
+
+### Changed — stop inviting bots to the site and the API
+
+**Why.** Enforcement and documentation disagreed. The workers answer known AI
+and SEO crawlers with `403` and `robots.txt` disallows them, yet `/ai.txt`
+still said `Allow: GPTBot`, `Allow: ClaudeBot` (and others) and told AI systems
+they could use the content for RAG; the FAQ answered "Can AI assistants use
+this?" with "Yes — install the arxiv-cli tool"; and `AI.md` and the READMEs
+presented the CLI (which calls the JSON API directly) as a tool for AI
+assistants.
+
+**Changes.**
+
+- `app/ai.txt/route.ts`: now `User-Agent: *` / `Disallow: *` with a notice that
+  automated AI access is not permitted, API included. Removed every `Allow:`
+  line and the `DataUse` / RAG permission.
+- `app/llms.txt/route.ts`: "Machine-readable content" became "Automated access":
+  automated access is not permitted, `/api/...` is not a public interface, and
+  people who need the data are pointed to arXiv's own API and bulk data. The RSS
+  feed stays, labelled for feed readers.
+- `app/faq/page.tsx`: "Can AI assistants or bots use this?" now answers no.
+- `AI.md`: rewritten from an integration guide into the automated-access policy
+  (what is not permitted, how it is enforced, where to get the data).
+- `README.md`, `cli/README.md`: the CLI is described as a terminal client for a
+  person's own use, not for AI agents or bulk queries; "AI Agent Discovery"
+  became "AI Access Policy".
+- Tests: `tests/unit/api-hardening.test.ts` fails if `ai.txt` allows any crawler
+  or grants RAG use, if `llms.txt` stops stating the policy, or if the FAQ or
+  READMEs again advertise a tool for AI assistants.
+
+**Limit.** This is policy plus the existing enforcement, not new enforcement.
+Blocking is by `User-Agent`, which a client can change, and the CLI sends no
+identifying `User-Agent`, so it is not blocked.
 
 ## [1.4.5] - 2026-11-18
 

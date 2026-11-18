@@ -1,6 +1,12 @@
 # ArxivExplorer CLI
 
-CLI tool designed for AI assistants (Claude, ChatGPT, etc.) to search and explore research papers.
+CLI client for a person's own terminal, to search and explore research papers.
+
+> **Not for AI agents or automated use.** The JSON API behind this CLI only backs
+> the arXiv Explorer site and is not a public interface. AI agents, scrapers,
+> scheduled jobs and bulk queries are not permitted and are rate limited. For
+> programmatic access to paper data, use arXiv's own API (`export.arxiv.org`) or
+> bulk data. See [AI.md](../AI.md).
 
 ## Installation
 
@@ -35,7 +41,7 @@ arxiv-cli topic large-language-models 20
 arxiv-cli author "Yann LeCun" 10
 ```
 
-## For AI Assistants
+## What it returns
 
 This CLI provides structured access to:
 - **Search**: Full-text + semantic search across 1,700+ papers
@@ -60,7 +66,7 @@ export ARXIV_API_BASE=https://arxiv-api.arxivexplorer.workers.dev
 
 ## Output Format
 
-Clean, parseable text output optimized for AI consumption:
+Plain, parseable text output:
 ```
 ID: 2605.30353
 Title: Physics Is All You Need...

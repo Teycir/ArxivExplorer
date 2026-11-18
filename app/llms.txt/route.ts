@@ -11,14 +11,18 @@ export async function GET() {
 - Citation counts via Semantic Scholar (weekly updates; may be zero for very recent papers)
 - Open access status and code availability where available
 
-## Machine-readable content
+## Automated access
 
-RSS feed: https://arxivexplorer.arxivexplorer.workers.dev/rss.xml
+This site is for human visitors. Automated access by AI agents, AI-training and
+RAG crawlers, scrapers and bulk clients is not permitted. That includes the JSON
+API (/api/...), which only backs this site's own pages and is not a public
+interface. Known crawlers are disallowed in /robots.txt and receive HTTP 403.
 
-> The JSON API (/api/...) is rate limited and deliberately not advertised here.
-> It backs this site's own pages; please do not bulk-query it. If you want to
-> ingest this data, open an issue on https://github.com/Teycir/ArxivExplorer and
-> we can arrange an export.
+For programmatic access to paper data, use arXiv's own API (export.arxiv.org) or
+its bulk data (https://info.arxiv.org/help/bulk_data.html). To request an export
+of this index, open an issue on https://github.com/Teycir/ArxivExplorer.
+
+RSS feed, for feed readers: https://arxivexplorer.arxivexplorer.workers.dev/rss.xml
 
 ## Content notes
 

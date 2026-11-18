@@ -71,8 +71,8 @@ const FAQS = [
     a: 'Paste the arXiv ID (e.g. 2312.00752) or the full arXiv URL into the search box. You\'ll be taken directly to the paper detail page with AI summary, related papers, and citation data.',
   },
   {
-    q: 'Can AI assistants use this?',
-    a: 'Yes — install the arxiv-cli tool for programmatic access (search, trending, topics, authors). The CLI is designed for AI assistants like Claude and ChatGPT. There are also /ai.txt and /llms.txt routes for agent discovery.',
+    q: 'Can AI assistants or bots use this?',
+    a: 'No. arXiv Explorer is for human visitors. Automated access by AI agents, AI-training and RAG crawlers, scrapers and bulk clients is not permitted, including the JSON API behind the site, and known crawlers are blocked. For programmatic access to paper data, use the official arXiv API (export.arxiv.org) or arXiv bulk data. To request an export of this index, open an issue on GitHub.',
   },
   {
     q: 'What is the tech stack?',

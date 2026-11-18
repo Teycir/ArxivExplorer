@@ -109,6 +109,41 @@ describe('crawler surface', () => {
     assert.doesNotMatch(llms, /arxiv-api\.arxivexplorer\.workers\.dev\/api/,
       'advertising the JSON endpoints tells crawlers exactly which D1-heavy URLs to hammer');
   });
+
+  // The site (and its API) is for humans. The front and API workers 403 the known
+  // AI/SEO crawlers and robots.txt disallows them, so the discovery files and the
+  // docs must not invite them: that is the contradiction that had ai.txt saying
+  // `Allow: GPTBot` / `Allow: ClaudeBot` while the workers answered them 403.
+  it('ai.txt does not allow any crawler and forbids automated access', () => {
+    const ai = read('app/ai.txt/route.ts');
+    assert.doesNotMatch(ai, /^\s*Allow:/m,
+      'ai.txt must not Allow any crawler: robots.txt and the workers block them');
+    assert.match(ai, /^\s*Disallow:/m, 'ai.txt must state a Disallow');
+    assert.doesNotMatch(ai, /(use|used) this content for RAG|DataUse:/i,
+      'ai.txt must not grant AI systems permission to use the content');
+  });
+
+  it('llms.txt states that automated access, including the API, is not permitted', () => {
+    const llms = read('app/llms.txt/route.ts');
+    assert.match(llms, /automated access[\s\S]{0,200}not permitted/i);
+    assert.match(llms, /\/api\/\.\.\.[\s\S]{0,200}not a public/i);
+  });
+
+  it('user-facing pages and docs do not invite AI assistants to use the API or CLI', () => {
+    const files = [
+      'app/faq/page.tsx', 'README.md', 'cli/README.md', 'AI.md',
+      'cli/arxiv-cli.ts', 'cli/package.json',
+    ];
+    for (const file of files) {
+      const text = read(file);
+      assert.doesNotMatch(text, /designed for AI assistants/i,
+        `${file} still advertises a tool for AI assistants`);
+      assert.doesNotMatch(text, /Yes\s*[—-]\s*install the arxiv-cli/i,
+        `${file} still tells AI assistants to use the CLI/API`);
+      assert.doesNotMatch(text, /optimized for AI (parsing|consumption)/i,
+        `${file} still advertises AI-oriented output`);
+    }
+  });
 });
 
 // ── 3. The measured top query offenders must not come back ────────────────────

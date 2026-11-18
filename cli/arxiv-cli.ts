@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * arxiv-cli.ts
- * CLI tool for AI assistants (Claude, ChatGPT, etc.) to search and explore papers
+ * CLI client for a person's own terminal to search and explore papers.
+ * Not for AI agents or automated use: see AI.md.
  * 
  * Usage:
  *   arxiv-cli search "transformer attention"
@@ -129,7 +130,7 @@ async function main() {
         await cmd_topics();
         break;
       default:
-        console.log(`ArxivExplorer CLI - AI Assistant Tool
+        console.log(`ArxivExplorer CLI (personal use only; automated access is not permitted)
 
 Usage:
   arxiv-cli search <query> [limit]        Search papers
