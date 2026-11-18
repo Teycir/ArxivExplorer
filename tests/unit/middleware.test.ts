@@ -86,6 +86,30 @@ describe('edge middleware per-IP rate limiting', () => {
     assert.ok(throttled, 'expected IP sending > 150 req/min to be throttled to 429');
   });
 
+  it('blocks an obvious-bot IP on a >60 req/min burst and keeps it blocked', async () => {
+    const ip = '198.51.100.210';
+    let blocked = false;
+
+    for (let i = 0; i < 70; i++) {
+      const req = makeRequest('/', { 'cf-connecting-ip': ip, 'user-agent': '' });
+      const res = await middleware(req);
+      if (res.status === 403) {
+        blocked = true;
+        assert.equal(res.headers.get('Retry-After'), '3600');
+        break;
+      }
+    }
+    assert.ok(blocked, 'expected UA-less burst to be blocked with 403');
+
+    // Blocked fast path must win even with a browser-like UA afterwards.
+    const followUp = makeRequest('/', {
+      'cf-connecting-ip': ip,
+      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+    });
+    const res = await middleware(followUp);
+    assert.equal(res.status, 403);
+  });
+
   it('does not penalize automatic background link prefetches', async () => {
     const ip = '198.51.100.100';
 
