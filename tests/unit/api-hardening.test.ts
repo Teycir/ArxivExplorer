@@ -92,20 +92,25 @@ describe('rate limiting coverage', () => {
 // that kept them off the JSON API, and llms.txt advertised those URLs directly.
 
 describe('crawler surface', () => {
+  // Served as static assets from public/, not route handlers: a crawler hitting
+  // /robots.txt must not cost a Worker invocation or any SSR CPU (free plan:
+  // 100k req/day, 10 ms CPU/req). The withdrawal tests below still apply.
   it('every robots.txt group disallows /api/', () => {
-    const robots = stripComments(read('app/robots.ts'));
-    const groups = robots.match(/userAgent:\s*'[^']+'[^}]*}/g);
-    assert.ok((groups ?? []).length >= 2, 'expected a robots rule list');
-    for (const group of groups ?? []) {
-      const agent = group.match(/'([^']+)'/)?.[1] ?? '?';
-      assert.match(group, /'\/api\/'/,
+    const robots = read('public/robots.txt');
+    const groups = robots
+      .split(/\n\s*\n/)
+      .filter((block) => /^\s*User-Agent:/m.test(block));
+    assert.ok(groups.length >= 2, 'expected a robots rule list');
+    for (const group of groups) {
+      const agent = group.match(/^\s*User-Agent:\s*(\S+)/m)?.[1] ?? '?';
+      assert.match(group, /^\s*Disallow:\s*\/api\//m,
         `robots rule for "${agent}" does not disallow /api/ — a specific group ` +
         `overrides the * group, so crawlers would be invited to the JSON API`);
     }
   });
 
   it('llms.txt does not advertise the raw JSON API', () => {
-    const llms = stripComments(read('app/llms.txt/route.ts'));
+    const llms = stripComments(read('public/llms.txt'));
     assert.doesNotMatch(llms, /arxiv-api\.arxivexplorer\.workers\.dev\/api/,
       'advertising the JSON endpoints tells crawlers exactly which D1-heavy URLs to hammer');
   });
@@ -115,7 +120,7 @@ describe('crawler surface', () => {
   // docs must not invite them: that is the contradiction that had ai.txt saying
   // `Allow: GPTBot` / `Allow: ClaudeBot` while the workers answered them 403.
   it('ai.txt does not allow any crawler and forbids automated access', () => {
-    const ai = read('app/ai.txt/route.ts');
+    const ai = read('public/ai.txt');
     assert.doesNotMatch(ai, /^\s*Allow:/m,
       'ai.txt must not Allow any crawler: robots.txt and the workers block them');
     assert.match(ai, /^\s*Disallow:/m, 'ai.txt must state a Disallow');
@@ -124,7 +129,7 @@ describe('crawler surface', () => {
   });
 
   it('llms.txt states that automated access, including the API, is not permitted', () => {
-    const llms = read('app/llms.txt/route.ts');
+    const llms = read('public/llms.txt');
     assert.match(llms, /automated access[\s\S]{0,200}not permitted/i);
     assert.match(llms, /\/api\/\.\.\.[\s\S]{0,200}not a public/i);
   });

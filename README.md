@@ -344,6 +344,15 @@ npx wrangler d1 execute arxiv-explorer --remote --file=migrations/0017_topic_pap
 # (ADD-only migration for materialized topic counts; see CHANGELOG "Deploy checklist")
 ```
 
+#### Crawler-facing text files are static assets
+
+`robots.txt`, `ai.txt` and `llms.txt` live in `public/` and are served from the
+`ASSETS` binding, not by a route handler. Verified 2026-11-18: while the account
+was over its 100,000 req/day Workers cap (Error 1027 — the site root returned
+429), all three still returned 200. Static asset serving does not spend Worker
+invocations or CPU. Keep them in `public/`; moving them back to `app/*/route.ts`
+puts every crawler fetch back on the 10 ms CPU / invocation budget.
+
 ### Release workflow
 
 The footer of every page shows the deployed release (`vX.Y.Z`, linking to the
@@ -513,7 +522,7 @@ ARXIV_FETCH_CATEGORIES = "cs.AI,cs.LG"                 # Default fetch categorie
 ARXIV_FETCH_LIMIT_PER_CATEGORY = "0"                   # Papers per category per cron (0 = process pending only)
 INGEST_MAX_CONCURRENT = "1"                            # AI processing concurrency (keep at 1 — avoids Workers AI 300 req/min burst limit)
 ARXIV_RATE_LIMIT_DELAY_MS = "3000"                     # Delay between arXiv requests
-SUMMARY_MODEL = "@cf/meta/llama-3.1-8b-instruct"       # Workers AI summary model
+SUMMARY_MODEL = "@cf/meta/llama-3.1-8b-instruct-fp8"   # Workers AI summary model (the non-fp8 id is retired)
 EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5"          # Workers AI embedding model
 INGEST_PHASE = "hourly"                                # Phase label (informational only)
 POLITE_EMAIL = "your-email@example.com"                # Contact email for arXiv API

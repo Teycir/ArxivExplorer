@@ -1,0 +1,82 @@
+User-Agent: *
+Allow: /
+Disallow: /api/
+Disallow: /search
+Disallow: /diff/
+Disallow: /claim
+Disallow: /compare
+
+User-Agent: GPTBot
+Disallow: /
+Disallow: /api/
+
+User-Agent: ClaudeBot
+Disallow: /
+Disallow: /api/
+
+User-Agent: PerplexityBot
+Disallow: /
+Disallow: /api/
+
+User-Agent: Applebot
+Disallow: /
+Disallow: /api/
+
+User-Agent: Applebot-Extended
+Disallow: /
+Disallow: /api/
+
+User-Agent: cohere-ai
+Disallow: /
+Disallow: /api/
+
+User-Agent: Bytespider
+Disallow: /
+Disallow: /api/
+
+User-Agent: CCBot
+Disallow: /
+Disallow: /api/
+
+User-Agent: Diffbot
+Disallow: /
+Disallow: /api/
+
+User-Agent: FacebookBot
+Disallow: /
+Disallow: /api/
+
+User-Agent: Google-Extended
+Disallow: /
+Disallow: /api/
+
+User-Agent: SemrushBot
+Disallow: /
+Disallow: /api/
+
+User-Agent: AhrefsBot
+Disallow: /
+Disallow: /api/
+
+User-Agent: MJ12bot
+Disallow: /
+Disallow: /api/
+
+User-Agent: DotBot
+Disallow: /
+Disallow: /api/
+
+User-Agent: PetalBot
+Disallow: /
+Disallow: /api/
+
+User-Agent: SERankingBacklinksBot
+Disallow: /
+Disallow: /api/
+
+User-Agent: Reflectionbot
+Disallow: /
+Disallow: /api/
+
+Sitemap: https://arxivexplorer.arxivexplorer.workers.dev/sitemap.xml
+Host: https://arxivexplorer.arxivexplorer.workers.dev

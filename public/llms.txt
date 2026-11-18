@@ -1,5 +1,4 @@
-export async function GET() {
-  const content = `# ArxivCSExplorer
+# ArxivCSExplorer
 
 > AI-powered search and summarization for Computer Science arXiv papers.
 > Covers cs.AI, cs.LG, cs.CL, cs.CV, cs.CR, cs.DC, cs.DS, cs.SE, cs.RO, stat.ML.
@@ -33,12 +32,3 @@ RSS feed, for feed readers: https://arxivexplorer.arxivexplorer.workers.dev/rss.
 ## Attribution
 
 If you use content from this site, please cite the original arXiv paper, not this index.
-`;
-
-  return new Response(content, {
-    headers: {
-      'Content-Type': 'text/plain; charset=utf-8',
-      'Cache-Control': 'public, max-age=86400',
-    },
-  });
-}

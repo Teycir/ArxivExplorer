@@ -1,5 +1,4 @@
-export async function GET() {
-  const content = `# ai.txt
+# ai.txt
 # arXiv Explorer is for human visitors. Automated AI access is not permitted.
 User-Agent: *
 Disallow: *
@@ -14,12 +13,3 @@ Disallow: *
 #
 # To request an export of this index, open an issue:
 # https://github.com/Teycir/ArxivExplorer/issues
-`;
-
-  return new Response(content, {
-    headers: {
-      'Content-Type': 'text/plain; charset=utf-8',
-      'Cache-Control': 'public, max-age=86400',
-    },
-  });
-}
