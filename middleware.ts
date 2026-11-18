@@ -4,6 +4,25 @@ import type { NextRequest } from 'next/server';
 // Known aggressive crawlers, AI training scrapers, and SEO bots that exhaust Workers free tier
 const BLOCKED_BOTS = /ClaudeBot|GPTBot|ChatGPT-User|Bytespider|CCBot|PerplexityBot|SemrushBot|AhrefsBot|MJ12bot|DotBot|PetalBot|SERankingBacklinksBot|Reflectionbot|Diffbot|FacebookBot|Google-Extended|cohere-ai/i;
 
+// Obvious-bot scoring: cheap header/path heuristics only, no fingerprinting.
+const BOT_UA = /bot|crawl|spider|scrape|headless|phantom|selenium|puppeteer|playwright|curl|wget|python-requests|go-http-client|okhttp|libwww|httpclient|node-fetch/i;
+const SCANNER_PATH = /^\/(wp-|wordpress|xmlrpc\.php|\.env|\.git|phpmyadmin|admin|administrator|cgi-bin|vendor\/|config\.|backup|db\.|sql|shell|actuator|\.aws|\.ssh)/i;
+const BOT_BURST_THRESHOLD = 60;            // req/min from one IP before a bot is blocked outright
+const BOT_BLOCK_MS = 60 * 60 * 1000;       // 1h block
+const blockedIps = new Map<string, number>(); // ip -> unblock timestamp
+
+function botScore(request: NextRequest, ua: string): number {
+  let s = 0;
+  if (!ua || ua.length < 12) s += 3;
+  else if (BOT_UA.test(ua)) s += 2;
+  if (!request.headers.get('accept-language')) s += 1;
+  const accept = request.headers.get('accept') || '';
+  if (!accept.includes('text/html') && !accept.includes('application/json')) s += 1;
+  if (request.method === 'HEAD') s += 1;
+  if (SCANNER_PATH.test(request.nextUrl.pathname)) s += 2;
+  return s;
+}
+
 // In-memory sliding window rate limiter per isolate
 const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
 const SOFT_LIMIT_PER_MINUTE = 80;   // Start silent progressive slowdown (traffic pacing)
@@ -264,6 +283,24 @@ export async function middleware(request: NextRequest) {
     currentDay = day;
     dailyRequestCount = 0;
     ipBuckets.clear();
+    blockedIps.clear();
+  }
+
+  const userAgent = request.headers.get('user-agent') || '';
+  const clientIP = (request.headers.get('cf-connecting-ip') ||
+                    (request.headers.get('x-forwarded-for') || '').split(',')[0]?.trim() ||
+                    '');
+
+  // 0. Blocked-IP fast path: one map lookup, no SSR, no subrequest.
+  if (clientIP) {
+    const until = blockedIps.get(clientIP);
+    if (until && until > now) {
+      return new NextResponse(null, {
+        status: 403,
+        headers: { 'Retry-After': '3600', 'Cache-Control': 'no-store' },
+      });
+    }
+    if (until) blockedIps.delete(clientIP);
   }
 
   // 1. Daily safety circuit breaker (stop before Cloudflare 100k hard 429 lockout)
@@ -300,7 +337,6 @@ export async function middleware(request: NextRequest) {
   }
 
   // 2. Reject aggressive AI scrapers and crawlers before running SSR or subrequests
-  const userAgent = request.headers.get('user-agent') || '';
   if (BLOCKED_BOTS.test(userAgent)) {
     return new NextResponse(
       JSON.stringify({
@@ -340,11 +376,7 @@ export async function middleware(request: NextRequest) {
     request.headers.get('next-router-prefetch') === '1' ||
     request.headers.get('sec-purpose') === 'prefetch';
 
-  const clientIP = request.headers.get('cf-connecting-ip') ||
-                   request.headers.get('x-forwarded-for') ||
-                   'unknown';
-
-  if (clientIP !== 'unknown') {
+  if (clientIP) {
     const bucket = ipBuckets.get(clientIP);
     if (!bucket || now - bucket.windowStart >= RATE_LIMIT_WINDOW_MS) {
       ipBuckets.set(clientIP, { count: isPrefetch ? 0 : 1, windowStart: now });
@@ -352,6 +384,21 @@ export async function middleware(request: NextRequest) {
       // Do not penalize human visitors for automatic background link prefetches
       if (!isPrefetch) {
         bucket.count++;
+      }
+
+      // 4a0. Burst from one IP + obvious-bot signals => block now, do not pace.
+      if (!isPrefetch && bucket.count > BOT_BURST_THRESHOLD) {
+        const score = botScore(request, userAgent);
+        if (score >= 3 && !SEARCH_ENGINES.test(userAgent)) {
+          blockedIps.set(clientIP, now + BOT_BLOCK_MS);
+          if (blockedIps.size > 2000) {
+            for (const [ip, t] of blockedIps) if (t <= now) blockedIps.delete(ip);
+          }
+          return new NextResponse(null, {
+            status: 403,
+            headers: { 'Retry-After': '3600', 'Cache-Control': 'no-store' },
+          });
+        }
       }
 
       // 4a. Silent progressive slowdown: smoothly pace rapid human navigation
